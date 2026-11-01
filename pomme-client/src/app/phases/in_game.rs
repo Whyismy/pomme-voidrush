@@ -5106,6 +5106,24 @@ fn build_display_renders(
     let anchor = renderer.camera_anchor();
     let camera_rot = renderer.camera_look_deg();
     let frustum = renderer.frustum_planes();
+    let generation = renderer.display_assets_generation();
+    // The camera-relative frustum test for a sphere around anchor-relative
+    // `center`. Vanilla leaves sizeless displays unculled; skipping one that
+    // is wholly off screen draws the same picture.
+    let eye_rel = (eye - anchor).as_vec3();
+    let on_screen = |center: glam::Vec3, radius: f32| {
+        let q = center - eye_rel;
+        !frustum
+            .iter()
+            .any(|p| p[0] * q.x + p[1] * q.y + p[2] * q.z + p[3] < -radius)
+    };
+    let max_scale = |m: &glam::Mat4| {
+        m.x_axis
+            .truncate()
+            .length()
+            .max(m.y_axis.truncate().length())
+            .max(m.z_axis.truncate().length())
+    };
     let mut items = Vec::new();
     let mut texts = Vec::new();
     for display in store.displays.values_mut() {
@@ -5155,34 +5173,61 @@ fn build_display_renders(
                 };
                 // The baked meshes are centred; vanilla's block model spans
                 // 0..1 from the entity's origin.
+                let model_matrix = base * glam::Mat4::from_translation(glam::Vec3::splat(0.5));
+                let radius = 0.87 * max_scale(&model_matrix);
+                if !on_screen(model_matrix.w_axis.truncate(), radius) {
+                    continue;
+                }
                 items.push(ItemRenderInfo {
                     item_name,
                     outline_color,
                     tints,
-                    model_matrix: base * glam::Mat4::from_translation(glam::Vec3::splat(0.5)),
+                    model_matrix,
                     light,
                 });
             }
             DisplayKind::Item => {
-                let Some((stack, context)) = display.item() else {
+                if display
+                    .item_render
+                    .as_ref()
+                    .is_none_or(|cached| cached.generation != generation)
+                {
+                    let Some((stack, context)) = display.item() else {
+                        continue;
+                    };
+                    let name = crate::player::inventory::item_resource_name(stack.kind);
+                    let model = renderer.render_assets().stack_model_key(&name, stack);
+                    let info = renderer.ensure_item_mesh(&model);
+                    let tints: Arc<[u32]> = renderer
+                        .render_assets()
+                        .item_tint_palette(&model, Some(stack), None)
+                        .into();
+                    let transform = renderer.item_display_transform(&model, context);
+                    display.item_render = Some(crate::entity::display::ItemDisplayRender {
+                        generation,
+                        model: model.into(),
+                        tints,
+                        transform,
+                        bounds: (info.bounds_min, info.bounds_max),
+                    });
+                }
+                let Some(cached) = &display.item_render else {
                     continue;
                 };
-                let name = crate::player::inventory::item_resource_name(stack.kind);
-                let model = renderer.render_assets().stack_model_key(&name, stack);
-                renderer.ensure_item_mesh(&model);
-                let tints: Arc<[u32]> = renderer
-                    .render_assets()
-                    .item_tint_palette(&model, Some(stack), None)
-                    .into();
-                let transform = renderer.item_display_transform(&model, context);
                 // `ItemDisplayRenderer.submitInner` turns the item around.
+                let model_matrix =
+                    base * glam::Mat4::from_rotation_y(std::f32::consts::PI) * cached.transform;
+                let (min, max) = cached.bounds;
+                let center = model_matrix.transform_point3((min + max) * 0.5);
+                let radius = ((max - min) * 0.5).length() * max_scale(&model_matrix);
+                if !on_screen(center, radius) {
+                    continue;
+                }
                 items.push(ItemRenderInfo {
-                    item_name: model.into(),
+                    item_name: cached.model.clone(),
                     outline_color,
-                    tints,
-                    model_matrix: base
-                        * glam::Mat4::from_rotation_y(std::f32::consts::PI)
-                        * transform,
+                    tints: cached.tints.clone(),
+                    model_matrix,
                     light,
                 });
             }
@@ -5199,6 +5244,12 @@ fn build_display_renders(
                     }
                 };
                 if layout.lines.is_empty() {
+                    continue;
+                }
+                // The text's rectangle, scaled by `submitInner`'s 0.025.
+                let half = glam::vec2(layout.width + 2.0, layout.lines.len() as f32 * 10.0 + 1.0)
+                    * 0.025;
+                if !on_screen(base.w_axis.truncate(), half.length() * max_scale(&base)) {
                     continue;
                 }
                 let flags = display.text_flags();
@@ -5220,6 +5271,8 @@ fn build_display_renders(
             }
         }
     }
+    // Copies of one mesh draw as one instanced call only when consecutive.
+    items.sort_unstable_by(|a, b| a.item_name.cmp(&b.item_name));
     // Nothing writes depth, so overlapping texts layer back to front.
     texts.sort_by(|a, b| b.0.total_cmp(&a.0));
     (items, texts.into_iter().map(|(_, text)| text).collect())

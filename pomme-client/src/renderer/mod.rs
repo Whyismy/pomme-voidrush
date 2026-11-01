@@ -269,9 +269,12 @@ pub struct Renderer {
     item_entity_pipeline: ItemEntityPipeline,
     /// Each block display mesh's tint palette, by mesh key; dropped with
     /// the item meshes.
-    block_display_tints: HashMap<String, Arc<[u32]>>,
+    block_display_tints: HashMap<(usize, u32), (Arc<str>, Arc<[u32]>)>,
     /// Item displays' model transforms, one resolver per `ItemDisplayContext`.
     item_display_resolvers: HashMap<u8, pipelines::item_display::DisplayResolver>,
+    /// Bumped whenever the item meshes are dropped, so cached display
+    /// lookups know to redo theirs.
+    display_assets_generation: u32,
     held_item_pipeline: pipelines::held_item::HeldItemPipeline,
     weather_pipeline: WeatherPipeline,
     particle_pipeline: ParticlePipeline,
@@ -571,6 +574,7 @@ impl Renderer {
             item_entity_pipeline,
             block_display_tints: HashMap::new(),
             item_display_resolvers: HashMap::new(),
+            display_assets_generation: 0,
             held_item_pipeline,
             weather_pipeline,
             particle_pipeline,
@@ -1556,6 +1560,7 @@ impl Renderer {
 
         self.item_entity_pipeline.clear_meshes(&self.ctx.device);
         self.block_display_tints.clear();
+        self.display_assets_generation += 1;
         self.atlas.destroy(&self.ctx.device);
         let (texture_names, generated_item_textures) =
             chunk::atlas::atlas_texture_names(&self.render_assets);
@@ -1788,10 +1793,11 @@ impl Renderer {
     ) -> Option<(Arc<str>, Arc<[u32]>)> {
         use crate::world::block::render_assets::Tint;
         use pipelines::item_entity::CubeFace;
-        let key = format!("block_display/{id}");
-        if let Some(tints) = self.block_display_tints.get(&key) {
-            return Some((key.into(), tints.clone()));
+        let slot = table.table_slot();
+        if let Some((key, tints)) = self.block_display_tints.get(&(slot, id)) {
+            return Some((key.clone(), tints.clone()));
         }
+        let key = format!("block_display/{slot}/{id}");
         let state = table.try_state(id)?;
         let view = self.render_assets.for_version(table);
         let data = table.block_state_data(state);
@@ -1888,8 +1894,10 @@ impl Renderer {
         }
         self.item_entity_pipeline.mesh_info(&key)?;
         let palette: Arc<[u32]> = palette.into();
-        self.block_display_tints.insert(key.clone(), palette.clone());
-        Some((key.into(), palette))
+        let key: Arc<str> = key.into();
+        self.block_display_tints
+            .insert((slot, id), (key.clone(), palette.clone()));
+        Some((key, palette))
     }
 
     /// `ItemTransform.apply` for an item display's `ItemDisplayContext` id:
@@ -1920,6 +1928,11 @@ impl Renderer {
         } else {
             transform.to_matrix()
         }
+    }
+
+    /// Changes whenever item meshes are rebuilt (a resource reload).
+    pub fn display_assets_generation(&self) -> u32 {
+        self.display_assets_generation
     }
 
     /// This frame's text displays, back to front.

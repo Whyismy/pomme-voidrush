@@ -2041,6 +2041,25 @@ pub struct WorldTextPipeline {
     scratch: Vec<Vertex>,
     vertices: Vec<WorldTextVertex>,
     obfuscation_rng: ObfuscationRng,
+    /// Each drawn text's quads in text units, so a frame only places them.
+    /// Keyed by the layout's address, which the entry's `Arc` keeps unique,
+    /// and the style; entries not drawn in a frame are dropped.
+    glyph_cache: HashMap<TextCacheKey, CachedText>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct TextCacheKey {
+    layout: usize,
+    color: u32,
+    background: u32,
+    shadow: bool,
+    align: u8,
+}
+
+struct CachedText {
+    _layout: std::sync::Arc<crate::entity::display::TextLayout>,
+    vertices: Vec<Vertex>,
+    used: bool,
 }
 
 impl WorldTextPipeline {
@@ -2080,6 +2099,7 @@ impl WorldTextPipeline {
             scratch: Vec::new(),
             vertices: Vec::new(),
             obfuscation_rng: ObfuscationRng::new(0),
+            glyph_cache: HashMap::new(),
         }
     }
 
@@ -2114,6 +2134,19 @@ impl WorldTextPipeline {
             * glam::Mat4::from_rotation_y(std::f32::consts::PI)
             * glam::Mat4::from_scale(glam::Vec3::splat(-0.025))
             * glam::Mat4::from_translation(glam::vec3(1.0 - width / 2.0, -height, 0.0));
+
+        let key = TextCacheKey {
+            layout: std::sync::Arc::as_ptr(&text.layout) as usize,
+            color: text.color,
+            background: text.background,
+            shadow: text.shadow,
+            align: text.align as u8,
+        };
+        if let Some(cached) = self.glyph_cache.get_mut(&key) {
+            cached.used = true;
+            Self::place(&mut self.vertices, &cached.vertices, pose, text.light);
+            return;
+        }
 
         self.scratch.clear();
         if text.background != 0 {
@@ -2164,18 +2197,38 @@ impl WorldTextPipeline {
             y += 10.0;
         }
 
-        for v in &self.scratch {
-            let p = pose.transform_point3(glam::vec3(v.pos[0], v.pos[1], 0.0));
-            self.vertices.push(WorldTextVertex {
-                pos: p.to_array(),
-                uv: v.uv,
-                color: v.color,
-                mode: v.mode,
-                rect_size: v.rect_size,
-                corner_radius: v.corner_radius,
-                light: text.light,
-            });
+        Self::place(&mut self.vertices, &self.scratch, pose, text.light);
+        // Obfuscated glyphs change every frame.
+        let animated = text
+            .layout
+            .lines
+            .iter()
+            .any(|(line, _)| line.iter().any(|span| span.obfuscated));
+        if !animated {
+            self.glyph_cache.insert(
+                key,
+                CachedText {
+                    _layout: text.layout.clone(),
+                    vertices: std::mem::take(&mut self.scratch),
+                    used: true,
+                },
+            );
         }
+    }
+
+    /// Text-unit quads into anchor-relative world space.
+    fn place(out: &mut Vec<WorldTextVertex>, quads: &[Vertex], pose: glam::Mat4, light: f32) {
+        out.extend(quads.iter().map(|v| WorldTextVertex {
+            pos: pose
+                .transform_point3(glam::vec3(v.pos[0], v.pos[1], 0.0))
+                .to_array(),
+            uv: v.uv,
+            color: v.color,
+            mode: v.mode,
+            rect_size: v.rect_size,
+            corner_radius: v.corner_radius,
+            light,
+        }));
     }
 
     /// Draws `texts` in order (the caller sorts them back to front): the
@@ -2188,8 +2241,8 @@ impl WorldTextPipeline {
         menu: &MenuOverlayPipeline,
         texts: &[WorldTextRender],
     ) {
-        if texts.is_empty() {
-            return;
+        for cached in self.glyph_cache.values_mut() {
+            cached.used = false;
         }
         self.vertices.clear();
         let mut runs = Vec::new();
@@ -2206,6 +2259,7 @@ impl WorldTextPipeline {
                 ));
             }
         }
+        self.glyph_cache.retain(|_, cached| cached.used);
         if runs.is_empty() {
             return;
         }

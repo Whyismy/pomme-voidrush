@@ -202,6 +202,17 @@ pub struct TextLayout {
     pub width: f32,
 }
 
+/// An item display's resolved model, tints, display-context transform and
+/// mesh bounds, kept until its item changes or the meshes are rebuilt.
+#[derive(Debug)]
+pub struct ItemDisplayRender {
+    pub generation: u32,
+    pub model: Arc<str>,
+    pub tints: Arc<[u32]>,
+    pub transform: Mat4,
+    pub bounds: (Vec3, Vec3),
+}
+
 /// The entity's own position and rotation lerp, `InterpolationHandler`.
 #[derive(Clone, Copy, Debug)]
 struct Lerp {
@@ -239,6 +250,8 @@ pub struct DisplayEntity {
     text: Option<TextState>,
     /// Filled by the renderer the first time the text is drawn.
     pub text_layout: Option<Arc<TextLayout>>,
+    /// Filled by the renderer the first time the item is drawn.
+    pub item_render: Option<ItemDisplayRender>,
 }
 
 impl DisplayEntity {
@@ -270,6 +283,7 @@ impl DisplayEntity {
             item: None,
             text: None,
             text_layout: None,
+            item_render: None,
         }
     }
 
@@ -398,6 +412,7 @@ impl DisplayEntity {
                     .item
                     .clone()
                     .map(|item| (item, self.synced.item_context));
+                self.item_render = None;
             }
             DisplayKind::Text => {
                 let s = &self.synced;
