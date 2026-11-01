@@ -687,17 +687,47 @@ fn item_definition_names(
         .map(|dir| dir.join("assets"));
     std::iter::once(jar_assets_dir.to_path_buf())
         .chain(pack_dirs)
-        .filter_map(|root| std::fs::read_dir(root.join("minecraft").join("items")).ok())
+        .filter_map(|root| std::fs::read_dir(root).ok())
         .flatten()
         .flatten()
-        .filter_map(|entry| {
-            entry
-                .file_name()
-                .to_str()?
-                .strip_suffix(".json")
-                .map(str::to_owned)
+        .filter_map(|namespace| {
+            let ns = namespace.file_name().to_str()?.to_owned();
+            let entries = std::fs::read_dir(namespace.path().join("items")).ok()?;
+            Some(entries.flatten().filter_map(move |entry| {
+                let path = entry
+                    .file_name()
+                    .to_str()?
+                    .strip_suffix(".json")?
+                    .to_owned();
+                Some(item_definition_name(&ns, &path))
+            }))
         })
+        .flatten()
         .collect()
+}
+
+/// An item definition's key: its path for `minecraft`, else `namespace:path`
+/// (the form an `item_model` component names it by, see
+/// [`item_model_name`]).
+fn item_definition_name(namespace: &str, path: &str) -> String {
+    if namespace == "minecraft" {
+        path.to_owned()
+    } else {
+        format!("{namespace}:{path}")
+    }
+}
+
+/// The asset key of the item definition named `name` (an
+/// [`item_definition_name`]).
+fn item_definition_asset_key(name: &str) -> String {
+    let (namespace, path) = name.split_once(':').unwrap_or(("minecraft", name));
+    format!("{namespace}/items/{path}.json")
+}
+
+/// The definition key an `item_model` component's id draws with.
+pub fn item_model_name(id: &str) -> String {
+    let (namespace, path) = id.split_once(':').unwrap_or(("minecraft", id));
+    item_definition_name(namespace, path)
 }
 
 fn opaque(color: u32) -> u32 {
@@ -945,7 +975,7 @@ pub fn bake_item_models(
 
     for item_name in item_definition_names(jar_assets_dir, packs) {
         let item_name = item_name.as_str();
-        let item_asset_key = format!("minecraft/items/{item_name}.json");
+        let item_asset_key = item_definition_asset_key(item_name);
         let item_path =
             resolve_asset_path_with_packs(jar_assets_dir, asset_index, &item_asset_key, packs);
         let Ok(contents) = std::fs::read_to_string(item_path) else {
@@ -964,6 +994,12 @@ pub fn bake_item_models(
             let mut parts = Vec::new();
             collect_parts_from_node(node, None, &mut parts);
             bake(&charge_model_key(item_name, charge), &parts);
+        }
+        for (when, node) in custom_model_data_cases(&json) {
+            let parts = node_model_parts(node);
+            if !parts.is_empty() {
+                bake(&custom_model_key(item_name, when), &parts);
+            }
         }
         // The bundle's selected-item model composes these around the
         // selected stack at draw time.
@@ -1257,10 +1293,13 @@ struct ModelPart {
 /// first-model-string heuristic, which for select/condition trees picks one
 /// representative state.
 fn collect_model_parts(json: &serde_json::Value) -> Vec<ModelPart> {
+    json.get("model").map_or_else(Vec::new, node_model_parts)
+}
+
+/// The parts a plain stack draws for item-model node `node`.
+fn node_model_parts(node: &serde_json::Value) -> Vec<ModelPart> {
     let mut parts = Vec::new();
-    let Some(root) = json.get("model").map(default_stack_branch) else {
-        return parts;
-    };
+    let root = default_stack_branch(node);
     collect_parts_from_node(root, None, &mut parts);
     if !parts.is_empty() {
         return parts;
@@ -1313,18 +1352,25 @@ fn find_first_item_model_node(json: &serde_json::Value) -> Option<&serde_json::V
 /// The branch of an item definition's `model` node that a stack without
 /// the components its `select`s read resolves to. Vanilla `SelectItemModel`
 /// takes the `fallback` when no case matches, and `TrimMaterialProperty`
-/// (no `trim`), `Charge` (no `charged_projectiles`, `NONE`) and
-/// `ItemBlockState` (no `block_state`) never match for a plain stack.
+/// (no `trim`), `Charge` (no `charged_projectiles`, `NONE`),
+/// `ItemBlockState` (no `block_state`) and `CustomModelDataProperty` (no
+/// `custom_model_data`) never match for a plain stack.
 ///
-/// A loaded crossbow's `charge_type` cases bake separately (see
-/// [`charge_model_key`]).
+/// A loaded crossbow's `charge_type` cases and a root `custom_model_data`
+/// select's cases bake separately (see [`charge_model_key`] and
+/// [`custom_model_key`]).
 ///
 /// TODO: this branch still draws for loaded crossbows outside first person
 /// and GUI icons (dropped items, third person, the bundle tooltip, chat
 /// hovers), and for trimmed armor, which also needs the
 /// `paletted_permutations` atlas source for its trim textures.
 fn default_stack_branch(mut node: &serde_json::Value) -> &serde_json::Value {
-    const COMPONENT_PROPERTIES: [&str; 3] = ["trim_material", "charge_type", "block_state"];
+    const COMPONENT_PROPERTIES: [&str; 4] = [
+        "trim_material",
+        "charge_type",
+        "block_state",
+        "custom_model_data",
+    ];
     while node_type(node) == Some("select")
         && node_property(node).is_some_and(|property| COMPONENT_PROPERTIES.contains(&property))
         && let Some(fallback) = node.get("fallback")
@@ -1363,11 +1409,37 @@ pub fn charge_model_key(item_name: &str, charge: &str) -> String {
 /// Each `when` of an item definition's root `minecraft:charge_type` select,
 /// with its model node.
 fn charge_type_cases(json: &serde_json::Value) -> Vec<(&str, &serde_json::Value)> {
-    let Some(root) = json.get("model").filter(|root| {
-        node_type(root) == Some("select") && node_property(root) == Some("charge_type")
-    }) else {
-        return Vec::new();
-    };
+    json.get("model")
+        .filter(|root| {
+            node_type(root) == Some("select") && node_property(root) == Some("charge_type")
+        })
+        .map_or_else(Vec::new, select_cases)
+}
+
+/// The item-model key a root `minecraft:custom_model_data` select's case
+/// bakes under, for a stack whose first custom-model-data string is `when`.
+pub fn custom_model_key(item_name: &str, when: &str) -> String {
+    format!("__pomme_{item_name}_cmd_{when}")
+}
+
+/// Each `when` of an item definition's root `minecraft:custom_model_data`
+/// select over the first string (vanilla `CustomModelDataProperty`, `index`
+/// 0), with its model node.
+fn custom_model_data_cases(json: &serde_json::Value) -> Vec<(&str, &serde_json::Value)> {
+    json.get("model")
+        .filter(|root| {
+            node_type(root) == Some("select")
+                && node_property(root) == Some("custom_model_data")
+                && root
+                    .get("index")
+                    .is_none_or(|index| index.as_u64() == Some(0))
+        })
+        .map_or_else(Vec::new, select_cases)
+}
+
+/// Each `when` of select node `root` (a list `when` counts once per entry),
+/// with its model node.
+fn select_cases(root: &serde_json::Value) -> Vec<(&str, &serde_json::Value)> {
     let cases = root.get("cases").and_then(serde_json::Value::as_array);
     cases
         .into_iter()
@@ -3020,6 +3092,63 @@ mod tests {
     }
 
     use crate::test_util::test_temp_dir;
+
+    /// A resource pack's `custom_model_data` select (Void Rush's layout): each
+    /// case bakes under its own key, a plain stack takes the fallback, and a
+    /// definition in another namespace bakes under `namespace:path`.
+    #[test]
+    fn custom_model_data_cases_and_namespaced_definitions_bake() {
+        let root = test_temp_dir("custom_model_data_cases");
+        let jar = root.join("jar");
+        let items = jar.join("minecraft/items");
+        let models = jar.join("minecraft/models/item");
+        let pack_items = jar.join("pack/items");
+        let pack_models = jar.join("pack/models/item");
+        for dir in [&items, &models, &pack_items, &pack_models] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        std::fs::write(
+            items.join("bone.json"),
+            r#"{"model":{"type":"minecraft:select","property":"minecraft:custom_model_data",
+                "cases":[{"when":"staff","model":{"type":"minecraft:model","model":"pack:item/staff"}},
+                         {"when":["a","b"],"model":{"type":"minecraft:model","model":"pack:item/wand"}}],
+                "fallback":{"type":"minecraft:model","model":"minecraft:item/bone"}}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            pack_items.join("relic.json"),
+            r#"{"model":{"type":"minecraft:model","model":"pack:item/staff"}}"#,
+        )
+        .unwrap();
+        let flat = |texture: &str| {
+            format!(
+                r#"{{"parent":"minecraft:item/generated","textures":{{"layer0":"{texture}"}}}}"#
+            )
+        };
+        std::fs::write(models.join("bone.json"), flat("minecraft:item/bone")).unwrap();
+        std::fs::write(pack_models.join("staff.json"), flat("pack:item/staff")).unwrap();
+        std::fs::write(pack_models.join("wand.json"), flat("pack:item/wand")).unwrap();
+        std::fs::write(models.join("generated.json"), r#"{}"#).unwrap();
+
+        let baked = bake_item_models(&jar, &None, None);
+        let layer0 = |key: &str| baked.flat_texture_keys.get(key).map(|keys| keys[0].clone());
+        assert_eq!(layer0("bone"), Some(Some("item/bone".to_string())));
+        assert_eq!(
+            layer0(&custom_model_key("bone", "staff")),
+            Some(Some("pack:item/staff".to_string()))
+        );
+        for when in ["a", "b"] {
+            assert_eq!(
+                layer0(&custom_model_key("bone", when)),
+                Some(Some("pack:item/wand".to_string()))
+            );
+        }
+        assert_eq!(
+            layer0(&item_model_name("pack:relic")),
+            Some(Some("pack:item/staff".to_string()))
+        );
+        assert_eq!(item_model_name("minecraft:bone"), "bone");
+    }
 
     #[test]
     fn generated_item_layers_keep_their_layer_positions() {

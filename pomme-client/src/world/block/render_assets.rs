@@ -5,7 +5,8 @@ use std::sync::{Arc, OnceLock};
 use azalea_block::BlockState;
 use azalea_inventory::ItemStackData;
 use azalea_inventory::components::{
-    ChargedProjectiles, CustomModelData, DyedColor, FireworkExplosion, MapColor, PotionContents,
+    ChargedProjectiles, CustomModelData, DyedColor, FireworkExplosion, ItemModel, MapColor,
+    PotionContents,
 };
 use azalea_registry::Registry as AzaleaRegistry;
 use azalea_registry::builtin::{ItemKind, MobEffect, Potion};
@@ -213,9 +214,29 @@ impl BlockRenderAssets {
         self.item_models.get(name)
     }
 
-    /// The model `name` draws with for this stack: its loaded variant
-    /// (vanilla `Charge` select property) if it bakes one, else `name`.
+    /// The model `name` draws with for this stack: the definition its
+    /// `item_model` component names, then that definition's variant for the
+    /// stack's first custom-model-data string or its loaded charge (vanilla
+    /// `CustomModelDataProperty` and `Charge` selects), if one is baked.
     pub fn stack_model_key(&self, name: &str, stack: &ItemStackData) -> String {
+        let has = |key: &str| {
+            self.item_models.contains_key(key) || self.flat_item_texture_keys.contains_key(key)
+        };
+        let named = stack
+            .get_component::<ItemModel>()
+            .map(|model| model::item_model_name(&model.resource_location.to_string()))
+            .filter(|key| has(key));
+        let name = named.as_deref().unwrap_or(name);
+        let custom = stack
+            .get_component::<CustomModelData>()
+            .and_then(|data| {
+                let when = data.strings.first()?;
+                Some(model::custom_model_key(name, when))
+            })
+            .filter(|key| has(key));
+        if let Some(key) = custom {
+            return key;
+        }
         let charge = stack
             .get_component::<ChargedProjectiles>()
             .filter(|c| !c.items.is_empty())
@@ -225,9 +246,7 @@ impl BlockRenderAssets {
             });
         charge
             .map(|charge| model::charge_model_key(name, charge))
-            .filter(|key| {
-                self.item_models.contains_key(key) || self.flat_item_texture_keys.contains_key(key)
-            })
+            .filter(|key| has(key))
             .unwrap_or_else(|| name.to_string())
     }
 
