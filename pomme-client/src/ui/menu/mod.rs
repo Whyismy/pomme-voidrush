@@ -277,10 +277,16 @@ pub(crate) fn saved_chunk_detail(game_dir: &Path) -> u32 {
 
 fn load_settings(game_dir: &Path) -> Settings {
     let path = game_dir.join("options.json");
-    std::fs::read_to_string(&path)
+    let mut settings: Settings = std::fs::read_to_string(&path)
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    // Frame-time benchmarks (`frame_log`) measure the uncapped frame rate.
+    if std::env::var_os("POMME_BENCH_UNCAPPED").is_some() {
+        settings.vsync = false;
+        settings.max_framerate = MAX_FRAMERATE_UNLIMITED;
+    }
+    settings
 }
 
 fn save_settings(game_dir: &Path, settings: &Settings) -> std::io::Result<()> {
