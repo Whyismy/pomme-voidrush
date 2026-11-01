@@ -205,7 +205,8 @@ pub fn run(args: LaunchArgs, platform: Platform) {
         args.username,
         args.uuid,
         args.access_token,
-        cfg!(not(debug_assertions)),
+        // Harness builds join the runner's offline server, release or not.
+        cfg!(not(debug_assertions)) && !cfg!(feature = "test-harness"),
         cfg!(mobile),
     );
 
