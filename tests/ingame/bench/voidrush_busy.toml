@@ -1,0 +1,897 @@
+# Void Rush stress scene for frame-time windows: about 600 block, item and
+# text displays within 40 blocks and ~1,800 particles a second, measured
+# with "#bench" windows (POMME_BENCH_LOG) before and after it spawns.
+
+[[step]]
+wait_ms = 3000
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/gamerule doDaylightCycle false"
+
+[[step]]
+chat = "/gamemode spectator"
+
+[[step]]
+chat = "/tp @s 15.5 -44 -18.5 0 15"
+
+[[step]]
+look_at = [15.5, -46.0, 15.5]
+
+[[step]]
+wait_ms = 4000
+
+[[step]]
+chat = "#bench start empty#1"
+
+[[step]]
+wait_ms = 8000
+
+[[step]]
+chat = "#bench stop"
+
+[[step]]
+chat = "#bench start empty#2"
+
+[[step]]
+wait_ms = 8000
+
+[[step]]
+chat = "#bench stop"
+
+[[step]]
+chat = "#bench start empty#3"
+
+[[step]]
+wait_ms = 8000
+
+[[step]]
+chat = "#bench stop"
+
+[[step]]
+chat = "/summon minecraft:block_display 0 -50 0 {Tags:[\"vrb\"],block_state:{Name:\"minecraft:stone\"}}"
+
+[[step]]
+chat = "/execute as @e[tag=vrb] at @s run summon minecraft:block_display ~2 ~ ~ {Tags:[\"vrb\"],block_state:{Name:\"minecraft:grass_block\"}}"
+
+[[step]]
+chat = "/execute as @e[tag=vrb] at @s run summon minecraft:block_display ~4 ~ ~ {Tags:[\"vrb\"],block_state:{Name:\"minecraft:oak_leaves\"}}"
+
+[[step]]
+chat = "/execute as @e[tag=vrb] at @s run summon minecraft:block_display ~8 ~ ~ {Tags:[\"vrb\"],block_state:{Name:\"minecraft:diamond_block\"}}"
+
+[[step]]
+chat = "/execute as @e[tag=vrb] at @s run summon minecraft:block_display ~16 ~ ~ {Tags:[\"vrb\"],block_state:{Name:\"minecraft:oak_planks\"}}"
+
+[[step]]
+chat = "/execute as @e[tag=vrb] at @s run summon minecraft:block_display ~ ~ ~2 {Tags:[\"vrb\"],block_state:{Name:\"minecraft:glass\"}}"
+
+[[step]]
+chat = "/execute as @e[tag=vrb] at @s run summon minecraft:block_display ~ ~ ~4 {Tags:[\"vrb\"],block_state:{Name:\"minecraft:amethyst_block\"}}"
+
+[[step]]
+chat = "/execute as @e[tag=vrb] at @s run summon minecraft:block_display ~ ~ ~8 {Tags:[\"vrb\"],block_state:{Name:\"minecraft:purple_concrete\"}}"
+
+[[step]]
+chat = "/execute as @e[tag=vrb] at @s run summon minecraft:block_display ~ ~ ~16 {Tags:[\"vrb\"],block_state:{Name:\"minecraft:end_stone\"}}"
+
+[[step]]
+chat = "/execute as @e[tag=vrb] at @s run summon minecraft:block_display ~ ~4 ~ {Tags:[\"vrb\"],block_state:{Name:\"minecraft:oak_stairs\"}}"
+
+[[step]]
+chat = "/execute as @e[tag=vrb] at @s if entity @s[y=-47,dy=2] run data merge entity @s {transformation:{left_rotation:[0.2391f,0.3696f,-0.0990f,0.8924f],right_rotation:[0f,0f,0f,1f],translation:[0f,0f,0f],scale:[0.8f,0.8f,0.8f]}}"
+
+[[step]]
+chat = "/summon minecraft:item_display 1 -41 1 {Tags:[\"vri\"],item:{id:\"minecraft:diamond_sword\",count:1}}"
+
+[[step]]
+chat = "/execute as @e[tag=vri] at @s run summon minecraft:item_display ~4 ~ ~ {Tags:[\"vri\"],item:{id:\"minecraft:apple\",count:1},billboard:\"vertical\"}"
+
+[[step]]
+chat = "/execute as @e[tag=vri] at @s run summon minecraft:item_display ~8 ~ ~ {Tags:[\"vri\"],item:{id:\"minecraft:golden_apple\",count:1},billboard:\"vertical\"}"
+
+[[step]]
+chat = "/execute as @e[tag=vri] at @s run summon minecraft:item_display ~16 ~ ~ {Tags:[\"vri\"],item:{id:\"minecraft:ender_pearl\",count:1},billboard:\"vertical\"}"
+
+[[step]]
+chat = "/execute as @e[tag=vri] at @s run summon minecraft:item_display ~ ~ ~4 {Tags:[\"vri\"],item:{id:\"minecraft:blaze_rod\",count:1},billboard:\"vertical\"}"
+
+[[step]]
+chat = "/execute as @e[tag=vri] at @s run summon minecraft:item_display ~ ~ ~8 {Tags:[\"vri\"],item:{id:\"minecraft:totem_of_undying\",count:1},billboard:\"vertical\"}"
+
+[[step]]
+chat = "/execute as @e[tag=vri] at @s run summon minecraft:item_display ~ ~ ~16 {Tags:[\"vri\"],item:{id:\"minecraft:iron_ingot\",count:1},billboard:\"vertical\"}"
+
+[[step]]
+chat = "/summon minecraft:text_display 2 -39 2 {Tags:[\"vrt\"],text:{text:\"VOID RUSH\",color:\"light_purple\",bold:true},billboard:\"center\"}"
+
+[[step]]
+chat = "/execute as @e[tag=vrt] at @s run summon minecraft:text_display ~8 ~ ~ {Tags:[\"vrt\"],text:{text:\"Wave 7 - 3 left\",color:\"gold\"},billboard:\"center\",shadow:true}"
+
+[[step]]
+chat = "/execute as @e[tag=vrt] at @s run summon minecraft:text_display ~16 ~ ~ {Tags:[\"vrt\"],text:{text:\"Wave 7 - 3 left\",color:\"gold\"},billboard:\"center\",shadow:true}"
+
+[[step]]
+chat = "/execute as @e[tag=vrt] at @s run summon minecraft:text_display ~ ~ ~8 {Tags:[\"vrt\"],text:{text:\"Wave 7 - 3 left\",color:\"gold\"},billboard:\"center\",shadow:true}"
+
+[[step]]
+chat = "/execute as @e[tag=vrt] at @s run summon minecraft:text_display ~ ~ ~16 {Tags:[\"vrt\"],text:{text:\"Wave 7 - 3 left\",color:\"gold\"},billboard:\"center\",shadow:true}"
+
+[[step]]
+chat = "/execute as @e[tag=vrt] at @s run summon minecraft:text_display ~4 ~1 ~4 {Tags:[\"vrt\"],text:{text:\"Wave 7 - 3 left\",color:\"gold\"},billboard:\"center\",shadow:true}"
+
+[[step]]
+wait_ms = 3000
+
+[[step]]
+chat = "#bench start busy#1"
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "#bench stop"
+
+[[step]]
+chat = "#bench start busy#2"
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "#bench stop"
+
+[[step]]
+chat = "#bench start busy#3"
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "/particle minecraft:end_rod 15 -45 15 12 5 12 0.02 450 force"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+chat = "#bench stop"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+chat = "#bench start busy-noparticles#1"
+
+[[step]]
+wait_ms = 8000
+
+[[step]]
+chat = "#bench stop"
+
+[[step]]
+chat = "#bench start busy-noparticles#2"
+
+[[step]]
+wait_ms = 8000
+
+[[step]]
+chat = "#bench stop"
+
+[[step]]
+chat = "/kill @e[tag=vrb]"
+
+[[step]]
+chat = "/kill @e[tag=vri]"
+
+[[step]]
+chat = "/kill @e[tag=vrt]"
+
+[[step]]
+chat = "/gamemode survival"

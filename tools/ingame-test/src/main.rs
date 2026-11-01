@@ -465,8 +465,17 @@ fn offline_uuid(name: &str) -> uuid::Uuid {
 }
 
 fn build_client() -> Result<(), String> {
-    let status = Command::new(env!("CARGO"))
-        .args(["build", "-p", "pomme-client", "--features", "test-harness"])
+    // A prebuilt client (a release build, for benchmarks) runs as it is.
+    if std::env::var_os("POMME_INGAME_CLIENT").is_some() {
+        return Ok(());
+    }
+    let mut command = Command::new(env!("CARGO"));
+    command.args(["build", "-p", "pomme-client", "--features", "test-harness"]);
+    // Scripts join a server; skipping SteelMC saves its long first build.
+    if std::env::var_os("POMME_INGAME_NO_SINGLEPLAYER").is_some() {
+        command.arg("--no-default-features");
+    }
+    let status = command
         .status()
         .map_err(|e| e.to_string())?;
     status
@@ -494,8 +503,10 @@ fn run_script(
     )?;
     let log_path = out.join("client.log");
     let log = std::fs::File::create(&log_path).map_err(|e| e.to_string())?;
-    let client =
-        Path::new("target/debug").join(format!("pomme-client{}", std::env::consts::EXE_SUFFIX));
+    let client = std::env::var_os("POMME_INGAME_CLIENT").map_or_else(
+        || Path::new("target/debug").join(format!("pomme-client{}", std::env::consts::EXE_SUFFIX)),
+        std::path::PathBuf::from,
+    );
     let frames = out.join("frames.bin");
     let started = Instant::now();
     let mut command = Command::new(&client);
