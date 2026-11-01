@@ -137,42 +137,45 @@ impl ParticlePipeline {
         }
 
         let (right, up) = camera.billboard_axes();
-        let mut verts: Vec<ParticleVertex> =
-            Vec::with_capacity(quads.len().min(MAX_PARTICLE_QUADS) * 6);
+        // Written straight into the frame's mapped buffer, which holds
+        // MAX_VERTS: thousands of particles otherwise cost a Vec and a copy
+        // every frame.
+        let bytes = self.vertex_buffers[frame].mapped_bytes_mut();
+        let verts: &mut [ParticleVertex] =
+            bytemuck::cast_slice_mut(&mut bytes[..MAX_VERTS * size_of::<ParticleVertex>()]);
+        let mut len = 0;
         // Opaque quads first, then translucent, so each layer is one
         // contiguous draw range (vanilla renders the layers separately).
-        let emit = |verts: &mut Vec<ParticleVertex>, translucent: bool| {
+        let mut emit = |len: &mut usize, translucent: bool| {
             for quad in quads.iter().filter(|q| q.translucent == translucent) {
-                if verts.len() >= MAX_VERTS {
+                if *len + 6 > MAX_VERTS {
                     return;
                 }
                 let center = Vec3::from(quad.pos);
-                let corner = |nx: f32, ny: f32, u: f32, v: f32| ParticleVertex {
-                    position: (center + (right * nx + up * ny) * quad.size).into(),
+                let (r, u) = (right * quad.size, up * quad.size);
+                let corner = |position: Vec3, u: f32, v: f32| ParticleVertex {
+                    position: position.into(),
                     uv: [u, v],
                     color: quad.color,
                     light: quad.light,
                 };
                 // Vanilla QuadParticleRenderState corner order and UV mapping.
                 let corners = [
-                    corner(1.0, -1.0, quad.u1, quad.v1),
-                    corner(1.0, 1.0, quad.u1, quad.v0),
-                    corner(-1.0, 1.0, quad.u0, quad.v0),
-                    corner(-1.0, -1.0, quad.u0, quad.v1),
+                    corner(center + r - u, quad.u1, quad.v1),
+                    corner(center + r + u, quad.u1, quad.v0),
+                    corner(center - r + u, quad.u0, quad.v0),
+                    corner(center - r - u, quad.u0, quad.v1),
                 ];
-                for &i in &[0usize, 1, 2, 0, 2, 3] {
-                    verts.push(corners[i]);
-                }
+                verts[*len..*len + 6].copy_from_slice(&[
+                    corners[0], corners[1], corners[2], corners[0], corners[2], corners[3],
+                ]);
+                *len += 6;
             }
         };
-        emit(&mut verts, false);
-        let opaque_verts = verts.len();
-        emit(&mut verts, true);
-
-        let bytes = bytemuck::cast_slice::<ParticleVertex, u8>(&verts);
-        self.vertex_buffers[frame].write(bytes);
-        let opaque_verts = opaque_verts as u32;
-        self.layers = [0..opaque_verts, opaque_verts..verts.len() as u32];
+        emit(&mut len, false);
+        let opaque_verts = len as u32;
+        emit(&mut len, true);
+        self.layers = [0..opaque_verts, opaque_verts..len as u32];
     }
 
     /// Draws [`Self::prepare`]'s billboards.

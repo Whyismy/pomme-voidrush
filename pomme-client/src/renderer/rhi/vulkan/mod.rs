@@ -324,6 +324,12 @@ impl Buffer {
         self.mapped_mut()[offset..offset + data.len()].copy_from_slice(data);
     }
 
+    /// A [`MemoryLocation::Host`] buffer's mapped bytes, for writing in place
+    /// what would otherwise be built in a `Vec` and copied.
+    pub fn mapped_bytes_mut(&mut self) -> &mut [u8] {
+        self.mapped_mut()
+    }
+
     /// Zeroes a whole host-mapped buffer.
     pub fn zero(&mut self) {
         self.mapped_mut().fill(0);
