@@ -126,6 +126,9 @@ chat = "/execute as @e[tag=vrt] at @s run summon minecraft:text_display ~4 ~1 ~4
 wait_ms = 3000
 
 [[step]]
+screenshot = "busy"
+
+[[step]]
 chat = "#bench start busy#1"
 
 [[step]]
