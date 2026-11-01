@@ -5617,6 +5617,13 @@ fn sample_component(
         ItemTemplate => out.extend([1, 1, 0, 0]),
         // Damage 1.
         TypedComponent => out.extend([3, 1]),
+        // One stone with an empty patch, count first.
+        CountFirstStack | OptionalCountFirstStack => out.extend([1, 1, 0, 0]),
+        TagKey => out.extend([1, b'a']),
+        EitherHolder(holder) => {
+            out.push(1);
+            deeper(holder, out);
+        }
     }
 }
 

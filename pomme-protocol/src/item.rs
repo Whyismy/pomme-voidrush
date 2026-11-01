@@ -75,6 +75,19 @@ pub enum Shape {
     ItemTemplate,
     /// `TypedDataComponent.STREAM_CODEC`: a component id and its value.
     TypedComponent,
+    /// Through 1.21.11, `ItemStack.STREAM_CODEC`: a positive count, the item,
+    /// then the patch. Translates to an [`Shape::ItemTemplate`].
+    CountFirstStack,
+    /// Through 1.21.11, `ItemStack.OPTIONAL_STREAM_CODEC`: a count, and when
+    /// positive the item and patch. Translates to an `Optional` template.
+    OptionalCountFirstStack,
+    /// Through 1.21.11, `TagKey.streamCodec`: a bare tag id. Translates to
+    /// the tag arm of a [`Shape::HolderSet`].
+    TagKey,
+    /// Through 1.21.11, `EitherHolder.streamCodec`: a bool, then the holder
+    /// when true or a resource key. Translates to the holder; a key can't be
+    /// resolved, so it drops the component.
+    EitherHolder(&'static Shape),
 }
 
 use Shape::*;
@@ -571,6 +584,57 @@ static COMPONENTS_26_2: &[(&str, Shape)] = &[
     ),
 ];
 
+/// 1.21.11's components whose layout differs from 26.2's, layered over
+/// [`COMPONENTS_26_2`] (it lacks only components 26.1 added). Each shape
+/// translates itself into 26.2's layout ([`ItemCodec::lowers`]); compared
+/// against the decompiled 1.21.11 codecs.
+static COMPONENTS_1_21_11: &[(&str, Shape)] = &[
+    // DamageType.java: an `EitherHolder` over `holderRegistry`.
+    ("damage_type", EitherHolder(&VarInt)),
+    // JukeboxPlayable.java, JukeboxSong.java
+    (
+        "jukebox_playable",
+        EitherHolder(&Holder(&Struct(&[Ref(&SOUND), TEXT, Float, VarInt]))),
+    ),
+    // InstrumentComponent.java, Instrument.java
+    (
+        "instrument",
+        EitherHolder(&Holder(&Struct(&[Ref(&SOUND), Float, Float, TEXT]))),
+    ),
+    // ProvidesTrimMaterial.java
+    ("provides_trim_material", EitherHolder(&TRIM_MATERIAL)),
+    // DamageResistant.java, and `provides_banner_patterns`: a tag key.
+    ("damage_resistant", TagKey),
+    ("provides_banner_patterns", TagKey),
+    // BlocksAttacks.java: `bypassedBy` is a damage type tag key.
+    (
+        "blocks_attacks",
+        Struct(&[
+            Float,
+            Float,
+            List(
+                UNBOUNDED,
+                &Struct(&[Float, Optional(&HolderSet), Float, Float]),
+            ),
+            Struct(&[Float, Float, Float]),
+            Optional(&TagKey),
+            Optional(&SOUND),
+            Optional(&SOUND),
+        ]),
+    ),
+    // UseRemainder.java, ChargedProjectiles.java, BundleContents.java,
+    // ItemContainerContents.java: whole stacks, count first.
+    ("use_remainder", CountFirstStack),
+    ("charged_projectiles", List(1024, &CountFirstStack)),
+    ("bundle_contents", List(UNBOUNDED, &CountFirstStack)),
+    ("container", List(256, &OptionalCountFirstStack)),
+    // PotDecorations.java: item registry ids, which shift.
+    (
+        "pot_decorations",
+        List(4, &RegistryId(ClientRegistry::Item)),
+    ),
+];
+
 /// 26.3's components that differ from 26.2's, layered over
 /// [`COMPONENTS_26_2`]: the four whose layout changed, then the added ones.
 static COMPONENTS_26_3: &[(&str, Shape)] = &[
@@ -663,6 +727,10 @@ pub struct ItemCodec {
     /// Rewrites of this version's changed components into the previous
     /// version's layout, by component name.
     conversions: &'static [(&'static str, Conversion)],
+    /// Whether this grammar's own shapes write the next version's layout
+    /// when translated (1.21.11's), so a component whose shape differs needs
+    /// no named conversion.
+    lowers: bool,
     air: u32,
 }
 
@@ -681,8 +749,15 @@ impl ItemCodec {
             .position(|e| e.version.protocol == protocol)?;
         CODECS[index]
             .get_or_init(|| {
+                let mut lowers = false;
                 let (shapes, entity_data, conversions): (&[_], _, _) =
                     match EMBEDDED[index].version.name {
+                        // Only item translation uses it; its entity data
+                        // isn't read with this grammar.
+                        "1.21.11" => {
+                            lowers = true;
+                            (&[COMPONENTS_1_21_11, COMPONENTS_26_2], &[][..], &[][..])
+                        }
                         // 26.1's layouts are 26.2's; the one component it
                         // lacks (`sulfur_cube_content`) isn't in its table.
                         "26.1" | "26.2" => (&[COMPONENTS_26_2], SERIALIZERS_26_2, &[][..]),
@@ -696,6 +771,7 @@ impl ItemCodec {
                 let mut codec =
                     Self::new(RegistryTable::for_protocol(protocol)?, shapes, entity_data)?;
                 codec.conversions = conversions;
+                codec.lowers = lowers;
                 Some(codec)
             })
             .as_ref()
@@ -724,6 +800,7 @@ impl ItemCodec {
             components,
             entity_data,
             conversions: &[],
+            lowers: false,
             air,
         })
     }
@@ -924,6 +1001,27 @@ impl ItemCodec {
             ItemTemplate => {
                 self.read_template_at(r, depth)?;
             }
+            CountFirstStack | OptionalCountFirstStack => {
+                let count = r.var_i32()?;
+                if count <= 0 {
+                    if matches!(shape, CountFirstStack) {
+                        return Err(r.error("empty item stack"));
+                    }
+                    return Ok(());
+                }
+                self.read_item(r)?;
+                self.read_patch(r, depth)?;
+            }
+            TagKey => {
+                r.identifier()?;
+            }
+            EitherHolder(inner) => {
+                if r.bool()? {
+                    self.walk(r, inner, depth)?;
+                } else {
+                    r.identifier()?;
+                }
+            }
             TypedComponent => {
                 let id = r.varint()?;
                 self.walk(r, self.component(r, id)?, depth)?;
@@ -1076,6 +1174,27 @@ impl Translator<'_> {
         Ok(true)
     }
 
+    /// The rest of a count-first stack whose `count` was read, written as a
+    /// template; `false` (nothing written) when the target lacks the item.
+    fn count_first_template(
+        &self,
+        r: &mut Reader,
+        out: &mut Vec<u8>,
+        count: i32,
+        depth: u32,
+    ) -> DecodeResult<bool> {
+        let item = self.item(r)?;
+        let mut patch = Vec::new();
+        self.patch(r, &mut patch, depth + 1)?;
+        let Some(item) = item else {
+            return Ok(false);
+        };
+        write_varint(out, item);
+        write_varint(out, count as u32);
+        out.extend_from_slice(&patch);
+        Ok(true)
+    }
+
     /// The item id in the target's space, `None` when it has no such item.
     fn item(&self, r: &mut Reader) -> DecodeResult<Option<u32>> {
         let item = self.from.read_item(r)?;
@@ -1166,7 +1285,9 @@ impl Translator<'_> {
         let mut value = Vec::new();
         let carried = match conversion {
             Some(convert) => convert(self, r, &mut value, depth + 1)?,
-            None => self.value(r, &mut value, shape, depth + 1)? && same_layout,
+            None => {
+                self.value(r, &mut value, shape, depth + 1)? && (same_layout || self.from.lowers)
+            }
         };
         Ok(target.filter(|_| carried).map(|target| (target, value)))
     }
@@ -1235,7 +1356,7 @@ impl Translator<'_> {
                 } else {
                     // A template the target lacks is an absent one.
                     out.push(0);
-                    matches!(inner, ItemTemplate)
+                    matches!(inner, ItemTemplate | CountFirstStack)
                 }
             }
             List(max, inner) => {
@@ -1247,7 +1368,7 @@ impl Translator<'_> {
                     if self.value(r, &mut item, inner, depth)? {
                         kept += 1;
                         items.extend_from_slice(&item);
-                    } else if !matches!(inner, ItemTemplate) {
+                    } else if !matches!(inner, ItemTemplate | CountFirstStack) {
                         carried = false;
                     }
                 }
@@ -1318,6 +1439,38 @@ impl Translator<'_> {
             }
             ItemTemplate => self.template(r, out, depth)?,
             TypedComponent => self.typed_component(r, out, depth)?,
+            CountFirstStack => {
+                let count = r.var_i32()?;
+                if count <= 0 {
+                    return Err(r.error("empty item stack"));
+                }
+                self.count_first_template(r, out, count, depth)?
+            }
+            OptionalCountFirstStack => {
+                let count = r.var_i32()?;
+                let mut template = Vec::new();
+                if count > 0 && self.count_first_template(r, &mut template, count, depth)? {
+                    out.push(1);
+                    out.extend_from_slice(&template);
+                } else {
+                    // Empty, or an item the target lacks: an absent slot.
+                    out.push(0);
+                }
+                true
+            }
+            TagKey => {
+                write_varint(out, 0);
+                crate::wire::write_utf(out, r.identifier()?);
+                true
+            }
+            EitherHolder(inner) => {
+                if r.bool()? {
+                    self.value(r, out, inner, depth)?
+                } else {
+                    r.identifier()?;
+                    false
+                }
+            }
         })
     }
 }
@@ -2081,6 +2234,89 @@ pub(crate) mod tests {
         assert_component_26_3("consumable", consumable);
         let trim = Wire::default().var(0).str("minecraft:gold").text().var(1);
         assert_component_26_3("trim", trim);
+    }
+
+    const PROTOCOL_1_21_11: i32 = 774;
+
+    fn codec_1_21_11() -> &'static ItemCodec {
+        ItemCodec::for_protocol(PROTOCOL_1_21_11).expect("1.21.11 item grammar")
+    }
+
+    fn id_1_21_11(registry: ClientRegistry, name: &str) -> u32 {
+        codec_1_21_11()
+            .registries()
+            .id_of(registry, name)
+            .unwrap_or_else(|| panic!("{name} in 1.21.11"))
+    }
+
+    /// A 1.21.11 shulker box lands in 26.2's ids and layouts: its count-first
+    /// contents become templates (an empty slot an absent one), a dyed nested
+    /// item keeps its color, a damage-type tag becomes a holder set's tag arm,
+    /// and an instrument named by resource key is dropped.
+    #[test]
+    fn translates_a_1_21_11_stack_into_26_2_layouts() {
+        let wire_item = |name| id_1_21_11(ClientRegistry::Item, name);
+        let wire_component = |name| id_1_21_11(ClientRegistry::DataComponentType, name);
+        let wire = Wire::default()
+            .var(1)
+            .var(wire_item("shulker_box"))
+            .var(4)
+            .var(0)
+            .var(wire_component("container"))
+            .var(2)
+            .var(0) // empty slot
+            .var(2) // count-first: 2 leather helmets, dyed
+            .var(wire_item("leather_helmet"))
+            .var(1)
+            .var(0)
+            .var(wire_component("dyed_color"))
+            .i32(0xFF0000)
+            .var(wire_component("damage_resistant"))
+            .str("minecraft:is_fire")
+            .var(wire_component("instrument"))
+            .bool(false)
+            .str("minecraft:ponder_goat_horn")
+            .var(wire_component("custom_model_data"))
+            .var(0)
+            .var(0)
+            .var(1)
+            .str("elite_staff_1")
+            .var(0)
+            .0;
+        let mut out = Vec::new();
+        let mut r = Reader::new(&wire);
+        let remaps = RegistryRemaps::to_native(PROTOCOL_1_21_11).unwrap();
+        codec_1_21_11()
+            .translate_stack(&mut r, &mut out, codec(), remaps)
+            .unwrap();
+        assert_eq!(r.ensure_eof(), Ok(()));
+        let native = Wire::default()
+            .var(1)
+            .var(item("shulker_box"))
+            .var(3)
+            .var(0)
+            .var(component("container"))
+            .var(2)
+            .bool(false)
+            .bool(true)
+            .var(item("leather_helmet"))
+            .var(2)
+            .var(1)
+            .var(0)
+            .var(component("dyed_color"))
+            .i32(0xFF0000)
+            .var(component("damage_resistant"))
+            .var(0)
+            .str("minecraft:is_fire")
+            .var(component("custom_model_data"))
+            .var(0)
+            .var(0)
+            .var(1)
+            .str("elite_staff_1")
+            .var(0)
+            .0;
+        assert_eq!(out, native);
+        codec().read_stack(&mut Reader::new(&out)).unwrap();
     }
 
     /// A 26.3 bundle comes out in 26.2's ids: its item and component ids
