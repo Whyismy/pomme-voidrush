@@ -929,7 +929,7 @@ impl Translation {
             update_recipes_id: id(Phase::Game, "update_recipes"),
             place_ghost_recipe_id: id(Phase::Game, "place_ghost_recipe"),
             recipe_layout: (protocol >= 768).then_some(RecipeLayout {
-                old_profile: protocol <= 772,
+                patch: PatchLayout::for_protocol(protocol),
                 item_stack_count_first: protocol <= 774,
                 trim_pattern_display: protocol <= 769,
             }),
@@ -3577,7 +3577,11 @@ fn translate_entity_data(
             let walked = if ids.v765.is_some() {
                 translate_item_765(&mut cur, &mut out, ids.v763.is_some()).map(|()| true)
             } else {
-                translate_item_stack(&mut cur, &mut out, remaps, ids.v772.is_some())
+                let layout = PatchLayout {
+                    old_profile: ids.v772.is_some(),
+                    shared_layouts: ids.v769.is_none(),
+                };
+                translate_item_stack(&mut cur, &mut out, remaps, layout)
             };
             if walked == Some(true) {
                 continue;
@@ -3612,6 +3616,56 @@ fn translate_entity_data(
 pub(crate) const COMPONENT_MAP_ID: u32 = 46;
 pub(crate) const COMPONENT_PROFILE: u32 = 70;
 
+/// Components whose value layout is unchanged from 1.21.5 through 26.2 and
+/// carries no registry ids, so the patch walker can skip them with the
+/// native grammar and pass the bytes through. Leaving these to the verbatim
+/// fallback kept their wire-space type ids, which on 1.21.11 decode as some
+/// other component and drop the packet (a dyed `item_display`, say).
+const SHARED_COMPONENTS: &[&str] = &[
+    "custom_data",
+    "max_stack_size",
+    "max_damage",
+    "damage",
+    "unbreakable",
+    "custom_name",
+    "item_name",
+    "item_model",
+    "lore",
+    "rarity",
+    "enchantments",
+    "stored_enchantments",
+    "custom_model_data",
+    "repair_cost",
+    "creative_slot_lock",
+    "enchantment_glint_override",
+    "intangible_projectile",
+    "enchantable",
+    "glider",
+    "tooltip_style",
+    "dyed_color",
+    "map_color",
+    "ominous_bottle_amplifier",
+];
+
+/// How a wire version's component patches differ from 26.2's.
+#[derive(Clone, Copy)]
+struct PatchLayout {
+    /// Pre-1.21.9 `profile` component layout.
+    old_profile: bool,
+    /// 1.21.5 or later: [`SHARED_COMPONENTS`] and `tooltip_display` share
+    /// 26.2's layouts (1.21.5 dropped their `show_in_tooltip` flags).
+    shared_layouts: bool,
+}
+
+impl PatchLayout {
+    fn for_protocol(protocol: i32) -> Self {
+        Self {
+            old_profile: protocol <= 772,
+            shared_layouts: protocol >= 770,
+        }
+    }
+}
+
 /// Remaps one entity-data item stack (count, item id, component patch) into
 /// the native registry space; an item the native version lacks becomes an
 /// empty stack. `Some(false)` means a patch [`translate_component_patch`]
@@ -3623,7 +3677,7 @@ fn translate_item_stack(
     cur: &mut Cursor<&[u8]>,
     out: &mut Vec<u8>,
     remaps: &RegistryRemaps,
-    old_profile: bool,
+    layout: PatchLayout,
 ) -> Option<bool> {
     let count_at = cur.position() as usize;
     let count = var_i32(cur)?;
@@ -3635,7 +3689,7 @@ fn translate_item_stack(
     let item = var_u32(cur)?;
     let patch_at = cur.position() as usize;
     let mut patch = Vec::new();
-    let walked = translate_component_patch(cur, &mut patch, remaps, old_profile).is_some();
+    let walked = translate_component_patch(cur, &mut patch, remaps, layout).is_some();
     let Some(native) = remaps.remap(ClientRegistry::Item, item) else {
         wire::write_varint(out, 0);
         if !walked {
@@ -3671,18 +3725,18 @@ fn translate_item_stack_template(
     };
     wire::write_varint(out, ctx.remaps.remap(ClientRegistry::Item, item)?);
     wire::write_varint(out, count as u32);
-    translate_component_patch(cur, out, ctx.remaps, ctx.layout.old_profile)
+    translate_component_patch(cur, out, ctx.remaps, ctx.layout.patch)
 }
 
 /// Remaps an item stack's component patch into the native registry space.
-/// `old_profile` marks the pre-1.21.9 `profile` component layout (see
+/// `layout.old_profile` marks the pre-1.21.9 `profile` component layout (see
 /// [`translate_old_profile`]). `None` means a component payload the walker
 /// doesn't know (or a malformed patch).
 fn translate_component_patch(
     cur: &mut Cursor<&[u8]>,
     out: &mut Vec<u8>,
     remaps: &RegistryRemaps,
-    old_profile: bool,
+    layout: PatchLayout,
 ) -> Option<()> {
     let added_at = cur.position() as usize;
     let added = var_u32(cur)?;
@@ -3699,18 +3753,61 @@ fn translate_component_patch(
             COMPONENT_MAP_ID => {
                 varint_span(cur)?;
             }
-            COMPONENT_PROFILE if old_profile => {
+            COMPONENT_PROFILE if layout.old_profile => {
                 translate_old_profile(cur, out)?;
                 continue;
             }
             COMPONENT_PROFILE => {
                 Profile::azalea_read(cur).ok()?;
             }
-            _ => return None,
+            _ if !layout.shared_layouts => return None,
+            _ => match native_component_name(native)? {
+                "tooltip_display" => {
+                    translate_tooltip_display(cur, out, remaps)?;
+                    continue;
+                }
+                name if SHARED_COMPONENTS.contains(&name) => skip_native_component(cur, native)?,
+                _ => return None,
+            },
         }
         out.extend_from_slice(&cur.get_ref()[value_at..cur.position() as usize]);
     }
     for _ in 0..removed {
+        let component = var_u32(cur)?;
+        wire::write_varint(
+            out,
+            remaps.remap(ClientRegistry::DataComponentType, component)?,
+        );
+    }
+    Some(())
+}
+
+fn native_component_name(id: u32) -> Option<&'static str> {
+    RegistryTable::native().name_of(ClientRegistry::DataComponentType, id)
+}
+
+/// Advances past one component value of native type `id` with the native
+/// item grammar.
+fn skip_native_component(cur: &mut Cursor<&[u8]>, id: u32) -> Option<()> {
+    let codec = ItemCodec::native();
+    let at = cur.position() as usize;
+    let mut r = Reader::new(&cur.get_ref()[at..]);
+    codec.skip(&mut r, codec.component_shape(id)?).ok()?;
+    cur.set_position((at + r.pos()) as u64);
+    Some(())
+}
+
+/// `tooltip_display` (hide-tooltip flag, then hidden component types), with
+/// the hidden types remapped; `None` when one has no native equivalent.
+fn translate_tooltip_display(
+    cur: &mut Cursor<&[u8]>,
+    out: &mut Vec<u8>,
+    remaps: &RegistryRemaps,
+) -> Option<()> {
+    out.push(read_u8(cur).filter(|&b| b <= 1)?);
+    let hidden = var_u32(cur)?;
+    wire::write_varint(out, hidden);
+    for _ in 0..hidden {
         let component = var_u32(cur)?;
         wire::write_varint(
             out,
@@ -4643,8 +4740,8 @@ fn translate_explode(
 /// the registry remap (decompiled 1.21.4 / 1.21.5 / 1.21.11 `SlotDisplay`).
 #[derive(Clone, Copy)]
 struct RecipeLayout {
-    /// Pre-1.21.9 `profile` component layout.
-    old_profile: bool,
+    /// How the wire version's component patches differ from 26.2's.
+    patch: PatchLayout,
     /// Through 1.21.11 an `item_stack` display wraps a non-empty `ItemStack`
     /// (count, item, patch) rather than 26.1's `ItemStackTemplate`.
     item_stack_count_first: bool,

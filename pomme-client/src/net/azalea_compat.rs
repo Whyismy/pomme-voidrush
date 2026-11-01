@@ -939,6 +939,62 @@ fn translate_entity_item_stack_fallback_774() {
     ));
 }
 
+/// A dyed, renamed item display on 1.21.11: the components' type ids shift
+/// against 26.2's, so they have to be walked and remapped, and the display
+/// context after the stack must still decode.
+#[test]
+fn translate_entity_dyed_item_774() {
+    use azalea_inventory::components::{CustomName, DyedColor, TooltipDisplay};
+    use pomme_protocol::{ClientRegistry, RegistryTable};
+
+    let wire_table = RegistryTable::for_protocol(774).unwrap();
+    let component = |name| registry_id(wire_table, ClientRegistry::DataComponentType, name);
+    let mut old = Vec::new();
+    wire::write_varint(
+        &mut old,
+        old_id(774, Direction::Clientbound, "set_entity_data"),
+    );
+    wire::write_varint(&mut old, 9);
+    old.extend_from_slice(&[23, 7, 1]); // index 23, item stack, count 1
+    wire::write_varint(
+        &mut old,
+        registry_id(wire_table, ClientRegistry::Item, "leather_helmet"),
+    );
+    old.extend_from_slice(&[3, 0]); // three added, none removed
+    wire::write_varint(&mut old, component("dyed_color"));
+    old.extend_from_slice(&0xFF0000i32.to_be_bytes());
+    wire::write_varint(&mut old, component("custom_name"));
+    old.extend_from_slice(&[8, 0, 2, b'h', b'i']); // NBT string tag "hi"
+    wire::write_varint(&mut old, component("tooltip_display"));
+    old.push(0);
+    wire::write_varint(&mut old, 1);
+    wire::write_varint(&mut old, component("dyed_color"));
+    old.extend_from_slice(&[24, 0, 5, 0xFF]); // index 24, byte, head
+
+    let ClientboundGamePacket::SetEntityData(p) = translate_and_decode(774, old) else {
+        panic!("wrong packet");
+    };
+    let items = &p.packed_items.0;
+    assert_eq!(items.len(), 2);
+    let stack = entity_data_stack(&items[0]);
+    assert_eq!(
+        stack.get_component::<DyedColor>().map(|c| c.rgb),
+        Some(0xFF0000)
+    );
+    assert!(stack.get_component::<CustomName>().is_some());
+    assert_eq!(
+        stack
+            .get_component::<TooltipDisplay>()
+            .map(|t| t.hidden_components.len()),
+        Some(1)
+    );
+    assert_eq!(items[1].index, 24);
+    assert!(matches!(
+        items[1].value,
+        azalea_entity::EntityDataValue::Byte(5)
+    ));
+}
+
 /// `translate_item_stack`'s component ids against the native registry table.
 #[test]
 fn component_id_anchors() {
