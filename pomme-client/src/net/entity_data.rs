@@ -218,9 +218,9 @@ fn send_data_value(
         // Display entities' transformation, block state and text; only
         // the display store reads them, keyed by entity id.
         (_, Value::Vector3(v)) => display(DisplayValue::Vector3(glam::Vec3::from_array(*v))),
-        (_, Value::Quaternion([x, y, z, w])) => {
-            display(DisplayValue::Quaternion(glam::Quat::from_xyzw(*x, *y, *z, *w)))
-        }
+        (_, Value::Quaternion([x, y, z, w])) => display(DisplayValue::Quaternion(
+            glam::Quat::from_xyzw(*x, *y, *z, *w),
+        )),
         (_, Value::BlockState(state)) => display(DisplayValue::BlockState(*state)),
         (_, Value::Component(nbt)) => match super::chat::component_spans(nbt) {
             Some(spans) => display(DisplayValue::Text(spans)),

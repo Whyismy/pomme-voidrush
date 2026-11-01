@@ -475,9 +475,7 @@ fn build_client() -> Result<(), String> {
     if std::env::var_os("POMME_INGAME_NO_SINGLEPLAYER").is_some() {
         command.arg("--no-default-features");
     }
-    let status = command
-        .status()
-        .map_err(|e| e.to_string())?;
+    let status = command.status().map_err(|e| e.to_string())?;
     status
         .success()
         .then_some(())

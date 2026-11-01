@@ -501,7 +501,7 @@ impl DisplayEntity {
     /// `Display.getPackedBrightnessOverride` as (sky, block) levels.
     pub fn brightness_override(&self) -> Option<(u8, u8)> {
         let packed = self.render.as_ref()?.brightness;
-        (packed != -1).then(|| (((packed >> 20) & 0xF) as u8, ((packed >> 4) & 0xF) as u8))
+        (packed != -1).then_some((((packed >> 20) & 0xF) as u8, ((packed >> 4) & 0xF) as u8))
     }
 
     /// The entity-to-world rotation and the display's transformation,
@@ -519,12 +519,8 @@ impl DisplayEntity {
             Billboard::Vertical => (-(camera_y - 180.0), x_rot),
             Billboard::Center => (-(camera_y - 180.0), -camera_x),
         };
-        let orientation = Quat::from_euler(
-            EulerRot::YXZ,
-            yaw.to_radians(),
-            pitch.to_radians(),
-            0.0,
-        );
+        let orientation =
+            Quat::from_euler(EulerRot::YXZ, yaw.to_radians(), pitch.to_radians(), 0.0);
         Some(Mat4::from_quat(orientation) * render.transformation(progress).matrix())
     }
 
@@ -534,7 +530,9 @@ impl DisplayEntity {
 
     /// The item and its `ItemDisplayContext` id.
     pub fn item(&self) -> Option<(&ItemStackData, u8)> {
-        self.item.as_ref().map(|(item, context)| (&**item, *context))
+        self.item
+            .as_ref()
+            .map(|(item, context)| (&**item, *context))
     }
 
     pub fn text(&self) -> Option<(&[TextSpan], i32)> {

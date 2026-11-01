@@ -240,6 +240,9 @@ pub struct RenderTimings {
     pub present_ms: f32,
 }
 
+/// A block display's item-pipeline mesh key and tint palette.
+type BlockDisplayMesh = (Arc<str>, Arc<[u32]>);
+
 pub struct Renderer {
     ctx: rhi::backend::Context,
     swapchain: rhi::backend::Swapchain,
@@ -269,7 +272,7 @@ pub struct Renderer {
     item_entity_pipeline: ItemEntityPipeline,
     /// Each block display mesh's tint palette, by mesh key; dropped with
     /// the item meshes.
-    block_display_tints: HashMap<(usize, u32), (Arc<str>, Arc<[u32]>)>,
+    block_display_tints: HashMap<(usize, u32), BlockDisplayMesh>,
     /// Item displays' model transforms, one resolver per `ItemDisplayContext`.
     item_display_resolvers: HashMap<u8, pipelines::item_display::DisplayResolver>,
     /// Bumped whenever the item meshes are dropped, so cached display
@@ -1791,8 +1794,9 @@ impl Renderer {
         table: crate::world::block::BlockStateTable,
         id: u32,
     ) -> Option<(Arc<str>, Arc<[u32]>)> {
-        use crate::world::block::render_assets::Tint;
         use pipelines::item_entity::CubeFace;
+
+        use crate::world::block::render_assets::Tint;
         let slot = table.table_slot();
         if let Some((key, tints)) = self.block_display_tints.get(&(slot, id)) {
             return Some((key.clone(), tints.clone()));
@@ -1874,7 +1878,11 @@ impl Renderer {
                 let side = !matches!(dir, Direction::Up | Direction::Down);
                 match textures.side_overlay.as_deref().filter(|_| side) {
                     Some(overlay) => {
-                        faces.push(CubeFace { dir, texture, tinted: false });
+                        faces.push(CubeFace {
+                            dir,
+                            texture,
+                            tinted: false,
+                        });
                         faces.push(CubeFace {
                             dir,
                             texture: overlay,
@@ -1884,8 +1892,7 @@ impl Renderer {
                     None => faces.push(CubeFace {
                         dir,
                         texture,
-                        tinted: tinted
-                            && (textures.side_overlay.is_none() || dir == Direction::Up),
+                        tinted: tinted && (textures.side_overlay.is_none() || dir == Direction::Up),
                     }),
                 }
             }

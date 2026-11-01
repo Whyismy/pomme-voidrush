@@ -2626,8 +2626,11 @@ impl AppCore {
                     game.entity_store
                         .rotate_living(id, y_rot_deg, x_rot_deg, on_ground);
                     game.item_entity_store.move_delta(id, dx, dy, dz, on_ground);
-                    game.display_store
-                        .move_delta(id, dvec3(dx, dy, dz), Some((y_rot_deg, x_rot_deg)));
+                    game.display_store.move_delta(
+                        id,
+                        dvec3(dx, dy, dz),
+                        Some((y_rot_deg, x_rot_deg)),
+                    );
                     if let Some(pos) = game.entity_positions.get_mut(&id) {
                         *pos += dvec3(dx, dy, dz);
                         self.audio.update_entity_sound_position(id, *pos);

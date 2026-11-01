@@ -2534,10 +2534,13 @@ pub fn update_game(
         {
             let living = &game.entity_store.living;
             let positions = &game.entity_positions;
-            let player = (game.player.entity_id, game.player.position, game.player.eye_height);
-            game.display_store.tick(|vehicle| {
-                display_seat(vehicle, living, positions, player)
-            });
+            let player = (
+                game.player.entity_id,
+                game.player.position,
+                game.player.eye_height,
+            );
+            game.display_store
+                .tick(|vehicle| display_seat(vehicle, living, positions, player));
         }
         if !game.deterministic {
             game.level_runtime.animate_tick(
@@ -4447,7 +4450,10 @@ pub fn update_game(
         game.particle_store
             .extract(partial_tick, gfx.renderer.camera_anchor(), &world_light)
     };
-    crate::frame_log::add("particle_extract", extract_start.elapsed().as_secs_f32() * 1000.0);
+    crate::frame_log::add(
+        "particle_extract",
+        extract_start.elapsed().as_secs_f32() * 1000.0,
+    );
     crate::frame_log::add("particle_count", particle_quads.len() as f32);
 
     let effective_rd = if game.server_render_distance > 0 {
@@ -5263,8 +5269,8 @@ fn build_display_renders(
                     continue;
                 }
                 // The text's rectangle, scaled by `submitInner`'s 0.025.
-                let half = glam::vec2(layout.width + 2.0, layout.lines.len() as f32 * 10.0 + 1.0)
-                    * 0.025;
+                let half =
+                    glam::vec2(layout.width + 2.0, layout.lines.len() as f32 * 10.0 + 1.0) * 0.025;
                 if !on_screen(base.w_axis.truncate(), half.length() * max_scale(&base)) {
                     continue;
                 }

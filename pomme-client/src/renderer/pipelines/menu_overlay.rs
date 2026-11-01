@@ -1995,7 +1995,9 @@ struct WorldTextVertex {
 
 const WORLD_TEXT_BUFFERS: [rhi::VertexBufferLayout<'static>; 1] = [rhi::vertex_buffer!(
     WorldTextVertex,
-    [Float32x3, Float32x2, Float32x4, Float32, Float32x2, Float32, Float32]
+    [
+        Float32x3, Float32x2, Float32x4, Float32, Float32x2, Float32, Float32
+    ]
 )];
 
 /// One text display to draw.
@@ -2218,16 +2220,18 @@ impl WorldTextPipeline {
 
     /// Text-unit quads into anchor-relative world space.
     fn place(out: &mut Vec<WorldTextVertex>, quads: &[Vertex], pose: glam::Mat4, light: f32) {
-        out.extend(quads.iter().map(|v| WorldTextVertex {
-            pos: pose
-                .transform_point3(glam::vec3(v.pos[0], v.pos[1], 0.0))
-                .to_array(),
-            uv: v.uv,
-            color: v.color,
-            mode: v.mode,
-            rect_size: v.rect_size,
-            corner_radius: v.corner_radius,
-            light,
+        out.extend(quads.iter().map(|v| {
+            WorldTextVertex {
+                pos: pose
+                    .transform_point3(glam::vec3(v.pos[0], v.pos[1], 0.0))
+                    .to_array(),
+                uv: v.uv,
+                color: v.color,
+                mode: v.mode,
+                rect_size: v.rect_size,
+                corner_radius: v.corner_radius,
+                light,
+            }
         }));
     }
 
@@ -2280,10 +2284,7 @@ impl WorldTextPipeline {
             } else {
                 &self.pipeline
             });
-            pass.set_bind_groups(
-                0,
-                &[self.camera_sets[frame], tex_set, self.lightmap_set],
-            );
+            pass.set_bind_groups(0, &[self.camera_sets[frame], tex_set, self.lightmap_set]);
             pass.set_vertex_buffer(0, buffer.handle());
             pass.draw(count, 1, first, 0);
         }
