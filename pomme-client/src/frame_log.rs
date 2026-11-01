@@ -9,6 +9,8 @@ use std::sync::Mutex;
 struct Window {
     label: String,
     frame_secs: Vec<f32>,
+    /// Named per-frame costs in milliseconds, summed over the window.
+    phases: std::collections::BTreeMap<&'static str, f64>,
 }
 
 static WINDOW: Mutex<Option<Window>> = Mutex::new(None);
@@ -30,6 +32,7 @@ pub fn handle_chat(message: &str) -> bool {
         *window = Some(Window {
             label: label.trim().to_owned(),
             frame_secs: Vec::new(),
+            phases: Default::default(),
         });
     } else if rest.trim() == "stop"
         && let Some(done) = window.take()
@@ -56,6 +59,15 @@ pub fn record(frame_secs: f32) {
     }
 }
 
+/// Adds `ms` to this window's `phase` total.
+pub fn add(phase: &'static str, ms: f32) {
+    if let Ok(mut window) = WINDOW.try_lock()
+        && let Some(window) = window.as_mut()
+    {
+        *window.phases.entry(phase).or_default() += f64::from(ms);
+    }
+}
+
 /// Average and median FPS and the 1% low (the 99th percentile frame time).
 fn summary(window: &Window) -> String {
     let mut sorted = window.frame_secs.clone();
@@ -64,8 +76,14 @@ fn summary(window: &Window) -> String {
     let total: f32 = sorted.iter().sum();
     let at = |q: f32| sorted.get(((frames as f32 * q) as usize).min(frames.saturating_sub(1)));
     let fps = |secs: Option<&f32>| secs.map_or(0.0, |s| 1.0 / s.max(1e-6));
+    let per_frame: serde_json::Map<String, serde_json::Value> = window
+        .phases
+        .iter()
+        .map(|(phase, ms)| ((*phase).to_owned(), (ms / frames.max(1) as f64).into()))
+        .collect();
     serde_json::json!({
         "label": window.label,
+        "ms_per_frame": per_frame,
         "frames": frames,
         "seconds": total,
         "avg_fps": if total > 0.0 { frames as f32 / total } else { 0.0 },

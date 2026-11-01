@@ -2190,8 +2190,10 @@ impl Renderer {
         }
 
         if let RenderMode::World { particles, .. } = &mode {
+            let start = std::time::Instant::now();
             self.particle_pipeline
                 .prepare(frame, &self.camera, particles);
+            crate::frame_log::add("particle_prepare", start.elapsed().as_secs_f32() * 1000.0);
         }
         let pack_drawn = self.render_pack_world(&encoder, frame, &mode);
 

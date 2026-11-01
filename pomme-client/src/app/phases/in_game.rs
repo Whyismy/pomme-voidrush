@@ -4339,6 +4339,7 @@ pub fn update_game(
         )
     };
 
+    let display_start = Instant::now();
     let (display_items, display_texts) = if benchmark_running {
         (Vec::new(), Vec::new())
     } else {
@@ -4350,6 +4351,7 @@ pub fn update_game(
             partial_tick,
         )
     };
+    crate::frame_log::add("displays", display_start.elapsed().as_secs_f32() * 1000.0);
     item_renders.extend(display_items);
     gfx.renderer.set_world_texts(display_texts);
 
@@ -4438,12 +4440,15 @@ pub fn update_game(
     }
     // Benchmarks and deterministic tests draw neither particles nor clouds.
     let no_ambience = benchmark_running || game.deterministic;
+    let extract_start = Instant::now();
     let particle_quads = if no_ambience {
         Vec::new()
     } else {
         game.particle_store
             .extract(partial_tick, gfx.renderer.camera_anchor(), &world_light)
     };
+    crate::frame_log::add("particle_extract", extract_start.elapsed().as_secs_f32() * 1000.0);
+    crate::frame_log::add("particle_count", particle_quads.len() as f32);
 
     let effective_rd = if game.server_render_distance > 0 {
         core.menu.render_distance.min(game.server_render_distance)
@@ -4513,7 +4518,8 @@ pub fn update_game(
             .set_terrain_format(game.mesh_dispatcher.format());
         game.rebuild_meshes();
     }
-    if let Err(e) = gfx.renderer.render_world(
+    let render_start = Instant::now();
+    let rendered = gfx.renderer.render_world(
         game.block_registry.render_view(),
         &gfx.window,
         hide_cursor,
@@ -4551,7 +4557,17 @@ pub fn update_game(
         player_preview,
         book_preview,
         game.player.eyes_in_water,
-    ) {
+    );
+    {
+        let t = gfx.renderer.last_timings();
+        crate::frame_log::add("render_call", render_start.elapsed().as_secs_f32() * 1000.0);
+        crate::frame_log::add("fence_wait", t.fence_ms);
+        crate::frame_log::add("acquire", t.acquire_ms);
+        crate::frame_log::add("draw_record", t.draw_ms);
+        crate::frame_log::add("present", t.present_ms);
+        crate::frame_log::add("pace", t.pace_ms);
+    }
+    if let Err(e) = rendered {
         tracing::error!("Render error: {e}");
     }
     // Whole-frame wall time (incl. render), read next frame to align with `raw_dt`.
