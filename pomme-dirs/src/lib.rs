@@ -141,13 +141,23 @@ pub fn set_root(root: PathBuf) {
     let _ = ROOT.set(root);
 }
 
+/// Names the data folder in place of the per-user default, for a system
+/// drive without room for it or a launcher that keeps Pomme beside its own
+/// data.
+const HOME_VAR: &str = "POMME_HOME";
+
 /// The per-user layout: `%LOCALAPPDATA%\Pomme`,
 /// `~/Library/Application Support/Pomme` or `~/.local/share/pomme`, unless
-/// [`set_root`] named another.
+/// [`set_root`] or a non-empty `POMME_HOME` named another.
 pub fn layout() -> &'static Layout {
     static LAYOUT: OnceLock<Layout> = OnceLock::new();
     LAYOUT.get_or_init(|| {
-        let root = ROOT.get().cloned().unwrap_or_else(|| {
+        let from_env = || {
+            std::env::var_os(HOME_VAR)
+                .filter(|home| !home.is_empty())
+                .map(PathBuf::from)
+        };
+        let root = ROOT.get().cloned().or_else(from_env).unwrap_or_else(|| {
             let name = if cfg!(target_os = "linux") {
                 "pomme"
             } else {
