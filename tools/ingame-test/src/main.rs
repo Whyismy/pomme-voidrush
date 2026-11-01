@@ -426,11 +426,19 @@ fn free_port() -> Result<u16, String> {
 }
 
 /// A fresh flat world, offline, with the test player opped.
+/// `POMME_INGAME_SERVER_PROPERTIES` appends `;`-separated `key=value` lines
+/// (a `resource-pack` URL and `resource-pack-sha1`, say).
 fn prepare_server(dir: &Path, port: u16) -> Result<(), String> {
     let world = dir.join("world");
     if world.exists() {
         std::fs::remove_dir_all(&world).map_err(|e| format!("{}: {e}", world.display()))?;
     }
+    let extra: String = std::env::var("POMME_INGAME_SERVER_PROPERTIES")
+        .unwrap_or_default()
+        .split(';')
+        .filter(|line| !line.is_empty())
+        .map(|line| format!("{}\n", line.replace(':', "\\:")))
+        .collect();
     let properties = format!(
         "online-mode=false\n\
          enforce-secure-profile=false\n\
@@ -441,7 +449,8 @@ fn prepare_server(dir: &Path, port: u16) -> Result<(), String> {
          spawn-protection=0\n\
          view-distance=4\n\
          simulation-distance=4\n\
-         motd=pomme in-game tests\n"
+         motd=pomme in-game tests\n\
+         {extra}"
     );
     let uuid = offline_uuid(PLAYER);
     let ops = serde_json::json!([{
