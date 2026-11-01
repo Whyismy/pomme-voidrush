@@ -510,6 +510,10 @@ fn run_script(
     let frames = out.join("frames.bin");
     let started = Instant::now();
     let mut command = Command::new(&client);
+    // Extra client flags, such as a benchmark's window size.
+    if let Ok(extra) = std::env::var("POMME_INGAME_CLIENT_ARGS") {
+        command.args(extra.split_whitespace());
+    }
     command
         .args(join_args(version, port))
         .arg("--game-dir")
