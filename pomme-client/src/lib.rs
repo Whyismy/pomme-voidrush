@@ -17,6 +17,7 @@ mod cpu_bench;
 mod dirs;
 mod discord;
 mod entity;
+mod frame_log;
 #[cfg(feature = "test-harness")]
 mod harness;
 mod headless;

@@ -50,6 +50,9 @@ impl PacketSender {
     }
 
     pub fn send_chat(&self, input: String) {
+        if crate::frame_log::handle_chat(&input) {
+            return;
+        }
         self.queue(Outbound::ChatInput(input));
     }
 

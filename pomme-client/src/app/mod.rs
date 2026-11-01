@@ -1048,6 +1048,7 @@ impl ApplicationHandler for App {
 
                     app_rt.last_frame = now;
                     app_rt.fps_counter.update(dt);
+                    crate::frame_log::record(raw_dt);
 
                     (dt, raw_dt)
                 } else {
