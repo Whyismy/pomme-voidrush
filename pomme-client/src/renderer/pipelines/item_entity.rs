@@ -30,6 +30,13 @@ impl ItemVertex {
         rhi::vertex_buffer!(Self, [Float32x3, Float32x2, Unorm8x4, Snorm8x4, Uint32]);
 }
 
+/// One face of [`ItemEntityPipeline::ensure_cube_mesh`].
+pub struct CubeFace<'a> {
+    pub dir: Direction,
+    pub texture: &'a str,
+    pub tinted: bool,
+}
+
 pub struct ItemRenderInfo {
     pub item_name: Arc<str>,
     /// `0xRRGGBB` while the item entity glows.
@@ -523,6 +530,53 @@ impl ItemEntityPipeline {
                 .quads
                 .iter()
                 .any(|quad| uv_map.region(quad.texture).translucent);
+            self.insert_mesh(device, name, &vertices, true, translucent);
+        }
+    }
+
+    /// A plain textured cube (a block with no baked model), centred like the
+    /// baked meshes; a tinted face takes palette slot 0.
+    pub fn ensure_cube_mesh(
+        &mut self,
+        device: &rhi::backend::Device,
+        name: &str,
+        faces: &[CubeFace<'_>],
+        uv_map: &AtlasUVMap,
+    ) {
+        if self.meshes.contains_key(name) {
+            return;
+        }
+        let mut vertices = Vec::new();
+        let mut translucent = false;
+        for face in faces {
+            if !uv_map.has_region(face.texture) {
+                continue;
+            }
+            let region = uv_map.get_region(face.texture);
+            translucent |= region.translucent;
+            let (positions, uvs) = crate::renderer::chunk::mesher::cube_face_geometry(face.dir);
+            let u_span = region.u_max - region.u_min;
+            let v_span = region.v_max - region.v_min;
+            let normal = pack_normal(glam::Vec3::from_array(face.dir.offset().map(|v| v as f32)));
+            let tint_index = if face.tinted { 0 } else { NO_ITEM_TINT };
+            for i in [0, 1, 2, 2, 3, 0] {
+                let p = positions[i];
+                vertices.push(ItemVertex {
+                    position: [p[0] - 0.5, p[1] - 0.5, p[2] - 0.5],
+                    tex_coords: [
+                        region.u_min + uvs[i][0] * u_span,
+                        region.v_min + uvs[i][1] * v_span,
+                    ],
+                    light_tint: crate::renderer::chunk::mesher::pack_light_tint(
+                        1.0,
+                        crate::renderer::chunk::mesher::PACKED_WHITE_SHIFTED,
+                    ),
+                    normal,
+                    tint_index,
+                });
+            }
+        }
+        if !vertices.is_empty() {
             self.insert_mesh(device, name, &vertices, true, translucent);
         }
     }

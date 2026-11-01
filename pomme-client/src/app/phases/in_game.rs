@@ -344,6 +344,7 @@ pub struct GameState {
     pub server_render_distance: u32,
     pub server_simulation_distance: u32,
     pub item_entity_store: ItemEntityStore,
+    pub display_store: crate::entity::display::DisplayStore,
     pub particle_store: crate::particle::ParticleStore,
     pub level_runtime: crate::world::level::LevelRuntime,
     pub block_entity_anim: BlockEntityAnimStore,
@@ -515,6 +516,7 @@ impl GameState {
             server_render_distance: 0,
             server_simulation_distance: 0,
             item_entity_store: ItemEntityStore::new(),
+            display_store: crate::entity::display::DisplayStore::default(),
             particle_store: {
                 let (grass, foliage, dry_foliage) = mesh_dispatcher.colormaps();
                 crate::particle::ParticleStore::new(
@@ -2529,6 +2531,14 @@ pub fn update_game(
         }
         game.item_entity_store
             .tick(&game.chunk_store, game.block_registry.block_state_table());
+        {
+            let living = &game.entity_store.living;
+            let positions = &game.entity_positions;
+            let player = (game.player.entity_id, game.player.position, game.player.eye_height);
+            game.display_store.tick(|vehicle| {
+                display_seat(vehicle, living, positions, player)
+            });
+        }
         if !game.deterministic {
             game.level_runtime.animate_tick(
                 &game.block_registry,
@@ -4311,7 +4321,7 @@ pub fn update_game(
         );
     }
 
-    let item_renders = if benchmark_running {
+    let mut item_renders = if benchmark_running {
         Vec::new()
     } else {
         build_item_render_infos(
@@ -4328,6 +4338,20 @@ pub fn update_game(
             },
         )
     };
+
+    let (display_items, display_texts) = if benchmark_running {
+        (Vec::new(), Vec::new())
+    } else {
+        build_display_renders(
+            &mut game.display_store,
+            &world_light,
+            &mut gfx.renderer,
+            game.block_registry.block_state_table(),
+            partial_tick,
+        )
+    };
+    item_renders.extend(display_items);
+    gfx.renderer.set_world_texts(display_texts);
 
     let moving_block_renders =
         moving_block_renders(game, gfx.renderer.camera_render_position(), partial_tick);
@@ -5059,6 +5083,166 @@ fn build_item_render_infos(
     }
 
     infos
+}
+
+/// Vanilla `DisplayRenderer`: each display entity in view range, posed at its
+/// lerped position. Block and item displays draw through the item pipeline;
+/// text displays come back separately, back to front.
+fn build_display_renders(
+    store: &mut crate::entity::display::DisplayStore,
+    world_light: &WorldLight,
+    renderer: &mut Renderer,
+    table: crate::world::block::BlockStateTable,
+    partial_tick: f32,
+) -> (
+    Vec<crate::renderer::pipelines::item_entity::ItemRenderInfo>,
+    Vec<crate::renderer::pipelines::menu_overlay::WorldTextRender>,
+) {
+    use crate::entity::display::{DisplayKind, TEXT_SEE_THROUGH, TEXT_SHADOW};
+    use crate::renderer::pipelines::item_entity::ItemRenderInfo;
+    use crate::renderer::pipelines::menu_overlay::WorldTextRender;
+
+    let eye = renderer.camera_render_position();
+    let anchor = renderer.camera_anchor();
+    let camera_rot = renderer.camera_look_deg();
+    let frustum = renderer.frustum_planes();
+    let mut items = Vec::new();
+    let mut texts = Vec::new();
+    for display in store.displays.values_mut() {
+        let lerped = display
+            .prev_position
+            .lerp(display.position, f64::from(partial_tick));
+        if !display.in_view_range(eye, lerped) {
+            continue;
+        }
+        // `getBoundingBoxForCulling`, tested as its bounding sphere.
+        if let Some((min, max)) = display.culling_box(lerped) {
+            let center = ((min + max) * 0.5 - eye).as_vec3();
+            let radius = ((max - min) * 0.5).length() as f32;
+            if frustum
+                .iter()
+                .any(|p| p[0] * center.x + p[1] * center.y + p[2] * center.z + p[3] < -radius)
+            {
+                continue;
+            }
+        }
+        let Some(pose) = display.pose(partial_tick, camera_rot) else {
+            continue;
+        };
+        let base = glam::Mat4::from_translation((lerped - anchor).as_vec3()) * pose;
+        let light = match display.brightness_override() {
+            Some((sky, block)) => LightLevels::new(sky, block),
+            None => entity_light(
+                world_light,
+                EntityKind::BlockDisplay,
+                Position::new(lerped.x, lerped.y, lerped.z),
+                false,
+                0,
+            ),
+        };
+        // `Display.getTeamColor`: the override, else the (white) team colour.
+        let outline_color = display
+            .is_glowing()
+            .then(|| display.glow_color_override().unwrap_or(0xFF_FFFF));
+        match display.kind {
+            DisplayKind::Block => {
+                let Some(state) = display.block_state() else {
+                    continue;
+                };
+                let Some((item_name, tints)) = renderer.ensure_block_display_mesh(table, state)
+                else {
+                    continue;
+                };
+                // The baked meshes are centred; vanilla's block model spans
+                // 0..1 from the entity's origin.
+                items.push(ItemRenderInfo {
+                    item_name,
+                    outline_color,
+                    tints,
+                    model_matrix: base * glam::Mat4::from_translation(glam::Vec3::splat(0.5)),
+                    light,
+                });
+            }
+            DisplayKind::Item => {
+                let Some((stack, context)) = display.item() else {
+                    continue;
+                };
+                let name = crate::player::inventory::item_resource_name(stack.kind);
+                let model = renderer.render_assets().stack_model_key(&name, stack);
+                renderer.ensure_item_mesh(&model);
+                let tints: Arc<[u32]> = renderer
+                    .render_assets()
+                    .item_tint_palette(&model, Some(stack), None)
+                    .into();
+                let transform = renderer.item_display_transform(&model, context);
+                // `ItemDisplayRenderer.submitInner` turns the item around.
+                items.push(ItemRenderInfo {
+                    item_name: model.into(),
+                    outline_color,
+                    tints,
+                    model_matrix: base
+                        * glam::Mat4::from_rotation_y(std::f32::consts::PI)
+                        * transform,
+                    light,
+                });
+            }
+            DisplayKind::Text => {
+                let layout = match &display.text_layout {
+                    Some(layout) => layout.clone(),
+                    None => {
+                        let Some((spans, line_width)) = display.text() else {
+                            continue;
+                        };
+                        let layout = Arc::new(renderer.layout_display_text(spans, line_width));
+                        display.text_layout = Some(layout.clone());
+                        layout
+                    }
+                };
+                if layout.lines.is_empty() {
+                    continue;
+                }
+                let flags = display.text_flags();
+                texts.push((
+                    lerped.distance_squared(eye),
+                    WorldTextRender {
+                        layout,
+                        pose: base,
+                        align: display.text_align(),
+                        color: display.text_color(partial_tick),
+                        // Vanilla's `getBackgroundOpacity(0.25)` with text
+                        // backgrounds for chat only, the default.
+                        background: display.text_background(partial_tick, 0.25),
+                        shadow: flags & TEXT_SHADOW != 0,
+                        see_through: flags & TEXT_SEE_THROUGH != 0,
+                        light: light.lane(),
+                    },
+                ));
+            }
+        }
+    }
+    // Nothing writes depth, so overlapping texts layer back to front.
+    texts.sort_by(|a, b| b.0.total_cmp(&a.0));
+    (items, texts.into_iter().map(|(_, text)| text).collect())
+}
+
+/// Where a display riding `vehicle` sits: `Entity.getPassengerRidingPosition`
+/// with the default attachment at the top of the vehicle's box.
+fn display_seat(
+    vehicle: i32,
+    living: &HashMap<i32, crate::entity::LivingEntity>,
+    positions: &HashMap<i32, Position>,
+    player: (i32, Position, f32),
+) -> Option<glam::DVec3> {
+    let (player_id, player_position, _) = player;
+    if vehicle == player_id {
+        let height = crate::entity::dimensions::EntityDimensions::of(EntityKind::Player).height;
+        return Some(*player_position + glam::dvec3(0.0, f64::from(height), 0.0));
+    }
+    if let Some(entity) = living.get(&vehicle) {
+        let height = crate::entity::dimensions::EntityDimensions::of(entity.entity_type).height;
+        return Some(*entity.position + glam::dvec3(0.0, f64::from(height), 0.0));
+    }
+    positions.get(&vehicle).map(|position| **position)
 }
 
 #[derive(Default)]

@@ -107,6 +107,7 @@ fn main() {
         ("preview.frag", shaderc::ShaderKind::Fragment),
         ("menu_overlay.vert", shaderc::ShaderKind::Vertex),
         ("menu_overlay.frag", shaderc::ShaderKind::Fragment),
+        ("world_text.vert", shaderc::ShaderKind::Vertex),
         ("block_overlay.vert", shaderc::ShaderKind::Vertex),
         ("block_overlay.frag", shaderc::ShaderKind::Fragment),
         ("sky.vert", shaderc::ShaderKind::Vertex),

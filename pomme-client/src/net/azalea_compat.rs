@@ -5717,6 +5717,9 @@ fn entity_data_matches_azalea() {
             (Value::OptionalComponent(Some(nbt)), EntityDataValue::OptionalFormattedText(az)) => {
                 assert_eq!(plain(nbt), az.as_ref().unwrap().to_string());
             }
+            (Value::Component(nbt), EntityDataValue::FormattedText(az)) => {
+                assert_eq!(plain(nbt), az.to_string());
+            }
             (ours, theirs) => assert_eq!(
                 Some(ours),
                 super::entity_data::from_azalea(theirs)

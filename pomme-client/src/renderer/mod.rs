@@ -256,6 +256,9 @@ pub struct Renderer {
     sky_pipeline: SkyPipeline,
     panorama_pipeline: PanoramaPipeline,
     menu_pipeline: MenuOverlayPipeline,
+    world_text_pipeline: pipelines::menu_overlay::WorldTextPipeline,
+    /// This frame's text displays, set before `render_world`.
+    world_texts: Vec<pipelines::menu_overlay::WorldTextRender>,
     /// The Menu Background Blur option: vanilla's `MenuBlurRadius`.
     menu_blur_radius: u8,
     entity_outline: EntityOutline,
@@ -264,6 +267,11 @@ pub struct Renderer {
     book_preview: BookPreviewPipeline,
     chunk_border_pipeline: ChunkBorderPipeline,
     item_entity_pipeline: ItemEntityPipeline,
+    /// Each block display mesh's tint palette, by mesh key; dropped with
+    /// the item meshes.
+    block_display_tints: HashMap<String, Arc<[u32]>>,
+    /// Item displays' model transforms, one resolver per `ItemDisplayContext`.
+    item_display_resolvers: HashMap<u8, pipelines::item_display::DisplayResolver>,
     held_item_pipeline: pipelines::held_item::HeldItemPipeline,
     weather_pipeline: WeatherPipeline,
     particle_pipeline: ParticlePipeline,
@@ -487,6 +495,13 @@ impl Renderer {
 
         let chunk_buffers = ChunkBufferStore::new(&ctx.device, ctx.indirect_draw);
 
+        let world_text_pipeline = pipelines::menu_overlay::WorldTextPipeline::new(
+            &ctx.device,
+            swapchain_state.targets(),
+            &menu_pipeline,
+            &lightmap,
+        );
+
         let mut item_entity_pipeline = pipelines::item_entity::ItemEntityPipeline::new(
             &ctx.device,
             swapchain_state.targets(),
@@ -538,6 +553,8 @@ impl Renderer {
             sky_pipeline,
             panorama_pipeline,
             menu_pipeline,
+            world_text_pipeline,
+            world_texts: Vec::new(),
             menu_blur_radius: crate::ui::menu::DEFAULT_MENU_BACKGROUND_BLURRINESS,
             entity_outline,
             post_effects,
@@ -552,6 +569,8 @@ impl Renderer {
             pack_world: Default::default(),
             chunk_border_pipeline,
             item_entity_pipeline,
+            block_display_tints: HashMap::new(),
+            item_display_resolvers: HashMap::new(),
             held_item_pipeline,
             weather_pipeline,
             particle_pipeline,
@@ -1030,6 +1049,8 @@ impl Renderer {
             self.panorama_pipeline
                 .recreate_pipeline(&self.ctx.device, targets);
             self.menu_pipeline
+                .recreate_pipeline(&self.ctx.device, targets);
+            self.world_text_pipeline
                 .recreate_pipeline(&self.ctx.device, targets);
             self.skin_preview
                 .recreate_pipeline(&self.ctx.device, targets);
@@ -1534,6 +1555,7 @@ impl Renderer {
         ));
 
         self.item_entity_pipeline.clear_meshes(&self.ctx.device);
+        self.block_display_tints.clear();
         self.atlas.destroy(&self.ctx.device);
         let (texture_names, generated_item_textures) =
             chunk::atlas::atlas_texture_names(&self.render_assets);
@@ -1756,6 +1778,172 @@ impl Renderer {
             })
     }
 
+    /// A block display's mesh for the state `id`, baked like vanilla's
+    /// `BlockRenderDispatcher.renderSingleBlock`, and its tint palette with
+    /// `BlockColors`' no-level defaults. `None` when the state has no model.
+    pub fn ensure_block_display_mesh(
+        &mut self,
+        table: crate::world::block::BlockStateTable,
+        id: u32,
+    ) -> Option<(Arc<str>, Arc<[u32]>)> {
+        use crate::world::block::render_assets::Tint;
+        use pipelines::item_entity::CubeFace;
+        let key = format!("block_display/{id}");
+        if let Some(tints) = self.block_display_tints.get(&key) {
+            return Some((key.into(), tints.clone()));
+        }
+        let state = table.try_state(id)?;
+        let view = self.render_assets.for_version(table);
+        let data = table.block_state_data(state);
+        // `BlockColors.getColor(state, null, null, i)`.
+        let tint_argb = |tint: Tint| -> u32 {
+            let rgb = |c: [f32; 3]| {
+                0xFF00_0000
+                    | (((c[0] * 255.0) as u32) << 16)
+                    | (((c[1] * 255.0) as u32) << 8)
+                    | ((c[2] * 255.0) as u32)
+            };
+            match tint {
+                Tint::None | Tint::Water => 0xFFFF_FFFF,
+                // `GrassColor.getDefaultColor`, the grass block item's tint.
+                Tint::Grass | Tint::DoubleGrass => self
+                    .render_assets
+                    .item_tint_palette("grass_block", None, None)
+                    .first()
+                    .copied()
+                    .unwrap_or(0xFF7F_B238),
+                // `FoliageColor.FOLIAGE_DEFAULT` and `FOLIAGE_DRY_DEFAULT`.
+                Tint::Foliage => 0xFF48_B518,
+                Tint::DryFoliage => 0xFFA0_7342,
+                Tint::Constant(color) => 0xFF00_0000 | color,
+                Tint::Redstone => rgb(data.redstone_wire_rgb()),
+                Tint::Stem => rgb(data.stem_rgb()),
+            }
+        };
+        let mut palette: Vec<u32> = Vec::new();
+        let mut set_tint = |index: u32, tint: Tint| {
+            let index = index as usize;
+            if palette.len() <= index {
+                palette.resize(index + 1, 0xFFFF_FFFF);
+            }
+            palette[index] = tint_argb(tint);
+        };
+        let device = &self.ctx.device;
+        let uv_map = &self.atlas.uv_map;
+        if let Some(model) = view.get_baked_model(state) {
+            for quad in &model.quads {
+                if let Some(index) = quad.tint_index {
+                    set_tint(index, quad.tint);
+                }
+            }
+            self.item_entity_pipeline
+                .ensure_mesh(device, &key, model, uv_map);
+        } else if let Some(quads) = view.get_multipart_quads(state) {
+            let model = crate::world::block::model::BakedModel {
+                quads: quads.into_iter().cloned().collect(),
+                is_full_cube: false,
+            };
+            for quad in &model.quads {
+                if let Some(index) = quad.tint_index {
+                    set_tint(index, quad.tint);
+                }
+            }
+            self.item_entity_pipeline
+                .ensure_mesh(device, &key, &model, uv_map);
+        } else if let Some(textures) = view.get_textures(state) {
+            use crate::world::block::model::Direction;
+            let tinted = !matches!(textures.tint, Tint::None);
+            if tinted {
+                set_tint(0, textures.tint);
+            }
+            let mut faces = Vec::new();
+            for (dir, texture) in [
+                (Direction::Up, &textures.top),
+                (Direction::Down, &textures.bottom),
+                (Direction::North, &textures.north),
+                (Direction::South, &textures.south),
+                (Direction::East, &textures.east),
+                (Direction::West, &textures.west),
+            ] {
+                let side = !matches!(dir, Direction::Up | Direction::Down);
+                match textures.side_overlay.as_deref().filter(|_| side) {
+                    Some(overlay) => {
+                        faces.push(CubeFace { dir, texture, tinted: false });
+                        faces.push(CubeFace {
+                            dir,
+                            texture: overlay,
+                            tinted,
+                        });
+                    }
+                    None => faces.push(CubeFace {
+                        dir,
+                        texture,
+                        tinted: tinted
+                            && (textures.side_overlay.is_none() || dir == Direction::Up),
+                    }),
+                }
+            }
+            self.item_entity_pipeline
+                .ensure_cube_mesh(device, &key, &faces, uv_map);
+        }
+        self.item_entity_pipeline.mesh_info(&key)?;
+        let palette: Arc<[u32]> = palette.into();
+        self.block_display_tints.insert(key.clone(), palette.clone());
+        Some((key.into(), palette))
+    }
+
+    /// `ItemTransform.apply` for an item display's `ItemDisplayContext` id:
+    /// its model's transform for that context, mirrored for the left hand.
+    pub fn item_display_transform(&mut self, model: &str, context: u8) -> glam::Mat4 {
+        use pipelines::item_display::{DisplayResolver, DisplayTransform};
+        let keys: &'static [&'static str] = match context {
+            1 => &["thirdperson_lefthand", "thirdperson_righthand"],
+            2 => &["thirdperson_righthand"],
+            3 => &["firstperson_lefthand", "firstperson_righthand"],
+            4 => &["firstperson_righthand"],
+            5 => &["head"],
+            6 => &["gui"],
+            7 => &["ground"],
+            8 => &["fixed"],
+            9 => &["on_shelf"],
+            // NONE.
+            _ => return glam::Mat4::IDENTITY,
+        };
+        let jar = &self.jar_assets_dir;
+        let transform = self
+            .item_display_resolvers
+            .entry(context)
+            .or_insert_with(|| DisplayResolver::new(jar, keys))
+            .resolve(model, DisplayTransform::IDENTITY);
+        if matches!(context, 1 | 3) {
+            transform.mirrored().to_matrix()
+        } else {
+            transform.to_matrix()
+        }
+    }
+
+    /// This frame's text displays, back to front.
+    pub fn set_world_texts(&mut self, texts: Vec<pipelines::menu_overlay::WorldTextRender>) {
+        self.world_texts = texts;
+    }
+
+    /// A text display's wrapped lines.
+    pub fn layout_display_text(
+        &self,
+        spans: &[crate::ui::text::TextSpan],
+        line_width: i32,
+    ) -> crate::entity::display::TextLayout {
+        self.menu_pipeline
+            .geometry
+            .layout_display_text(spans, line_width)
+    }
+
+    /// The camera's (yaw, pitch) in degrees as vanilla's `Camera` reports
+    /// them, which billboarded displays face.
+    pub fn camera_look_deg(&self) -> (f32, f32) {
+        self.camera.effective_look_deg()
+    }
+
     fn render_frame(
         &mut self,
         window: &Window,
@@ -1808,6 +1996,7 @@ impl Renderer {
             self.block_entity_pipeline.update_camera(frame, &uniform);
             self.chunk_border_pipeline.update_camera(frame, &uniform);
             self.item_entity_pipeline.update_camera(frame, &uniform);
+            self.world_text_pipeline.update_camera(frame, &uniform);
             self.weather_pipeline.update_camera(frame, &uniform);
             self.particle_pipeline.update_camera(frame, &uniform);
             self.cloud_pipeline.update_camera(frame, &uniform);
@@ -2113,6 +2302,14 @@ impl Renderer {
                         &mut pass,
                         frame,
                         item_entities,
+                    );
+
+                    self.world_text_pipeline.draw(
+                        &self.ctx.device,
+                        &mut pass,
+                        frame,
+                        &self.menu_pipeline,
+                        &self.world_texts,
                     );
 
                     // Break particles draw after entities but before translucent
@@ -2721,6 +2918,7 @@ impl Drop for Renderer {
         self.sky_pipeline.destroy(&self.ctx.device);
         self.panorama_pipeline.destroy(&self.ctx.device);
         self.menu_pipeline.destroy(&self.ctx.device);
+        self.world_text_pipeline.destroy(&self.ctx.device);
 
         self.entity_outline.destroy(&self.ctx.device);
         self.post_effects.destroy(&self.ctx.device);

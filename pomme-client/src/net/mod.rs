@@ -433,6 +433,7 @@ pub enum NetworkEvent {
         entity_type: EntityKind,
         position: Position,
         velocity: DVec3,
+        y_rot_deg: f32,
         x_rot_deg: f32,
         head_y_rot_deg: f32,
     },
@@ -504,6 +505,13 @@ pub enum NetworkEvent {
         damage: i32,
         count: i32,
         stack: azalea_inventory::ItemStackData,
+    },
+    /// A display entity's non-scalar synched value (`Display` and its
+    /// subclasses); scalars arrive as [`NetworkEvent::EntityData`].
+    DisplayData {
+        id: i32,
+        index: u8,
+        value: crate::entity::display::DisplayValue,
     },
     EntityHeadRotation {
         id: i32,

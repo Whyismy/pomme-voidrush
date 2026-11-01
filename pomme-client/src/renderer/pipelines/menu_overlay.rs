@@ -1954,6 +1954,336 @@ impl MenuOverlayPipeline {
     }
 }
 
+impl MenuOverlayPipeline {
+    /// The overlay's texture group, which [`WorldTextPipeline`] shares.
+    fn texture_group(&self) -> (rhi::backend::BindGroupLayout, rhi::backend::BindGroup) {
+        (self.tex_layout, self.tex_set)
+    }
+}
+
+impl MenuGeometry {
+    /// A text display's lines, wrapped like `Font.split` at `line_width`.
+    pub fn layout_display_text(
+        &self,
+        spans: &[TextSpan],
+        line_width: i32,
+    ) -> crate::entity::display::TextLayout {
+        let width0 = |spans: &[TextSpan]| self.spans_width(spans, 8.0);
+        let mut layout = crate::entity::display::TextLayout::default();
+        for line in crate::ui::chat::wrap_spans(spans, line_width.max(1) as f32, &width0) {
+            let width = width0(&line);
+            layout.width = layout.width.max(width);
+            layout.lines.push((line, width));
+        }
+        layout
+    }
+}
+
+/// A text display's vertex: the overlay's, placed in anchor-relative world
+/// space, with its light lane.
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct WorldTextVertex {
+    pos: [f32; 3],
+    uv: [f32; 2],
+    color: [f32; 4],
+    mode: f32,
+    rect_size: [f32; 2],
+    corner_radius: f32,
+    light: f32,
+}
+
+const WORLD_TEXT_BUFFERS: [rhi::VertexBufferLayout<'static>; 1] = [rhi::vertex_buffer!(
+    WorldTextVertex,
+    [Float32x3, Float32x2, Float32x4, Float32, Float32x2, Float32, Float32]
+)];
+
+/// One text display to draw.
+pub struct WorldTextRender {
+    pub layout: std::sync::Arc<crate::entity::display::TextLayout>,
+    /// The entity's pose: anchor-relative position, orientation and
+    /// transformation, as `DisplayRenderer.submit` leaves the pose stack.
+    pub pose: glam::Mat4,
+    pub align: crate::entity::display::TextAlign,
+    /// `0xAARRGGBB`; its alpha scales every span's.
+    pub color: u32,
+    /// `0xAARRGGBB`, 0 for none.
+    pub background: u32,
+    pub shadow: bool,
+    pub see_through: bool,
+    /// The light lane (`LightLevels::lane`).
+    pub light: f32,
+}
+
+fn argb_to_rgba(argb: u32) -> [f32; 4] {
+    [
+        ((argb >> 16) & 0xFF) as f32 / 255.0,
+        ((argb >> 8) & 0xFF) as f32 / 255.0,
+        (argb & 0xFF) as f32 / 255.0,
+        (argb >> 24) as f32 / 255.0,
+    ]
+}
+
+/// Vanilla `TextDisplayRenderer.submitInner`: each display's background and
+/// lines, with the overlay's glyphs and fragment shader, depth-tested in the
+/// world (or not, when see-through) and lit by the lightmap.
+pub struct WorldTextPipeline {
+    pipeline: rhi::backend::RenderPipeline,
+    see_through_pipeline: rhi::backend::RenderPipeline,
+    pipeline_layout: rhi::backend::PipelineLayout,
+    camera_layout: rhi::backend::BindGroupLayout,
+    camera_sets: Vec<rhi::backend::BindGroup>,
+    camera_buffers: Vec<rhi::backend::Buffer>,
+    lightmap_set: rhi::backend::BindGroup,
+    /// Each frame's vertex buffer and its capacity in vertices; outgrown ones
+    /// wait a round before they're freed.
+    slots: Vec<(rhi::backend::Buffer, usize, Vec<rhi::backend::Buffer>)>,
+    scratch: Vec<Vertex>,
+    vertices: Vec<WorldTextVertex>,
+    obfuscation_rng: ObfuscationRng,
+}
+
+impl WorldTextPipeline {
+    pub fn new(
+        device: &rhi::backend::Device,
+        targets: rhi::backend::PipelineTargets,
+        menu: &MenuOverlayPipeline,
+        lightmap: &crate::renderer::pipelines::lightmap::Lightmap,
+    ) -> Self {
+        let camera_layout =
+            rhi::backend::create_bind_group_layout(device, util::VERTEX_FRAGMENT_UNIFORM);
+        let (tex_layout, _) = menu.texture_group();
+        let pipeline_layout = rhi::backend::create_pipeline_layout(
+            device,
+            &[camera_layout, tex_layout, lightmap.layout],
+            None,
+        );
+        let (camera_sets, camera_buffers) = util::create_uniform_sets(
+            device,
+            camera_layout,
+            size_of::<crate::renderer::camera::CameraUniform>() as u64,
+            "world_text_camera",
+        );
+        let (pipeline, see_through_pipeline) =
+            create_world_text_pipelines(device, targets, pipeline_layout);
+        Self {
+            pipeline,
+            see_through_pipeline,
+            pipeline_layout,
+            camera_layout,
+            camera_sets,
+            camera_buffers,
+            lightmap_set: lightmap.group,
+            slots: (0..MAX_FRAMES_IN_FLIGHT)
+                .map(|_| (Self::buffer(device, 4096), 4096, Vec::new()))
+                .collect(),
+            scratch: Vec::new(),
+            vertices: Vec::new(),
+            obfuscation_rng: ObfuscationRng::new(0),
+        }
+    }
+
+    fn buffer(device: &rhi::backend::Device, capacity: usize) -> rhi::backend::Buffer {
+        rhi::backend::Buffer::new(
+            device,
+            "world_text_vertices",
+            (capacity * size_of::<WorldTextVertex>()) as u64,
+            rhi::BufferUsages::VERTEX,
+            rhi::MemoryLocation::Host,
+        )
+    }
+
+    pub fn update_camera(
+        &mut self,
+        frame: usize,
+        uniform: &crate::renderer::camera::CameraUniform,
+    ) {
+        self.camera_buffers[frame].write(bytemuck::bytes_of(uniform));
+    }
+
+    /// Appends one display's quads: `submitInner`'s `rotate(PI, Y)`,
+    /// `scale(-0.025)` and centring, then the background from (-1, -1) and
+    /// each line 10 units below the last.
+    fn push_text(&mut self, geometry: &MenuGeometry, text: &WorldTextRender) {
+        let Some(gm) = &geometry.mc_glyph_map else {
+            return;
+        };
+        let width = text.layout.width;
+        let height = text.layout.lines.len() as f32 * 10.0 - 1.0;
+        let pose = text.pose
+            * glam::Mat4::from_rotation_y(std::f32::consts::PI)
+            * glam::Mat4::from_scale(glam::Vec3::splat(-0.025))
+            * glam::Mat4::from_translation(glam::vec3(1.0 - width / 2.0, -height, 0.0));
+
+        self.scratch.clear();
+        if text.background != 0 {
+            push_rect(
+                &mut self.scratch,
+                -1.0,
+                -1.0,
+                width + 1.0,
+                height + 1.0,
+                0.0,
+                argb_to_rgba(text.background),
+            );
+        }
+        let alpha = (text.color >> 24) as f32 / 255.0;
+        let mut drawn_objects = HashMap::new();
+        let mut y = 0.0;
+        for (line, line_width) in &text.layout.lines {
+            let x = match text.align {
+                crate::entity::display::TextAlign::Left => 0.0,
+                crate::entity::display::TextAlign::Right => width - line_width,
+                crate::entity::display::TextAlign::Center => width / 2.0 - line_width / 2.0,
+            };
+            let spans: Vec<TextSpan> = font_spans(line)
+                .iter()
+                .map(|span| {
+                    let mut span = span.clone();
+                    span.color[3] *= alpha;
+                    span
+                })
+                .collect();
+            push_mc_text(
+                &mut self.scratch,
+                McTextSources {
+                    gm,
+                    dynamic_regions: &geometry.favicon_regions,
+                    sprite_atlas: &geometry.sprite_atlas,
+                },
+                &spans,
+                McTextDraw {
+                    x,
+                    y,
+                    scale: 8.0,
+                    drop_shadow: text.shadow,
+                },
+                &mut self.obfuscation_rng,
+                &mut drawn_objects,
+            );
+            y += 10.0;
+        }
+
+        for v in &self.scratch {
+            let p = pose.transform_point3(glam::vec3(v.pos[0], v.pos[1], 0.0));
+            self.vertices.push(WorldTextVertex {
+                pos: p.to_array(),
+                uv: v.uv,
+                color: v.color,
+                mode: v.mode,
+                rect_size: v.rect_size,
+                corner_radius: v.corner_radius,
+                light: text.light,
+            });
+        }
+    }
+
+    /// Draws `texts` in order (the caller sorts them back to front): the
+    /// depth-tested ones, then the see-through ones over everything.
+    pub fn draw(
+        &mut self,
+        device: &rhi::backend::Device,
+        pass: &mut rhi::backend::RenderPassEncoder,
+        frame: usize,
+        menu: &MenuOverlayPipeline,
+        texts: &[WorldTextRender],
+    ) {
+        if texts.is_empty() {
+            return;
+        }
+        self.vertices.clear();
+        let mut runs = Vec::new();
+        for see_through in [false, true] {
+            let start = self.vertices.len();
+            for text in texts.iter().filter(|t| t.see_through == see_through) {
+                self.push_text(&menu.geometry, text);
+            }
+            if self.vertices.len() > start {
+                runs.push((
+                    see_through,
+                    start as u32,
+                    (self.vertices.len() - start) as u32,
+                ));
+            }
+        }
+        if runs.is_empty() {
+            return;
+        }
+
+        let (buffer, capacity, retired) = &mut self.slots[frame];
+        util::destroy_buffers(device, retired);
+        if self.vertices.len() > *capacity {
+            let grown = (*capacity * 2).max(self.vertices.len());
+            retired.push(std::mem::replace(buffer, Self::buffer(device, grown)));
+            *capacity = grown;
+        }
+        buffer.write_at(0, bytemuck::cast_slice(&self.vertices));
+
+        let (_, tex_set) = menu.texture_group();
+        for (see_through, first, count) in runs {
+            pass.set_pipeline(if see_through {
+                &self.see_through_pipeline
+            } else {
+                &self.pipeline
+            });
+            pass.set_bind_groups(
+                0,
+                &[self.camera_sets[frame], tex_set, self.lightmap_set],
+            );
+            pass.set_vertex_buffer(0, buffer.handle());
+            pass.draw(count, 1, first, 0);
+        }
+    }
+
+    pub fn recreate_pipeline(
+        &mut self,
+        device: &rhi::backend::Device,
+        targets: rhi::backend::PipelineTargets,
+    ) {
+        self.pipeline.destroy(device);
+        self.see_through_pipeline.destroy(device);
+        (self.pipeline, self.see_through_pipeline) =
+            create_world_text_pipelines(device, targets, self.pipeline_layout);
+    }
+
+    pub fn destroy(&mut self, device: &rhi::backend::Device) {
+        for (buffer, _, mut retired) in self.slots.drain(..) {
+            buffer.destroy(device);
+            util::destroy_buffers(device, &mut retired);
+        }
+        util::destroy_buffers(device, &mut self.camera_buffers);
+        self.pipeline.destroy(device);
+        self.see_through_pipeline.destroy(device);
+        self.pipeline_layout.destroy(device);
+        util::destroy_bind_groups(device, self.camera_sets.drain(..));
+        self.camera_layout.destroy(device);
+    }
+}
+
+/// Vanilla's `TEXT` (depth-tested; the background and glyphs share a plane,
+/// so nothing writes depth and draw order layers them) and
+/// `TEXT_SEE_THROUGH` (no depth test).
+fn create_world_text_pipelines(
+    device: &rhi::backend::Device,
+    targets: rhi::backend::PipelineTargets,
+    layout: rhi::backend::PipelineLayout,
+) -> (rhi::backend::RenderPipeline, rhi::backend::RenderPipeline) {
+    let pipeline = |depth| {
+        let desc = rhi::RenderPipelineDesc {
+            blend: Some(rhi::BlendState::TRANSLUCENT_PREMULTIPLIED_ALPHA),
+            depth,
+            ..rhi::RenderPipelineDesc::new(
+                "world text",
+                shader::include_shader!("world_text.vert"),
+                shader::include_shader!("menu_overlay.frag"),
+                &WORLD_TEXT_BUFFERS,
+            )
+        };
+        rhi::backend::create_render_pipeline(device, targets, layout, &desc)
+    };
+    (pipeline(Some(rhi::DepthState::READ_ONLY)), pipeline(None))
+}
+
 pub struct TooltipLine {
     pub spans: Vec<TextSpan>,
     /// Aligned against the widest line in the tooltip instead of the left.

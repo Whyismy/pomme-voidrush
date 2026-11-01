@@ -1861,6 +1861,7 @@ impl AppCore {
                     vehicle,
                     passengers,
                 } => {
+                    game.display_store.set_passengers(vehicle, &passengers);
                     let me = game.player.entity_id;
                     if passengers.contains(&me) {
                         game.riding_vehicle_id = Some(vehicle);
@@ -2563,6 +2564,7 @@ impl AppCore {
                     entity_type,
                     position,
                     velocity,
+                    y_rot_deg,
                     x_rot_deg,
                     head_y_rot_deg,
                 } => {
@@ -2589,6 +2591,10 @@ impl AppCore {
                         game.item_entity_store
                             .spawn_item(id, uuid, position, velocity);
                     }
+                    if let Some(kind) = crate::entity::display::DisplayKind::of(entity_type) {
+                        game.display_store
+                            .spawn(id, kind, *position, y_rot_deg, x_rot_deg);
+                    }
                 }
                 NetworkEvent::EntityMoved {
                     id,
@@ -2600,6 +2606,7 @@ impl AppCore {
                     game.entity_store
                         .move_living_delta(id, dx, dy, dz, on_ground);
                     game.item_entity_store.move_delta(id, dx, dy, dz, on_ground);
+                    game.display_store.move_delta(id, dvec3(dx, dy, dz), None);
                     if let Some(pos) = game.entity_positions.get_mut(&id) {
                         *pos += dvec3(dx, dy, dz);
                         self.audio.update_entity_sound_position(id, *pos);
@@ -2619,6 +2626,8 @@ impl AppCore {
                     game.entity_store
                         .rotate_living(id, y_rot_deg, x_rot_deg, on_ground);
                     game.item_entity_store.move_delta(id, dx, dy, dz, on_ground);
+                    game.display_store
+                        .move_delta(id, dvec3(dx, dy, dz), Some((y_rot_deg, x_rot_deg)));
                     if let Some(pos) = game.entity_positions.get_mut(&id) {
                         *pos += dvec3(dx, dy, dz);
                         self.audio.update_entity_sound_position(id, *pos);
@@ -2632,6 +2641,7 @@ impl AppCore {
                 } => {
                     game.entity_store
                         .rotate_living(id, y_rot_deg, x_rot_deg, on_ground);
+                    game.display_store.rotate(id, y_rot_deg, x_rot_deg);
                 }
                 NetworkEvent::EntityMotion { id, velocity } => {
                     // Vanilla `Entity.lerpMotion` sets velocity; the local
@@ -2663,6 +2673,8 @@ impl AppCore {
                     }
                     game.item_entity_store
                         .teleport(id, position, velocity, on_ground);
+                    game.display_store
+                        .teleport(id, *position, y_rot_deg, x_rot_deg);
                     game.entity_positions.insert(id, position);
                     self.audio.update_entity_sound_position(id, position);
                 }
@@ -2721,6 +2733,7 @@ impl AppCore {
                         self.audio.stop_entity_sounds(*id);
                     }
                     game.item_entity_store.remove(&ids);
+                    game.display_store.remove(&ids);
                     if game.controlled_vehicle_id.is_some_and(|v| ids.contains(&v)) {
                         game.controlled_vehicle_id = None;
                     }
@@ -2769,7 +2782,11 @@ impl AppCore {
                             game.item_entity_store.set_shared_flags(id, flags);
                         }
                     }
+                    game.display_store.apply_entity_data(id, index, value);
                     game.entity_store.apply_entity_data(id, index, value);
+                }
+                NetworkEvent::DisplayData { id, index, value } => {
+                    game.display_store.apply_display_data(id, index, value);
                 }
                 NetworkEvent::EntityPose { id, is_crouching } => {
                     game.entity_store.set_crouching(id, is_crouching);
@@ -3052,6 +3069,7 @@ impl AppCore {
                     self.audio.stop_all_sounds();
                     game.entity_store = crate::entity::EntityStore::new();
                     game.item_entity_store = crate::entity::ItemEntityStore::new();
+                    game.display_store.clear();
                     game.entity_positions.clear();
                     game.silent_entities.clear();
                     game.action_bar = None;

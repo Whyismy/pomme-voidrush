@@ -17,11 +17,15 @@ use pomme_protocol::item::ItemCodec;
 use super::handler::{send_ordered, variant_index};
 use super::{NetworkEvent, item_codec};
 use crate::entity::MetaValue;
+use crate::entity::display::DisplayValue;
 use crate::entity::villager::{VillagerKind, VillagerProfession};
 use crate::position::BlockPos;
 
 /// `ItemEntity.DATA_ITEM`.
 const ITEM_INDEX: u8 = 8;
+
+/// `Display.ItemDisplay.DATA_ITEM_STACK_ID`.
+const DISPLAY_ITEM_INDEX: u8 = 23;
 
 /// `Pose.CROUCHING`'s id.
 const CROUCHING: u32 = 5;
@@ -44,6 +48,10 @@ pub(super) fn handle_raw_entity_data(
                     if let ItemStack::Present(stack) = item_codec::to_azalea(stack) {
                         send_item_data(id, &stack, event_tx);
                     }
+                }
+                Value::Item(stack) if data.index == DISPLAY_ITEM_INDEX => {
+                    let stack = stack.as_ref().map(item_codec::to_azalea);
+                    send_display_item(id, stack, event_tx);
                 }
                 value => send_data_value(id, data.index, value, registry_holder, event_tx),
             }
@@ -72,6 +80,9 @@ pub(super) fn handle_typed_entity_data(
             EntityDataValue::ItemStack(ItemStack::Present(stack)) if item.index == ITEM_INDEX => {
                 send_item_data(p.id.0, stack, event_tx);
             }
+            EntityDataValue::ItemStack(stack) if item.index == DISPLAY_ITEM_INDEX => {
+                send_display_item(p.id.0, Some(stack.clone()), event_tx);
+            }
             value => {
                 if let Some(value) = from_azalea(value) {
                     send_data_value(p.id.0, item.index, &value, registry_holder, event_tx);
@@ -99,6 +110,22 @@ fn send_item_data(id: i32, stack: &ItemStackData, event_tx: &Sender<NetworkEvent
     );
 }
 
+/// An item display's stack; empty or absent clears it.
+fn send_display_item(id: i32, stack: Option<ItemStack>, event_tx: &Sender<NetworkEvent>) {
+    let stack = match stack {
+        Some(ItemStack::Present(stack)) => Some(stack),
+        _ => None,
+    };
+    send_ordered(
+        event_tx,
+        NetworkEvent::DisplayData {
+            id,
+            index: DISPLAY_ITEM_INDEX,
+            value: DisplayValue::Item(stack.map(Box::new)),
+        },
+    );
+}
+
 fn send_data_value(
     id: i32,
     index: u8,
@@ -113,6 +140,7 @@ fn send_data_value(
     } else {
         (17, 18)
     };
+    let display = |value| NetworkEvent::DisplayData { id, index, value };
     let variant = |kind, protocol_id| NetworkEvent::EntityVariant {
         id,
         kind,
@@ -187,6 +215,17 @@ fn send_data_value(
                 level: *level,
             }
         }
+        // Display entities' transformation, block state and text; only
+        // the display store reads them, keyed by entity id.
+        (_, Value::Vector3(v)) => display(DisplayValue::Vector3(glam::Vec3::from_array(*v))),
+        (_, Value::Quaternion([x, y, z, w])) => {
+            display(DisplayValue::Quaternion(glam::Quat::from_xyzw(*x, *y, *z, *w)))
+        }
+        (_, Value::BlockState(state)) => display(DisplayValue::BlockState(*state)),
+        (_, Value::Component(nbt)) => match super::chat::component_spans(nbt) {
+            Some(spans) => display(DisplayValue::Text(spans)),
+            None => return,
+        },
         _ => {
             send_scalar(id, index, value, event_tx);
             return;
@@ -226,6 +265,14 @@ pub(super) fn from_azalea(value: &EntityDataValue) -> Option<Value> {
             }
             None => None,
         }),
+        EntityDataValue::FormattedText(text) => {
+            let mut nbt = Vec::new();
+            text.azalea_write(&mut nbt).ok()?;
+            Value::Component(nbt.into())
+        }
+        EntityDataValue::BlockState(state) => Value::BlockState(state.id() as u32),
+        EntityDataValue::Vector3(v) => Value::Vector3([v.x, v.y, v.z]),
+        EntityDataValue::Quaternion(q) => Value::Quaternion([q.x, q.y, q.z, q.w]),
         EntityDataValue::OptionalBlockPos(pos) => {
             Value::OptionalBlockPos(pos.map(|pos| (pos.x, pos.y, pos.z)))
         }

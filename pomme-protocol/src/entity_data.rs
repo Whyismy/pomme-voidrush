@@ -26,8 +26,16 @@ pub enum Serializer {
     Long,
     Float,
     Bool,
+    /// `COMPONENT`, kept as NBT bytes for display entities' text.
+    Component,
     OptionalComponent,
     ItemStack,
+    /// `BLOCK_STATE`: a state id in the session's id space.
+    BlockState,
+    /// `VECTOR3`: `ByteBufCodecs.VECTOR3F`.
+    Vector3,
+    /// `QUATERNION`: `ByteBufCodecs.QUATERNIONF`, x y z w.
+    Quaternion,
     OptionalBlockPos,
     VillagerData,
     Pose,
@@ -44,7 +52,12 @@ pub enum Value {
     Float(f32),
     Bool(bool),
     /// A text component's NBT bytes.
+    Component(Box<[u8]>),
+    /// A text component's NBT bytes.
     OptionalComponent(Option<Box<[u8]>>),
+    BlockState(u32),
+    Vector3([f32; 3]),
+    Quaternion([f32; 4]),
     Item(Option<ItemStack>),
     OptionalBlockPos(Option<(i32, i32, i32)>),
     VillagerData {
@@ -87,7 +100,7 @@ macro_rules! serializers_26_2 {
     S::Float,
     // STRING_UTF8
     S::Skip(Utf(MAX_STRING_LENGTH)),
-    S::Skip(TEXT),
+    S::Component,
     S::OptionalComponent,
     S::ItemStack,
     S::Bool,
@@ -100,8 +113,7 @@ macro_rules! serializers_26_2 {
     S::Skip(ENUM),
     // OPTIONAL_LIVING_ENTITY_REFERENCE: EntityReference.java:34
     S::Skip(Optional(&Uuid)),
-    // BLOCK_STATE
-    S::Skip(VarInt),
+    S::BlockState,
     // OPTIONAL_BLOCK_STATE: 0 for none, not a bool.
     S::Skip(VarInt),
     S::Skip(Ref(&PARTICLE)),
@@ -147,10 +159,8 @@ macro_rules! serializers_26_2 {
     // COPPER_GOLEM_STATE and WEATHERING_COPPER_STATE: idMapper VarInts.
     S::Int,
     S::Int,
-    // VECTOR3: ByteBufCodecs.VECTOR3F
-    S::Skip(Struct(&[Float, Float, Float])),
-    // QUATERNION: ByteBufCodecs.QUATERNIONF
-    S::Skip(Struct(&[Float, Float, Float, Float])),
+    S::Vector3,
+    S::Quaternion,
     S::Skip(Ref(&RESOLVABLE_PROFILE)),
     // HUMANOID_ARM
     S::Skip(ENUM),
@@ -193,6 +203,14 @@ impl ItemCodec {
             S::Long => Value::Long(r.varlong()? as i64),
             S::Float => Value::Float(r.f32()?),
             S::Bool => Value::Bool(r.bool()?),
+            S::Component => {
+                let start = r.pos();
+                self.skip(r, &TEXT)?;
+                Value::Component(r.since(start).into())
+            }
+            S::BlockState => Value::BlockState(r.varint()?),
+            S::Vector3 => Value::Vector3([r.f32()?, r.f32()?, r.f32()?]),
+            S::Quaternion => Value::Quaternion([r.f32()?, r.f32()?, r.f32()?, r.f32()?]),
             S::OptionalComponent => Value::OptionalComponent(r.optional(|r| {
                 let start = r.pos();
                 self.skip(r, &TEXT)?;

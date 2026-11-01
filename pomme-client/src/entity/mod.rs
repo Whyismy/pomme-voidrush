@@ -1,5 +1,6 @@
 pub mod components;
 pub mod dimensions;
+pub mod display;
 pub mod glowing;
 pub mod light;
 pub mod shadow;

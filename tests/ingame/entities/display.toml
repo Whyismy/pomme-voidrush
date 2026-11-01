@@ -1,0 +1,108 @@
+# Display entities: block displays (plain cube, model, tinted, rotated and
+# scaled, a brightness override), item displays (flat and block items,
+# display contexts, a centre billboard) and text displays (background,
+# shadow, alignment, wrapping, see-through, opacity), each against a dark
+# backdrop so the shot shows what draws. Fixed ones turn to face the camera
+# (yaw 180), so their text reads the right way round.
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/fill 0 -60 8 12 -54 8 minecraft:black_concrete"
+
+[[step]]
+chat = "/tp @s 6.5 -60 -1.5 0 0"
+
+# Block displays along the bottom row.
+[[step]]
+chat = "/summon minecraft:block_display 1 -60 6 {Rotation:[180f,0f],block_state:{Name:\"minecraft:stone\"}}"
+
+[[step]]
+chat = "/summon minecraft:block_display 3 -60 6 {Rotation:[180f,0f],block_state:{Name:\"minecraft:grass_block\"}}"
+
+[[step]]
+chat = "/summon minecraft:block_display 5 -60 6 {Rotation:[180f,0f],block_state:{Name:\"minecraft:oak_leaves\"}}"
+
+[[step]]
+chat = "/summon minecraft:block_display 7 -60 6 {Rotation:[180f,0f],block_state:{Name:\"minecraft:oak_stairs\",Properties:{facing:\"east\"}}}"
+
+[[step]]
+chat = "/summon minecraft:block_display 9.5 -60 6 {Rotation:[180f,0f],block_state:{Name:\"minecraft:diamond_block\"},transformation:{left_rotation:[0.2391,0.3696,-0.0990,0.8924],right_rotation:[0f,0f,0f,1f],translation:[0f,0f,0f],scale:[0.6f,0.6f,0.6f]}}"
+
+[[step]]
+chat = "/summon minecraft:block_display 11 -60 6 {Rotation:[180f,0f],block_state:{Name:\"minecraft:white_concrete\"},brightness:{block:15,sky:15}}"
+
+# Item displays on the middle row.
+[[step]]
+chat = "/summon minecraft:item_display 1.5 -58 6.5 {Rotation:[180f,0f],item:{id:\"minecraft:diamond_sword\",count:1}}"
+
+[[step]]
+chat = "/summon minecraft:item_display 3.5 -58 6.5 {Rotation:[180f,0f],item:{id:\"minecraft:apple\",count:1},item_display:\"fixed\"}"
+
+[[step]]
+chat = "/summon minecraft:item_display 5.5 -58 6.5 {Rotation:[180f,0f],item:{id:\"minecraft:oak_log\",count:1},item_display:\"gui\"}"
+
+[[step]]
+chat = "/summon minecraft:item_display 7.5 -58 6.5 {item:{id:\"minecraft:golden_apple\",count:1},billboard:\"center\"}"
+
+[[step]]
+chat = "/summon minecraft:item_display 9.5 -58 6.5 {Rotation:[180f,0f],item:{id:\"minecraft:leather_helmet\",count:1,components:{\"minecraft:dyed_color\":16711680}},item_display:\"head\"}"
+
+# Text displays on the top row.
+[[step]]
+chat = "/summon minecraft:text_display 2 -55.5 6.5 {Rotation:[180f,0f],text:\"Void Rush\"}"
+
+[[step]]
+chat = "/summon minecraft:text_display 5 -55.5 6.5 {Rotation:[180f,0f],text:{text:\"Bold red\",color:\"red\",bold:true},shadow:true,background:-16777216}"
+
+[[step]]
+chat = "/summon minecraft:text_display 8 -55.5 6.5 {Rotation:[180f,0f],text:\"left aligned text that wraps over lines\",line_width:60,alignment:\"left\",background:1442840575}"
+
+[[step]]
+chat = "/summon minecraft:text_display 11 -55.5 6.5 {Rotation:[180f,0f],text:\"right\\nside\",alignment:\"right\",text_opacity:-128b,default_background:true}"
+
+[[step]]
+chat = "/summon minecraft:text_display 6.5 -57 9.5 {text:{text:\"through the wall\",color:\"aqua\"},see_through:true,billboard:\"center\"}"
+
+# Long enough for the chat lines to fade from the shot.
+[[step]]
+wait_ms = 10500
+
+[[step]]
+look_at = [6.5, -57.5, 6.5]
+
+[[step]]
+wait_ms = 1000
+
+[[step]]
+screenshot = "displays"
+
+# Turned to the side: fixed displays foreshorten, the centre billboards
+# follow the camera.
+[[step]]
+chat = "/tp @s -1.5 -58 3.5 -60 0"
+
+[[step]]
+look_at = [6.5, -57.5, 6.5]
+
+[[step]]
+wait_ms = 1000
+
+[[step]]
+screenshot = "displays_side"
+
+[[step]]
+chat = "/kill @e[type=minecraft:block_display]"
+
+[[step]]
+chat = "/kill @e[type=minecraft:item_display]"
+
+[[step]]
+chat = "/kill @e[type=minecraft:text_display]"
+
+[[step]]
+chat = "/fill 0 -60 8 12 -54 8 minecraft:air"
