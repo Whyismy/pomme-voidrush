@@ -331,6 +331,7 @@ impl SkyPipeline {
         packs: &crate::resource_pack::ResourcePackManager,
     ) {
         self.destroy_custom(device);
+        let mut found = Vec::new();
         for (world, skybox) in [(0, Skybox::Overworld), (1, Skybox::End)] {
             let dir = format!("minecraft/optifine/sky/world{world}");
             for i in 0..100 {
@@ -344,27 +345,29 @@ impl SkyPipeline {
                     tracing::warn!("Skipping OptiFine sky layer {}", path.display());
                     continue;
                 };
-                let Some((pixels, w, h)) = packs
-                    .resolve_asset(&props.source)
-                    .and_then(|p| util::load_png(&p))
-                else {
-                    tracing::warn!("OptiFine sky layer {i}: no texture {}", props.source);
-                    continue;
-                };
-                let texture = util::create_sampled_texture(device, "optifine_sky", &pixels, w, h);
-                let set = util::create_texture_group(
-                    device,
-                    self.tex_layout,
-                    texture.handle(),
-                    self.sampler,
-                );
-                self.custom.push(CustomLayer {
-                    skybox,
-                    props,
-                    texture,
-                    set,
-                });
+                found.push((i, skybox, props));
             }
+        }
+        // Sky layers are large images; decode them together.
+        let images = util::par_map(&found, |(_, _, props)| {
+            packs
+                .resolve_asset(&props.source)
+                .and_then(|p| util::load_png(&p))
+        });
+        for ((i, skybox, props), image) in found.into_iter().zip(images) {
+            let Some((pixels, w, h)) = image else {
+                tracing::warn!("OptiFine sky layer {i}: no texture {}", props.source);
+                continue;
+            };
+            let texture = util::create_sampled_texture(device, "optifine_sky", &pixels, w, h);
+            let set =
+                util::create_texture_group(device, self.tex_layout, texture.handle(), self.sampler);
+            self.custom.push(CustomLayer {
+                skybox,
+                props,
+                texture,
+                set,
+            });
         }
         if !self.custom.is_empty() {
             tracing::info!("Loaded {} OptiFine sky layers", self.custom.len());

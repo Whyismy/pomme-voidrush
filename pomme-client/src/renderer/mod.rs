@@ -1543,6 +1543,13 @@ impl Renderer {
         font_options: FontOptions,
     ) {
         self.ctx.device.wait_idle();
+        let start = std::time::Instant::now();
+        let mut lap = start;
+        let mut laps = Vec::new();
+        let mut lap_done = |name: &'static str| {
+            laps.push(format!("{name} {:.0?}", lap.elapsed()));
+            lap = std::time::Instant::now();
+        };
 
         self.render_assets = Arc::new(BlockRenderAssets::load(
             &self.jar_assets_dir,
@@ -1551,6 +1558,7 @@ impl Renderer {
             Some(packs),
         ));
 
+        lap_done("models");
         self.item_entity_pipeline.clear_meshes(&self.ctx.device);
         self.block_display_tints.clear();
         self.display_assets_generation += 1;
@@ -1566,6 +1574,7 @@ impl Renderer {
             Some(packs),
         )
         .expect("failed to rebuild atlas");
+        lap_done("atlas");
         // OptiFine skies come with packs too.
         self.sky_pipeline.load_custom_sky(&self.ctx.device, packs);
         self.sky_pipeline.load_celestial(
@@ -1575,6 +1584,7 @@ impl Renderer {
             packs,
         );
 
+        lap_done("sky");
         self.chunk_pipeline
             .rebind_atlas(&self.ctx.device, &self.atlas);
         self.item_entity_pipeline
@@ -1598,7 +1608,9 @@ impl Renderer {
             packs,
         );
 
+        lap_done("armor");
         self.reload_fonts(packs, font_options);
+        lap_done("fonts");
 
         warm_item_meshes(
             &self.ctx.device,
@@ -1610,8 +1622,13 @@ impl Renderer {
         // GUI item slots cache fully rendered pixels. Releasing their keys is
         // enough: reused slots are marked stale and cleared before rebaking.
         self.gui_item_atlas.invalidate_all();
+        lap_done("item meshes");
 
-        tracing::info!("Assets reloaded");
+        tracing::info!(
+            "Assets reloaded in {:.2?} ({})",
+            start.elapsed(),
+            laps.join(", ")
+        );
     }
 
     /// Vanilla `FontManager.updateOptions`: only the font sets change.

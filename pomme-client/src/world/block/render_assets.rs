@@ -143,6 +143,33 @@ impl OwnedBlockRenderView {
 }
 
 impl BlockRenderAssets {
+    /// The cached block textures, else each block's resolved from the assets
+    /// and packs (cached for next time when no pack applies).
+    fn block_textures(
+        textures: Option<HashMap<String, FaceTextures>>,
+        cache_path: Option<&Path>,
+        jar_assets_dir: &Path,
+        asset_index: &Option<AssetIndex>,
+        packs: Option<&crate::resource_pack::ResourcePackManager>,
+    ) -> HashMap<String, FaceTextures> {
+        textures.unwrap_or_else(|| {
+            let mut textures = model::load_all_block_textures(jar_assets_dir, asset_index, packs);
+
+            textures
+                .entry("water".into())
+                .or_insert_with(|| FaceTextures::uniform("water_still", Tint::None));
+            textures
+                .entry("lava".into())
+                .or_insert_with(|| FaceTextures::uniform("lava_still", Tint::None));
+
+            if let Some(path) = cache_path {
+                save_cache(path, &textures);
+            }
+            tracing::info!("Block render assets: {} blocks (built)", textures.len());
+            textures
+        })
+    }
+
     pub fn load(
         jar_assets_dir: &Path,
         asset_index: &Option<AssetIndex>,
@@ -163,25 +190,25 @@ impl BlockRenderAssets {
             );
         }
 
-        let textures = textures.unwrap_or_else(|| {
-            let mut textures = model::load_all_block_textures(jar_assets_dir, asset_index, packs);
-
-            textures
-                .entry("water".into())
-                .or_insert_with(|| FaceTextures::uniform("water_still", Tint::None));
-            textures
-                .entry("lava".into())
-                .or_insert_with(|| FaceTextures::uniform("lava_still", Tint::None));
-
-            if let Some(path) = &cache_path {
-                save_cache(path, &textures);
-            }
-            tracing::info!("Block render assets: {} blocks (built)", textures.len());
-            textures
+        // The block textures, block models and item models don't depend on
+        // each other; with a pack applied each takes a second or more, so
+        // the models bake on their own threads meanwhile.
+        let (textures, (baked, multipart), baked_items) = std::thread::scope(|scope| {
+            let blocks = scope.spawn(|| model::bake_all_models(jar_assets_dir, asset_index, packs));
+            let items = scope.spawn(|| model::bake_item_models(jar_assets_dir, asset_index, packs));
+            let textures = Self::block_textures(
+                textures,
+                cache_path.as_deref(),
+                jar_assets_dir,
+                asset_index,
+                packs,
+            );
+            (
+                textures,
+                blocks.join().expect("block models bake"),
+                items.join().expect("item models bake"),
+            )
         });
-
-        let (baked, multipart) = model::bake_all_models(jar_assets_dir, asset_index, packs);
-        let baked_items = model::bake_item_models(jar_assets_dir, asset_index, packs);
         let item_models = baked_items.models;
         let flat_item_textures = baked_items.generated_textures;
         let flat_item_texture_keys = baked_items.flat_texture_keys;

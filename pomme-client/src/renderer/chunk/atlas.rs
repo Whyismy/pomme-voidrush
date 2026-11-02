@@ -905,16 +905,17 @@ impl TextureAtlas {
         generated_item_textures: &HashSet<&str>,
         packs: Option<&crate::resource_pack::ResourcePackManager>,
     ) -> AtlasCpu {
-        let mut sources: Vec<Source> = Vec::with_capacity(texture_names.len());
-        for &name in texture_names {
-            sources.push(load_source(
+        // Decoding thousands of PNGs is most of a pack reload's time.
+        let names: Vec<&str> = texture_names.iter().copied().collect();
+        let mut sources: Vec<Source> = util::par_map(&names, |&name| {
+            load_source(
                 name,
                 jar_assets_dir,
                 asset_index,
                 packs,
                 generated_item_textures.contains(name),
-            ));
-        }
+            )
+        });
 
         let mip_level = effective_mip_level(&sources);
         let mip_align = 1 << mip_level;
@@ -1076,13 +1077,13 @@ fn build_mip_chain(
         );
     }
 
-    for source in sources {
+    // Each placed sprite's mips (its shown frame's, and every unique frame's
+    // for an animation), built in parallel, then copied in order.
+    let mips = util::par_map(&*sources, |source| {
         let Some(Some((x, y))) = placements.get(source.name.as_str()) else {
-            continue;
+            return None;
         };
-        let Some(mip_source) = &source.mip_source else {
-            continue;
-        };
+        let mip_source = source.mip_source.as_ref()?;
         let layout = &mip_source.animation;
         let full_mips = generate_rgba_mips(
             mip_source.full_data.clone(),
@@ -1105,17 +1106,27 @@ fn build_mip_chain(
                 })
                 .collect()
         };
-        if let Some(animation) = &mut source.animation {
-            animation.pixels = layout
+        let animation = source.animation.as_ref().map(|_| {
+            layout
                 .unique_frames
                 .iter()
                 .map(|&frame| frame_levels(frame))
-                .collect();
+                .collect::<Vec<_>>()
+        });
+        Some((
+            (*x, *y),
+            frame_levels(layout.initial_display_frame),
+            animation,
+        ))
+    });
+    for (source, mips) in sources.iter_mut().zip(mips) {
+        let Some(((x, y), shown, animation_pixels)) = mips else {
+            continue;
+        };
+        if let (Some(animation), Some(pixels)) = (&mut source.animation, animation_pixels) {
+            animation.pixels = pixels;
         }
-        for (level, frame) in frame_levels(layout.initial_display_frame)
-            .into_iter()
-            .enumerate()
-        {
+        for (level, frame) in shown.into_iter().enumerate() {
             let level = level as u32;
             copy_rect_rgba(
                 &frame,
@@ -1570,6 +1581,49 @@ fn sprite_transparency(data: &[u8]) -> (bool, bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Times the CPU half of a resource-pack reload (what joining a server
+    /// with a pack waits on) against a real pack: `POMME_JAR_ASSETS` (an
+    /// extracted `assets` folder), `POMME_PACK_INSTANCE` (a game dir) and
+    /// `POMME_PACK_HASH` (a pack in its server cache). Run with `--release
+    /// -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "times a real pack; see the doc comment"]
+    fn time_a_pack_reload() {
+        let env = |key| std::env::var(key).unwrap_or_else(|_| panic!("{key} is unset"));
+        let jar = PathBuf::from(env("POMME_JAR_ASSETS"));
+        let mut packs =
+            crate::resource_pack::ResourcePackManager::new(Path::new(&env("POMME_PACK_INSTANCE")));
+        packs.apply_server_pack(uuid::Uuid::nil(), &env("POMME_PACK_HASH"));
+        let start = std::time::Instant::now();
+        let assets = BlockRenderAssets::load(&jar, &None, None, Some(&packs));
+        let models = start.elapsed();
+        let (names, generated) = atlas_texture_names(&assets);
+        let cpu = TextureAtlas::build_cpu(&jar, &None, &names, &generated, Some(&packs));
+        let atlas = start.elapsed() - models;
+        let AtlasCpu {
+            atlas_pixels,
+            atlas_size,
+            mip_level,
+            mut sources,
+            placements,
+            missing,
+            ..
+        } = cpu;
+        build_mip_chain(
+            atlas_pixels,
+            atlas_size,
+            mip_level,
+            &mut sources,
+            &placements,
+            missing,
+        );
+        let mips = start.elapsed() - models - atlas;
+        println!(
+            "{} sprites: models {models:.2?}, atlas {atlas:.2?}, mips {mips:.2?}",
+            names.len()
+        );
+    }
 
     #[test]
     fn integer_mix_matches_the_shaders_float_mix() {

@@ -405,3 +405,36 @@ fn record_image_upload(
         &copies,
     );
 }
+
+/// `f` over `items` on scoped worker threads, one contiguous chunk each, the
+/// results in `items`' order: for CPU-heavy asset work (decoding thousands
+/// of textures, building their mips) that would otherwise hold the main
+/// thread for seconds.
+pub fn par_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {
+    let workers = std::thread::available_parallelism().map_or(1, |n| n.get());
+    let chunk = items.len().div_ceil(workers).max(16);
+    if items.len() <= chunk {
+        return items.iter().map(&f).collect();
+    }
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = items
+            .chunks(chunk)
+            .map(|part| scope.spawn(|| part.iter().map(&f).collect::<Vec<R>>()))
+            .collect();
+        handles
+            .into_iter()
+            .flat_map(|h| h.join().expect("an asset worker panicked"))
+            .collect()
+    })
+}
+
+#[cfg(test)]
+mod par_map_tests {
+    #[test]
+    fn par_map_keeps_order() {
+        let items: Vec<u32> = (0..1000).collect();
+        let doubled = super::par_map(&items, |&i| i * 2);
+        assert_eq!(doubled, (0..1000).map(|i| i * 2).collect::<Vec<_>>());
+        assert!(super::par_map(&[] as &[u32], |&i| i).is_empty());
+    }
+}
