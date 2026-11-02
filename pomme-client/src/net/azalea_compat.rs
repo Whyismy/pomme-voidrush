@@ -4733,6 +4733,94 @@ fn translate_level_particles_777() {
 /// after the entry rather than inside its `DisplayInfo`, and sends one even
 /// without a display.
 #[test]
+fn translate_update_advancements_774() {
+    use azalea_buf::AzBuf;
+    use azalea_inventory::{ItemStack, ItemStackData};
+    use azalea_protocol::packets::game::c_update_advancements::{
+        Advancement, AdvancementHolder, ClientboundUpdateAdvancements, DisplayInfo, FrameType,
+    };
+    use pomme_protocol::{ClientRegistry, RegistryTable};
+
+    let displayed = AdvancementHolder {
+        id: "voidrush:void/first_rush".into(),
+        value: Advancement {
+            parent_id: None,
+            display: Some(Box::new(DisplayInfo {
+                title: azalea_chat::FormattedText::default(),
+                description: azalea_chat::FormattedText::default(),
+                icon: ItemStack::Present(ItemStackData {
+                    count: 1,
+                    kind: azalea_registry::builtin::ItemKind::EnderPearl,
+                    component_patch: Default::default(),
+                }),
+                frame: FrameType::Goal,
+                show_toast: true,
+                hidden: false,
+                background: None,
+                x: 3.0,
+                y: 0.5,
+            })),
+            requirements: vec![vec!["a".into()]],
+            sends_telemetry_event: false,
+        },
+    };
+    let bare = AdvancementHolder {
+        id: "voidrush:void/second".into(),
+        value: Advancement {
+            parent_id: Some("voidrush:void/first_rush".into()),
+            display: None,
+            requirements: vec![],
+            sends_telemetry_event: true,
+        },
+    };
+    let packet = ClientboundGamePacket::UpdateAdvancements(ClientboundUpdateAdvancements {
+        reset: true,
+        added: vec![displayed.clone(), bare.clone()],
+        removed: vec![],
+        progress: Default::default(),
+        show_advancements: true,
+    });
+    let frame = azalea_protocol::write::serialize_packet(&packet).unwrap();
+
+    // The icon's item in 1.21.11's ids (count 1, no components).
+    let native_item = azalea_registry::builtin::ItemKind::EnderPearl as u32;
+    let wire_item = registry_id(
+        RegistryTable::for_protocol(774).unwrap(),
+        ClientRegistry::Item,
+        "ender_pearl",
+    );
+    let mut native_stack = vec![1];
+    wire::write_varint(&mut native_stack, native_item);
+    native_stack.extend_from_slice(&[0, 0]);
+    let mut wire_stack = vec![1];
+    wire::write_varint(&mut wire_stack, wire_item);
+    wire_stack.extend_from_slice(&[0, 0]);
+    let mut holder = Vec::new();
+    displayed.azalea_write(&mut holder).unwrap();
+    let at = holder
+        .windows(native_stack.len())
+        .position(|w| w == native_stack)
+        .unwrap();
+    holder.splice(at..at + native_stack.len(), wire_stack);
+
+    let mut old = Vec::new();
+    wire::write_varint(
+        &mut old,
+        old_id(774, Direction::Clientbound, "update_advancements"),
+    );
+    old.push(1); // reset
+    wire::write_varint(&mut old, 2);
+    old.extend_from_slice(&holder);
+    bare.azalea_write(&mut old).unwrap();
+    old.extend_from_slice(&[0, 0, 1]); // no removals, no progress, show
+
+    let translated = translation_for(774)
+        .translate_game_frame(old.into_boxed_slice())
+        .unwrap();
+    assert_eq!(&translated[..], &frame[..]);
+}
+
+#[test]
 fn translate_update_advancements_777() {
     use azalea_buf::AzBuf;
     use azalea_inventory::{ItemStack, ItemStackData};

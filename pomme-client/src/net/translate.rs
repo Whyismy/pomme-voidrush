@@ -1692,6 +1692,8 @@ impl GameIds {
                 set_equipment_id: id(Clientbound, "set_equipment"),
                 merchant_offers_id: id(Clientbound, "merchant_offers"),
                 set_creative_mode_slot_id: id(Serverbound, "set_creative_mode_slot"),
+                update_advancements_id: (protocol < 775)
+                    .then(|| id(Clientbound, "update_advancements")),
             }),
             v772: (protocol <= 772).then(|| Ids772 {
                 add_entity_id: id(Clientbound, "add_entity"),
@@ -4030,6 +4032,9 @@ struct ItemIds {
     set_equipment_id: u32,
     merchant_offers_id: u32,
     set_creative_mode_slot_id: u32,
+    /// Wire versions before 26.1, whose advancement icons are item stacks
+    /// rather than templates.
+    update_advancements_id: Option<u32>,
 }
 
 /// Translates item stacks from the wire version's grammar into native ids.
@@ -4057,6 +4062,7 @@ impl ItemIds {
             i if i == self.set_player_inventory_id => translate_set_player_inventory,
             i if i == self.set_equipment_id => translate_set_equipment,
             i if i == self.merchant_offers_id => translate_merchant_offers,
+            i if Some(i) == self.update_advancements_id => translate_update_advancements_stacks,
             _ => return None,
         })
     }
@@ -5380,6 +5386,68 @@ fn translate_update_advancements_777(
             }
             None => out.extend_from_slice(&payload[entry_at..entry_end]),
         }
+    }
+    out.extend_from_slice(&payload[cur.position() as usize..]);
+    Some(out)
+}
+
+/// Rewrites `update_advancements` from a wire version before 26.1: each
+/// `DisplayInfo` icon is an `ItemStack` in the wire version's item and
+/// component ids, which are translated (pomme reads the icon as an
+/// `ItemStack` too); an advancement whose icon item 26.2 lacks loses its
+/// display (it still counts, unshown). The rest of each entry, and the
+/// removals, progress and `showAdvancements` after the list, copy verbatim.
+fn translate_update_advancements_stacks(
+    id: u32,
+    payload: &[u8],
+    items: Items<'_>,
+) -> Option<Vec<u8>> {
+    let mut cur = Cursor::new(payload);
+    let mut out = Vec::with_capacity(payload.len() + 8);
+    wire::write_varint(&mut out, id);
+    copy_bytes(&mut cur, &mut out, 1)?; // reset
+    let count = copy_varint(&mut cur, &mut out)?;
+    let span = |cur: &mut Cursor<&[u8]>, skip: fn(&mut Cursor<&[u8]>) -> Option<()>| {
+        let at = cur.position() as usize;
+        skip(cur)?;
+        Some(at..cur.position() as usize)
+    };
+    for _ in 0..count {
+        copy_utf(&mut cur, &mut out)?; // id
+        if copy_bytes(&mut cur, &mut out, 1).map(|()| out[out.len() - 1])? != 0 {
+            copy_utf(&mut cur, &mut out)?; // parent
+        }
+        if read_u8(&mut cur)? != 0 {
+            let title = span(&mut cur, skip_nbt)?;
+            let description = span(&mut cur, skip_nbt)?;
+            let mut stack = Vec::new();
+            let shown = items.non_empty_stack(&mut cur, &mut stack)?;
+            let mut rest = Vec::new();
+            copy_varint(&mut cur, &mut rest)?; // frame type
+            let flags = read_i32(&mut cur)?;
+            rest.extend_from_slice(&flags.to_be_bytes());
+            if flags & 1 != 0 {
+                copy_utf(&mut cur, &mut rest)?; // background
+            }
+            copy_bytes(&mut cur, &mut rest, 8)?; // x, y
+            if shown {
+                out.push(1);
+                out.extend_from_slice(&payload[title]);
+                out.extend_from_slice(&payload[description]);
+                out.extend_from_slice(&stack);
+                out.extend_from_slice(&rest);
+            } else {
+                out.push(0);
+            }
+        } else {
+            out.push(0);
+        }
+        for _ in 0..copy_varint(&mut cur, &mut out)? {
+            for _ in 0..copy_varint(&mut cur, &mut out)? {
+                copy_utf(&mut cur, &mut out)?; // requirement
+            }
+        }
+        copy_bytes(&mut cur, &mut out, 1)?; // sends telemetry
     }
     out.extend_from_slice(&payload[cur.position() as usize..]);
     Some(out)
