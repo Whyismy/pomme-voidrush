@@ -93,6 +93,7 @@ struct Api {
     alc_create_context: unsafe extern "C" fn(*mut AlcDevice, *const AlcInt) -> *mut AlcContext,
     alc_destroy_context: unsafe extern "C" fn(*mut AlcContext),
     alc_make_context_current: unsafe extern "C" fn(*mut AlcContext) -> AlcBoolean,
+    alc_get_current_context: unsafe extern "C" fn() -> *mut AlcContext,
     alc_get_error: unsafe extern "C" fn(*mut AlcDevice) -> AlcEnum,
     alc_is_extension_present: unsafe extern "C" fn(*mut AlcDevice, *const c_char) -> AlcBoolean,
     alc_get_integerv: unsafe extern "C" fn(*mut AlcDevice, AlcEnum, AlSize, *mut AlcInt),
@@ -210,6 +211,10 @@ impl Api {
                 "alcMakeContextCurrent",
                 unsafe extern "C" fn(*mut AlcContext) -> AlcBoolean
             ),
+            alc_get_current_context: symbol!(
+                "alcGetCurrentContext",
+                unsafe extern "C" fn() -> *mut AlcContext
+            ),
             alc_get_error: symbol!(
                 "alcGetError",
                 unsafe extern "C" fn(*mut AlcDevice) -> AlcEnum
@@ -285,9 +290,17 @@ struct ContextInner {
 
 impl Drop for ContextInner {
     fn drop(&mut self) {
-        // SAFETY: This thread exclusively owns the current context; null detaches it
-        // before destroy.
-        unsafe { (self.api.alc_make_context_current)(std::ptr::null_mut()) };
+        // The current context is process-wide, and a replacement engine may
+        // already have made its own current (the asset reload builds the new
+        // engine before dropping this one): detaching then would leave every
+        // later AL call failing with AL_INVALID_OPERATION, so only this
+        // context is detached.
+        // SAFETY: alcGetCurrentContext takes no arguments and only reads.
+        if unsafe { (self.api.alc_get_current_context)() } == self.context {
+            // SAFETY: the current context is this one, which is about to be
+            // destroyed; null detaches it first.
+            unsafe { (self.api.alc_make_context_current)(std::ptr::null_mut()) };
+        }
         // SAFETY: context is a live handle created exactly once by alcCreateContext and
         // is dropped once.
         unsafe { (self.api.alc_destroy_context)(self.context) };
