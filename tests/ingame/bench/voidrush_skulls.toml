@@ -1,0 +1,44 @@
+# Mob skulls: each kind placed on the floor, one on a wall, and two worn by
+# armor stands (one small and invisible, like Void Rush's pets).
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/setblock 0 -60 5 minecraft:skeleton_skull[rotation=0]"
+
+[[step]]
+chat = "/setblock 1 -60 5 minecraft:wither_skeleton_skull[rotation=2]"
+
+[[step]]
+chat = "/setblock 2 -60 5 minecraft:zombie_head[rotation=4]"
+
+[[step]]
+chat = "/setblock 3 -60 5 minecraft:creeper_head[rotation=0]"
+
+[[step]]
+chat = "/setblock 4 -60 5 minecraft:piglin_head[rotation=0]"
+
+[[step]]
+chat = "/setblock 6 -59 7 minecraft:stone"
+
+[[step]]
+chat = "/setblock 6 -59 6 minecraft:creeper_wall_head[facing=north]"
+
+[[step]]
+chat = "/summon minecraft:armor_stand -1.5 -60 5.5 {Invisible:1b,Small:1b,NoGravity:1b,Rotation:[180f,0f],equipment:{head:{id:\"minecraft:creeper_head\"}}}"
+
+[[step]]
+chat = "/summon minecraft:armor_stand -3.5 -60 5.5 {NoGravity:1b,Rotation:[180f,0f],equipment:{head:{id:\"minecraft:piglin_head\"}}}"
+
+[[step]]
+chat = "/tp @s 2.5 -59 -0.5 0 20"
+
+[[step]]
+wait_ms = 8000
+
+[[step]]
+screenshot = "skulls"

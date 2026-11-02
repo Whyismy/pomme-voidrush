@@ -1,13 +1,30 @@
-//! Player heads worn as helmets (vanilla `CustomHeadLayer`) and placed as
-//! blocks: the head's profile names a skin, which is fetched and kept under
-//! a key of its own, never a live player's id, so a player leaving doesn't
-//! take the skin of their head items with them.
+//! Heads and skulls worn as helmets (vanilla `CustomHeadLayer`) and placed
+//! as blocks (`SkullBlockRenderer`). A mob's skull is its own model's head:
+//! vanilla's `SkullModel` and `PiglinHeadModel` share the mob's head boxes
+//! and texture. A player head's profile names a skin, which is fetched and
+//! kept under a key of its own, never a live player's id, so a player
+//! leaving doesn't take the skin of their head items with them.
 
 use std::hash::{Hash, Hasher};
 
 use azalea_inventory::ItemStack;
 use azalea_inventory::components::{PartialOrFullProfile, Profile as ItemProfile};
+use azalea_registry::builtin::EntityKind;
 use pomme_protocol::entity_data::Profile;
+
+/// The model whose head a skull block or item (floor or wall) is drawn as.
+// TODO: the dragon head, which has a model of its own (`DragonHeadModel`).
+pub fn skull_model(id: &str) -> Option<EntityKind> {
+    Some(match id {
+        "player_head" | "player_wall_head" => EntityKind::Player,
+        "skeleton_skull" | "skeleton_wall_skull" => EntityKind::Skeleton,
+        "wither_skeleton_skull" | "wither_skeleton_wall_skull" => EntityKind::WitherSkeleton,
+        "zombie_head" | "zombie_wall_head" => EntityKind::Zombie,
+        "creeper_head" | "creeper_wall_head" => EntityKind::Creeper,
+        "piglin_head" | "piglin_wall_head" => EntityKind::Piglin,
+        _ => return None,
+    })
+}
 
 /// The profile a player head item carries.
 pub fn item_profile(stack: &ItemStack) -> Option<Profile> {
@@ -109,16 +126,23 @@ pub fn armor_stand_skull(small: bool) -> (f64, f32) {
     ((24.0 - pivot_y) / 16.0, 8.0 * 1.1875 / 16.0 * scale)
 }
 
-/// Where a player model drawn head-only puts a skull `size` blocks across
-/// with its bottom `pivot` blocks above the origin: the model's own scale
-/// and its height offset. The player model's head cube is 8 pixels at
-/// `PlayerRenderer`'s 0.9375, its pivot 1.501 blocks up (the model's
-/// 24.016-pixel rebase).
-pub fn player_head_placement(pivot: f64, size: f32) -> (f32, f64) {
-    const HEAD: f32 = 0.5 * 0.9375;
-    const PIVOT: f64 = 1.501 * 0.9375;
-    let scale = size / HEAD;
-    (scale, pivot - PIVOT * f64::from(scale))
+/// Where `model` drawn head-only puts a skull `size` blocks tall with its
+/// bottom `pivot` blocks above the origin: the model's own scale and its
+/// height offset. Every skull model's head cube is 8 pixels tall with its
+/// bottom on the head's pivot, which sits 1.501 blocks up (the models'
+/// 24.016-pixel rebase), less the creeper's 6-pixel head offset; the player
+/// model draws at `PlayerRenderer`'s 0.9375.
+pub fn head_placement(model: EntityKind, pivot: f64, size: f32) -> (f32, f64) {
+    let (model_scale, head_pivot) = match model {
+        EntityKind::Player => (0.9375, 1.501),
+        EntityKind::Creeper => (1.0, 1.501 - 6.0 / 16.0),
+        _ => (1.0, 1.501),
+    };
+    let scale = size / (0.5 * model_scale);
+    (
+        scale,
+        pivot - head_pivot * f64::from(model_scale) * f64::from(scale),
+    )
 }
 
 #[cfg(test)]
@@ -167,6 +191,20 @@ mod tests {
             placed_skull(None, Some("north")),
             Some((glam::DVec3::new(0.5, 0.25, 0.75), 180.0))
         );
+    }
+
+    #[test]
+    fn skulls_stand_on_their_pivot() {
+        // A placed head (half a block) on the floor stands on the block.
+        let (scale, lift) = head_placement(EntityKind::Player, 0.0, 0.5);
+        assert!((scale - 1.0 / 0.9375).abs() < 1e-6);
+        assert!((lift + 1.501).abs() < 1e-6);
+        // A creeper's head pivot is 6 pixels lower in its model.
+        let (scale, lift) = head_placement(EntityKind::Creeper, 0.25, 0.5);
+        assert_eq!(scale, 1.0);
+        assert!((lift - (0.25 - 1.126)).abs() < 1e-6);
+        assert_eq!(skull_model("piglin_wall_head"), Some(EntityKind::Piglin));
+        assert_eq!(skull_model("dragon_head"), None);
     }
 
     #[test]

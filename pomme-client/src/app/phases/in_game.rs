@@ -4245,9 +4245,9 @@ pub fn update_game(
             })
             .collect()
     };
-    // Placed player heads within name-tag range (vanilla
-    // `SkullBlockRenderer`), as the player model's head in the head's skin.
-    // TODO: skeleton, zombie, creeper, piglin and dragon heads.
+    // Placed heads and skulls within name-tag range (vanilla
+    // `SkullBlockRenderer`), as their model's head; a player head in the
+    // head's skin.
     if !benchmark_running {
         let eye = gfx.renderer.camera_render_position();
         for (pos, be) in &game.chunk_store.block_entities {
@@ -4260,25 +4260,31 @@ pub fn update_game(
             }
             let state = game.chunk_store.get_block_state(pos.x, pos.y, pos.z);
             let data = game.block_registry.block_state_data(state);
-            if !matches!(data.id(), "player_head" | "player_wall_head") {
-                continue;
-            }
-            let props = data.properties();
-            let (Some((offset, yaw)), Some(profile)) = (
-                crate::entity::heads::placed_skull(props.get("rotation"), props.get("facing")),
-                crate::entity::heads::block_profile(&be.nbt),
-            ) else {
+            let Some(model) = crate::entity::heads::skull_model(data.id()) else {
                 continue;
             };
-            let key = crate::entity::heads::skin_key(&profile);
-            core.queue_profile_skin(key, &profile);
-            let (scale, lift) = crate::entity::heads::player_head_placement(offset.y, 0.5);
+            let props = data.properties();
+            let Some((offset, yaw)) =
+                crate::entity::heads::placed_skull(props.get("rotation"), props.get("facing"))
+            else {
+                continue;
+            };
+            let mut skin = None;
+            if model == EntityKind::Player {
+                let Some(profile) = crate::entity::heads::block_profile(&be.nbt) else {
+                    continue;
+                };
+                let key = crate::entity::heads::skin_key(&profile);
+                core.queue_profile_skin(key, &profile);
+                skin = Some(key);
+            }
+            let (scale, lift) = crate::entity::heads::head_placement(model, offset.y, 0.5);
             entity_renders.push(EntityRenderInfo {
                 position: Position::new(block.x + offset.x, block.y + lift, block.z + offset.z),
                 head_y_rot_deg: yaw,
                 body_y_rot_deg: yaw,
-                entity_kind: EntityKind::Player,
-                player_uuid: Some(key),
+                entity_kind: model,
+                player_uuid: skin,
                 head_only: true,
                 body_transform: Some(glam::Mat4::from_scale(glam::Vec3::splat(scale))),
                 light: block_lighter::light_coords(&world_light, [pos.x, pos.y, pos.z]),
@@ -4287,24 +4293,40 @@ pub fn update_game(
         }
     }
 
-    // Vanilla `CustomHeadLayer`: a player head worn by an armor stand (how
-    // servers float pet heads), even an invisible one, drawn as the player
-    // model's head in the head's skin.
+    // Vanilla `CustomHeadLayer`: a head or skull worn by an armor stand (how
+    // servers float pet heads), even an invisible one, drawn as its model's
+    // head; a player head in the head's skin.
     // TODO: heads worn by other mobs, which need their head part's pose.
     if !benchmark_running {
         for e in game.entity_store.living.values() {
             if e.entity_type != EntityKind::ArmorStand {
                 continue;
             }
-            let Some(profile) = e
+            let Some(helmet) = e
                 .equipment(azalea_inventory::components::EquipmentSlot::Head)
-                .and_then(crate::entity::heads::item_profile)
+                .and_then(|stack| stack.as_present())
             else {
                 continue;
             };
+            let Some(model) = crate::entity::heads::skull_model(
+                &crate::player::inventory::item_resource_name(helmet.kind),
+            ) else {
+                continue;
+            };
+            let skin = if model == EntityKind::Player {
+                let Some(profile) = e
+                    .equipment(azalea_inventory::components::EquipmentSlot::Head)
+                    .and_then(crate::entity::heads::item_profile)
+                else {
+                    continue;
+                };
+                Some(crate::entity::heads::skin_key(&profile))
+            } else {
+                None
+            };
             let (pivot, size) =
                 crate::entity::heads::armor_stand_skull(e.armor_stand_flags & 0x01 != 0);
-            let (scale, lift) = crate::entity::heads::player_head_placement(pivot, size);
+            let (scale, lift) = crate::entity::heads::head_placement(model, pivot, size);
             let body_y = lerp_angle(e.prev_body_y_rot_deg, e.body_y_rot_deg, partial_tick);
             let feet = e.prev_position.lerp(e.position, partial_tick as f64);
             // The skull turns with the stand's head pose (its roll aside).
@@ -4314,8 +4336,8 @@ pub fn update_game(
                 head_x_rot_deg: head_x,
                 head_y_rot_deg: body_y + head_y,
                 body_y_rot_deg: body_y,
-                entity_kind: EntityKind::Player,
-                player_uuid: Some(crate::entity::heads::skin_key(&profile)),
+                entity_kind: model,
+                player_uuid: skin,
                 head_only: true,
                 body_transform: Some(glam::Mat4::from_scale(glam::Vec3::splat(scale))),
                 light: entity_light(
