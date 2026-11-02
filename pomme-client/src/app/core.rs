@@ -2716,6 +2716,7 @@ impl AppCore {
                 }
                 NetworkEvent::LevelParticles {
                     kind,
+                    options,
                     override_limiter,
                     pos,
                     x_dist,
@@ -2724,8 +2725,11 @@ impl AppCore {
                     max_speed,
                     count,
                 } => {
+                    let look = particle_look(game, options, pos);
                     game.particle_store.add_particles_from_packet(
                         kind,
+                        options,
+                        look,
                         override_limiter,
                         pos,
                         glam::dvec3(x_dist as f64, y_dist as f64, z_dist as f64),
@@ -4054,6 +4058,45 @@ fn compute_fov_modifier(player: &LocalPlayer, effect_scale: f32) -> f32 {
     let speed_factor: f32 = if player.sprinting { 1.3 } else { 1.0 };
     modifier *= (speed_factor + 1.0) / 2.0;
     1.0_f32.lerp(modifier, effect_scale)
+}
+
+/// How a block or item particle looks: the block's terrain sprite and tint at
+/// `pos`, or the item's flat sprite. `ParticleLook::None` for other options,
+/// and for a state or item with no sprite.
+fn particle_look(
+    game: &GameState,
+    options: crate::particle::ParticleOptions,
+    pos: glam::DVec3,
+) -> crate::particle::ParticleLook {
+    use crate::particle::{ParticleLook, ParticleOptions};
+    match options {
+        ParticleOptions::Block(state) => {
+            let Some(state) = game.block_registry.block_state_table().try_state(state) else {
+                return ParticleLook::None;
+            };
+            game.particle_store
+                .terrain_appearance(
+                    crate::position::BlockPos::containing(pos),
+                    state,
+                    game.block_registry.render_view(),
+                    &game.chunk_store,
+                    &game.biome_climate,
+                )
+                .map_or(ParticleLook::None, |(region, color)| {
+                    ParticleLook::Terrain(region, color)
+                })
+        }
+        ParticleOptions::Item(item) => pomme_protocol::RegistryTable::native()
+            .name_of(pomme_protocol::ClientRegistry::Item, item)
+            .and_then(|name| {
+                let name = name.strip_prefix("minecraft:").unwrap_or(name);
+                game.particle_store.item_region(&format!("item/{name}"))
+            })
+            .map_or(ParticleLook::None, |region| {
+                ParticleLook::Terrain(region, [1.0; 3])
+            }),
+        _ => ParticleLook::None,
+    }
 }
 
 #[cfg(test)]

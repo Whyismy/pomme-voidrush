@@ -489,6 +489,7 @@ pub enum NetworkEvent {
     /// `ParticleStatus::All`, and pomme has no particles setting).
     LevelParticles {
         kind: crate::particle::ServerParticleKind,
+        options: crate::particle::ParticleOptions,
         override_limiter: bool,
         pos: DVec3,
         x_dist: f32,

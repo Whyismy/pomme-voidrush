@@ -505,8 +505,12 @@ fn parse_level_particles(r: &mut Reader) -> DecodeResult<Option<NetworkEvent>> {
     let Some(kind) = crate::particle::ServerParticleKind::from_id(type_id) else {
         return Ok(None);
     };
+    let Some(options) = particle_options(r, kind)? else {
+        return Ok(None);
+    };
     Ok(Some(NetworkEvent::LevelParticles {
         kind,
+        options,
         override_limiter,
         pos,
         x_dist,
@@ -514,6 +518,51 @@ fn parse_level_particles(r: &mut Reader) -> DecodeResult<Option<NetworkEvent>> {
         z_dist,
         max_speed,
         count,
+    }))
+}
+
+/// The options after a particle's type id, in the codec of the session's
+/// version: the colours and scale of dust, a block state (in the session's
+/// state ids, which the block registry reads), or an item, as a native id.
+/// `None` for an item the native version lacks.
+fn particle_options(
+    r: &mut Reader,
+    kind: crate::particle::ServerParticleKind,
+) -> DecodeResult<Option<crate::particle::ParticleOptions>> {
+    use crate::particle::{ParticleOptions as O, ServerParticleKind as K};
+    Ok(Some(match kind {
+        // DustParticleOptions.STREAM_CODEC: an RGB int, then the scale.
+        K::Dust => O::Dust {
+            color: r.i32()? as u32,
+            scale: r.f32()?,
+        },
+        // DustColorTransitionOptions.STREAM_CODEC.
+        K::DustColorTransition => O::DustTransition {
+            from: r.i32()? as u32,
+            to: r.i32()? as u32,
+            scale: r.f32()?,
+        },
+        // BlockParticleOption: the state id.
+        K::Block | K::BlockCrumble | K::FallingDust => O::Block(r.varint()?),
+        // ItemParticleOption: through 1.21.11 a whole stack, count first;
+        // since 26.1 an `ItemStackTemplate`, item first. Only the item is
+        // read (the rest is the packet's tail).
+        K::Item => {
+            let translation = super::translate::active();
+            if crate::version::session_protocol() <= 774 {
+                r.varint()?;
+            }
+            let item = r.varint()?;
+            let item = match translation {
+                Some(t) => match t.remap_to_native(pomme_protocol::ClientRegistry::Item, item) {
+                    Some(item) => item,
+                    None => return Ok(None),
+                },
+                None => item,
+            };
+            O::Item(item)
+        }
+        _ => O::None,
     }))
 }
 
@@ -783,5 +832,67 @@ mod tests {
             rx.try_recv(),
             Err(crossbeam_channel::TryRecvError::Empty)
         ));
+    }
+
+    /// A native `level_particles` body for particle `name` (count 1, no
+    /// spread), followed by `options`.
+    fn particle_body(name: &str, options: &[u8]) -> Vec<u8> {
+        let id = pomme_protocol::RegistryTable::native()
+            .id_of(pomme_protocol::ClientRegistry::ParticleType, name)
+            .unwrap();
+        let mut b = vec![0, 0];
+        for v in [1.0f64, 2.0, 3.0] {
+            b.extend(v.to_be_bytes());
+        }
+        for f in [0.0f32; 4] {
+            b.extend(f.to_be_bytes());
+        }
+        b.extend(1i32.to_be_bytes());
+        wire::write_varint(&mut b, id);
+        b.extend_from_slice(options);
+        b
+    }
+
+    fn parsed_options(name: &str, options: &[u8]) -> crate::particle::ParticleOptions {
+        match parse_level_particles(&mut Reader::new(&particle_body(name, options))) {
+            Ok(Some(NetworkEvent::LevelParticles { options, .. })) => options,
+            _ => panic!("{name} not parsed"),
+        }
+    }
+
+    #[test]
+    fn particle_options_follow_their_codecs() {
+        use crate::particle::ParticleOptions as O;
+        let mut dust = 0xFF8800i32.to_be_bytes().to_vec();
+        dust.extend(1.5f32.to_be_bytes());
+        assert_eq!(
+            parsed_options("dust", &dust),
+            O::Dust {
+                color: 0xFF8800,
+                scale: 1.5
+            }
+        );
+        let mut transition = 0x112233i32.to_be_bytes().to_vec();
+        transition.extend(0x445566i32.to_be_bytes());
+        transition.extend(2.0f32.to_be_bytes());
+        assert_eq!(
+            parsed_options("dust_color_transition", &transition),
+            O::DustTransition {
+                from: 0x112233,
+                to: 0x445566,
+                scale: 2.0
+            }
+        );
+        let mut block = Vec::new();
+        wire::write_varint(&mut block, 1234);
+        assert_eq!(parsed_options("block", &block), O::Block(1234));
+        assert_eq!(parsed_options("falling_dust", &block), O::Block(1234));
+        // A native ItemStackTemplate leads with the item.
+        let mut item = Vec::new();
+        wire::write_varint(&mut item, 42);
+        wire::write_varint(&mut item, 1);
+        item.extend([0, 0]);
+        assert_eq!(parsed_options("item", &item), O::Item(42));
+        assert_eq!(parsed_options("flame", &[]), O::None);
     }
 }
