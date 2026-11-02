@@ -3,7 +3,7 @@
 //! unknown serializer ends the packet (`SynchedEntityData.DataValue.read`).
 
 use crate::codec::{DecodeResult, MAX_STRING_LENGTH, Reader};
-use crate::item::{ItemCodec, ItemStack, PARTICLE, RESOLVABLE_PROFILE, Shape};
+use crate::item::{ItemCodec, ItemStack, PARTICLE, Shape};
 
 /// `ClientboundSetEntityDataPacket.EOF_MARKER`.
 const EOF_MARKER: u8 = 0xFF;
@@ -40,6 +40,8 @@ pub enum Serializer {
     VillagerData,
     Pose,
     Variant(Variant),
+    /// `RESOLVABLE_PROFILE`: a mannequin's skin.
+    Profile,
     Skip(Shape),
 }
 
@@ -69,8 +71,56 @@ pub enum Value {
     Pose(u32),
     /// A registry id.
     Variant(Variant, u32),
+    Profile(Box<Profile>),
     /// A value the client doesn't read.
     Other,
+}
+
+/// What a `ResolvableProfile` says about a skin: the profile (a full one
+/// names and identifies a player; a partial one may name either) with its
+/// `textures` property, and `PlayerSkin.Patch`'s body texture and model.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Profile {
+    pub name: Option<String>,
+    pub id: Option<u128>,
+    /// The `textures` property's base64 value.
+    pub textures: Option<String>,
+    /// A texture asset id replacing the skin.
+    pub body: Option<String>,
+    /// The model the patch forces: slim (`true`) or wide.
+    pub slim: Option<bool>,
+}
+
+/// `ResolvableProfile.STREAM_CODEC`: `Either(GAME_PROFILE, Partial)`, then
+/// `PlayerSkin.Patch.STREAM_CODEC` (body, cape and elytra assets, model).
+fn read_profile(r: &mut Reader) -> DecodeResult<Profile> {
+    let (name, id) = if r.bool()? {
+        let id = r.uuid()?;
+        (Some(r.utf(16)?.to_owned()), Some(id))
+    } else {
+        let name = r.optional(|r| Ok(r.utf(16)?.to_owned()))?;
+        (name, r.optional(Reader::uuid)?)
+    };
+    let mut textures = None;
+    for _ in 0..r.len(16)? {
+        let key = r.utf(64)?;
+        let value = r.utf(32767)?;
+        r.optional(|r| r.utf(1024).map(drop))?; // signature
+        if key == "textures" {
+            textures = Some(value.to_owned());
+        }
+    }
+    let body = r.optional(|r| Ok(r.identifier()?.to_owned()))?;
+    r.optional(|r| r.identifier().map(drop))?; // cape
+    r.optional(|r| r.identifier().map(drop))?; // elytra
+    let slim = r.optional(Reader::bool)?;
+    Ok(Profile {
+        name,
+        id,
+        textures,
+        body,
+        slim,
+    })
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -161,7 +211,7 @@ macro_rules! serializers_26_2 {
     S::Int,
     S::Vector3,
     S::Quaternion,
-    S::Skip(Ref(&RESOLVABLE_PROFILE)),
+    S::Profile,
     // HUMANOID_ARM
     S::Skip(ENUM),
     $($extra),*
@@ -225,6 +275,7 @@ impl ItemCodec {
             },
             S::Pose => Value::Pose(r.varint()?),
             S::Variant(variant) => Value::Variant(*variant, r.varint()?),
+            S::Profile => Value::Profile(Box::new(read_profile(r)?)),
             S::Skip(shape) => {
                 self.skip(r, shape)?;
                 Value::Other
@@ -265,6 +316,52 @@ mod tests {
             .into_iter()
             .map(|v| v.value)
             .collect()
+    }
+
+    #[test]
+    fn a_mannequin_profile_carries_its_skin() {
+        let serializer = SERIALIZERS_26_2
+            .iter()
+            .position(|s| matches!(s, Serializer::Profile))
+            .unwrap() as u32;
+        let utf = |out: &mut Vec<u8>, s: &str| {
+            write_varint(out, s.len() as u32);
+            out.extend_from_slice(s.as_bytes());
+        };
+        let mut full = vec![1]; // a full GameProfile
+        full.extend_from_slice(&7u128.to_be_bytes());
+        utf(&mut full, "Bramfang");
+        full.push(1); // one property, signed
+        utf(&mut full, "textures");
+        utf(&mut full, "e30=");
+        full.push(1);
+        utf(&mut full, "sig");
+        full.extend_from_slice(&[0, 0, 0, 1, 1]); // no assets; model: slim
+        let mut partial = vec![0, 1]; // a partial profile: a name, no id
+        utf(&mut partial, "Kaelith");
+        partial.extend_from_slice(&[0, 0, 0, 0, 0, 0]);
+        let values = read(&frame(&[
+            (17, serializer, &full),
+            (17, serializer, &partial),
+        ]))
+        .unwrap();
+        assert_eq!(
+            values[0].value,
+            Value::Profile(Box::new(Profile {
+                name: Some("Bramfang".into()),
+                id: Some(7),
+                textures: Some("e30=".into()),
+                body: None,
+                slim: Some(true),
+            }))
+        );
+        assert_eq!(
+            values[1].value,
+            Value::Profile(Box::new(Profile {
+                name: Some("Kaelith".into()),
+                ..Profile::default()
+            }))
+        );
     }
 
     #[test]
@@ -408,7 +505,9 @@ mod tests {
             (5, 1, &[9]),
         ]);
         let decoded = values(&bytes);
-        assert_eq!(decoded[..5], [const { Value::Other }; 5]);
+        assert_eq!(decoded[..4], [const { Value::Other }; 4]);
+        // An empty partial profile with no skin patch.
+        assert_eq!(decoded[4], Value::Profile(Box::default()));
         assert_eq!(decoded[5], Value::Int(9));
     }
 
