@@ -42,6 +42,8 @@ pub enum Serializer {
     Variant(Variant),
     /// `RESOLVABLE_PROFILE`: a mannequin's skin.
     Profile,
+    /// `ROTATIONS`: an armor stand's part poses, x y z degrees.
+    Rotations,
     Skip(Shape),
 }
 
@@ -72,6 +74,7 @@ pub enum Value {
     /// A registry id.
     Variant(Variant, u32),
     Profile(Box<Profile>),
+    Rotations([f32; 3]),
     /// A value the client doesn't read.
     Other,
 }
@@ -155,7 +158,7 @@ macro_rules! serializers_26_2 {
     S::ItemStack,
     S::Bool,
     // Rotations.java:18
-    S::Skip(Struct(&[Float, Float, Float])),
+    S::Rotations,
     // BlockPos
     S::Skip(Long),
     S::OptionalBlockPos,
@@ -276,6 +279,7 @@ impl ItemCodec {
             S::Pose => Value::Pose(r.varint()?),
             S::Variant(variant) => Value::Variant(*variant, r.varint()?),
             S::Profile => Value::Profile(Box::new(read_profile(r)?)),
+            S::Rotations => Value::Rotations([r.f32()?, r.f32()?, r.f32()?]),
             S::Skip(shape) => {
                 self.skip(r, shape)?;
                 Value::Other

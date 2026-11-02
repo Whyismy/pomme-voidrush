@@ -4118,6 +4118,7 @@ pub fn update_game(
                     ),
                     visibility: visibility(e.is_invisible, &name),
                     head_only: false,
+                    armor_stand_pose: e.armor_stand_pose,
                     pack_shadow: if game.riding_vehicle_id == Some(entity_id) {
                         PackShadow::Player
                     } else if e
@@ -4297,9 +4298,12 @@ pub fn update_game(
             let (scale, lift) = crate::entity::heads::player_head_placement(pivot, size);
             let body_y = lerp_angle(e.prev_body_y_rot_deg, e.body_y_rot_deg, partial_tick);
             let feet = e.prev_position.lerp(e.position, partial_tick as f64);
+            // The skull turns with the stand's head pose (its roll aside).
+            let [head_x, head_y, _] = e.armor_stand_pose[0];
             entity_renders.push(EntityRenderInfo {
                 position: feet + glam::DVec3::new(0.0, lift, 0.0),
-                head_y_rot_deg: body_y,
+                head_x_rot_deg: head_x,
+                head_y_rot_deg: body_y + head_y,
                 body_y_rot_deg: body_y,
                 entity_kind: EntityKind::Player,
                 player_uuid: Some(crate::entity::heads::skin_key(&profile)),

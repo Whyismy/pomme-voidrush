@@ -235,6 +235,9 @@ pub struct EntityRenderInfo {
     /// Draw only the head (and what hangs from it): a player head worn by an
     /// entity or placed as a block is the player model's head in its skin.
     pub head_only: bool,
+    /// An armor stand's part poses in degrees
+    /// (`crate::entity::ARMOR_STAND_POSES`).
+    pub armor_stand_pose: [[f32; 3]; 6],
 }
 
 /// Everything inert: mob-family animation inputs zeroed, no overlays, white
@@ -315,6 +318,7 @@ impl Default for EntityRenderInfo {
             light: LightLevels::FULL_BRIGHT,
             pack_shadow: PackShadow::Entity,
             head_only: false,
+            armor_stand_pose: crate::entity::ARMOR_STAND_DEFAULT_POSE,
         }
     }
 }
@@ -1001,6 +1005,8 @@ enum AnimationType {
     /// [`entity_model::compute_generic_anim`], for models baked from
     /// vanilla's layers without a hand-ported animation.
     Generic,
+    /// `ArmorStandModel.setupAnim`: each part at its synced pose.
+    ArmorStand,
 }
 
 struct VariantDef {
@@ -2352,7 +2358,7 @@ fn mob_definitions() -> Vec<MobDef> {
         // TODO: the six synced poses (head, body, arms, legs).
         MobDef {
             kind: EntityKind::ArmorStand,
-            anim: AnimationType::Static,
+            anim: AnimationType::ArmorStand,
             adult: (0..4)
                 .map(|variant| {
                     // `ArmorStandModel` hides the humanoid hat.
@@ -3073,6 +3079,9 @@ impl EntityRenderer {
                 info.golem_offer_flower_ticks,
             ),
             AnimationType::Static => entity_model::PartAnim::default(),
+            AnimationType::ArmorStand => {
+                entity_model::compute_armor_stand_anim(model, &info.armor_stand_pose)
+            }
             AnimationType::Generic => entity_model::compute_generic_anim(
                 model,
                 info.head_x_rot_deg,

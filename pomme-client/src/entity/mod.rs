@@ -63,7 +63,29 @@ pub enum MetaValue {
     Byte(u8),
     Float(f32),
     Long(i64),
+    /// x y z degrees.
+    Rotations([f32; 3]),
 }
+
+/// The parts `ArmorStand.DATA_*_POSE` (16 to 21) pose, in that order.
+pub const ARMOR_STAND_POSES: [&str; 6] = [
+    "head",
+    "body",
+    "left_arm",
+    "right_arm",
+    "left_leg",
+    "right_leg",
+];
+
+/// `ArmorStand.DEFAULT_*_POSE`, in [`ARMOR_STAND_POSES`] order.
+pub const ARMOR_STAND_DEFAULT_POSE: [[f32; 3]; 6] = [
+    [0.0, 0.0, 0.0],
+    [0.0, 0.0, 0.0],
+    [-10.0, 0.0, -10.0],
+    [-15.0, 0.0, 10.0],
+    [-1.0, 0.0, -1.0],
+    [1.0, 0.0, 1.0],
+];
 
 /// Vanilla `Sniffer.State`, in id order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -763,6 +785,9 @@ pub struct LivingEntity {
     pub slime_size: u8,
     /// `ArmorStand.DATA_CLIENT_FLAGS`: small, arms, no base plate, marker.
     pub armor_stand_flags: u8,
+    /// An armor stand's part poses in degrees, in [`ARMOR_STAND_POSES`]
+    /// order.
+    pub armor_stand_pose: [[f32; 3]; 6],
     /// Enderman screaming flag — raises the head and jitters the render
     /// position.
     pub is_creepy: bool,
@@ -1033,6 +1058,7 @@ impl LivingEntity {
             prev_squish: 0.0,
             slime_size: 1,
             armor_stand_flags: 0,
+            armor_stand_pose: ARMOR_STAND_DEFAULT_POSE,
             is_creepy: false,
             is_converting: false,
             is_sitting: false,
@@ -2010,7 +2036,7 @@ impl EntityStore {
     /// first subclass field 18, in the 26.x numbering
     /// (`normalize_ageable_index`).
     pub fn apply_entity_data(&mut self, id: i32, index: u8, value: MetaValue) {
-        use MetaValue::{Bool, Byte, Float, Int, Long};
+        use MetaValue::{Bool, Byte, Float, Int, Long, Rotations};
         let Some(entity) = self.living.get_mut(&id) else {
             return;
         };
@@ -2027,6 +2053,9 @@ impl EntityStore {
             (_, 9, Float(h)) => entity.health = h,
             // Mob flags byte: bit 0x04 = aggressive. Players aren't mobs;
             // their 15 is Avatar's main hand (a byte on 1.21.9-1.21.10).
+            (EntityKind::ArmorStand, 16..=21, Rotations(r)) => {
+                entity.armor_stand_pose[usize::from(index - 16)] = r;
+            }
             (EntityKind::ArmorStand, 15, Byte(f)) => {
                 entity.armor_stand_flags = f;
                 // A small stand draws its own small model, like a baby.

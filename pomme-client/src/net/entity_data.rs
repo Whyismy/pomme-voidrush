@@ -256,6 +256,7 @@ fn send_scalar(id: i32, index: u8, value: &Value, event_tx: &Sender<NetworkEvent
         Value::Byte(v) => MetaValue::Byte(*v),
         Value::Float(v) => MetaValue::Float(*v),
         Value::Long(v) => MetaValue::Long(*v),
+        Value::Rotations(v) => MetaValue::Rotations(*v),
         _ => return,
     };
     send_ordered(event_tx, NetworkEvent::EntityData { id, index, value });
@@ -268,6 +269,7 @@ pub(super) fn from_azalea(value: &EntityDataValue) -> Option<Value> {
         EntityDataValue::Int(v) => Value::Int(*v),
         EntityDataValue::Long(v) => Value::Long(*v),
         EntityDataValue::Float(v) => Value::Float(*v),
+        EntityDataValue::Rotations(r) => Value::Rotations([r.x, r.y, r.z]),
         EntityDataValue::Boolean(v) => Value::Bool(*v),
         EntityDataValue::OptionalFormattedText(text) => Value::OptionalComponent(match text {
             Some(text) => {

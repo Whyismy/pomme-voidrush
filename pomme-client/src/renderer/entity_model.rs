@@ -4138,6 +4138,27 @@ fn walk_swing(walk_pos: f32, walk_speed: f32, phase: f32) -> f32 {
     (walk_pos * 0.6662 + phase).cos() * 1.4 * walk_speed
 }
 
+/// Vanilla `ArmorStandModel.setupAnim`: each posed part at its synced
+/// rotation (degrees), and the body sticks and shoulder bar with the body.
+pub fn compute_armor_stand_anim(model: &BakedEntityModel, pose: &[[f32; 3]; 6]) -> PartAnim {
+    let mut anim = PartAnim::default();
+    let rad = |[x, y, z]: [f32; 3]| Vec3::new(x, y, z) * (std::f32::consts::PI / 180.0);
+    for (i, part) in model.parts.iter().enumerate() {
+        let slot = match part.name.as_str() {
+            "left_body_stick" | "right_body_stick" | "shoulder_stick" => 1,
+            name => match crate::entity::ARMOR_STAND_POSES
+                .iter()
+                .position(|p| *p == name)
+            {
+                Some(slot) => slot,
+                None => continue,
+            },
+        };
+        anim.rotation.push((i, rad(pose[slot])));
+    }
+    anim
+}
+
 /// Head look and walking for models baked from vanilla's own layers
 /// ([`bake_exported`]) that have no hand-ported `setupAnim` yet, by vanilla
 /// part names: the head turns, biped legs and arms swing like
