@@ -1,0 +1,29 @@
+# The survival inventory shows a hovered item's tooltip: a custom-named,
+# enchanted sword with styled lore, like Void Rush's gear.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/clear @s"
+
+[[step]]
+chat = "/give @s minecraft:diamond_sword[custom_name={text:\"Void Blade\",color:\"light_purple\"},lore=[{text:\"+12 Damage\",color:\"red\",italic:false},\"A blade from the void\"],enchantments={sharpness:5}]"
+
+[[step]]
+wait_ms = 1000
+
+[[step]]
+open_inventory = true
+
+[[step]]
+wait_ms = 1000
+
+[[step]]
+cursor = [168, 202]
+
+[[step]]
+wait_ms = 500
+
+[[step]]
+screenshot = "item_tooltip"

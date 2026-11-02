@@ -60,6 +60,9 @@ pub struct Panel {
     pub oy: f32,
     pub w: f32,
     pub h: f32,
+    /// The screen and GUI scale it sits in, for tooltips.
+    pub screen: (f32, f32),
+    pub gs: f32,
 }
 
 impl Panel {
@@ -140,6 +143,8 @@ pub fn push_backdrop(
         oy,
         w,
         h,
+        screen: (screen_w, screen_h),
+        gs,
     }
 }
 
@@ -205,6 +210,10 @@ pub struct SlotCtx<'e> {
     /// cursor. Read-only; the real change happens on release.
     preview: Option<(HashMap<u16, ItemStack>, ItemStack)>,
     hovered: Option<u16>,
+    /// What the hovered slot shows, for its tooltip.
+    hovered_item: Option<ItemStack>,
+    screen: (f32, f32),
+    gs: f32,
 }
 
 impl<'e> SlotCtx<'e> {
@@ -230,6 +239,9 @@ impl<'e> SlotCtx<'e> {
             cursor,
             preview,
             hovered: None,
+            hovered_item: None,
+            screen: panel.screen,
+            gs: panel.gs,
         }
     }
 
@@ -279,8 +291,10 @@ impl<'e> SlotCtx<'e> {
             shown,
             empty,
             use_player_team,
-        ) {
-            self.hovered = self.hovered.or(Some(num));
+        ) && self.hovered.is_none()
+        {
+            self.hovered = Some(num);
+            self.hovered_item = Some(shown.clone());
         }
     }
 
@@ -321,7 +335,28 @@ impl<'e> SlotCtx<'e> {
 
     /// Ends slot drawing: the hovered slot, and the stack that should ride the
     /// cursor (the un-distributed drag remainder while dragging).
+    ///
+    /// Vanilla `AbstractContainerScreen.renderTooltip`: with nothing carried,
+    /// the hovered slot's stack shows its tooltip at the cursor.
     pub fn finish(self, cursor_item: &ItemStack) -> (Option<u16>, ItemStack) {
+        if cursor_item.is_empty()
+            && let Some(item @ ItemStack::Present(_)) = &self.hovered_item
+        {
+            let lines = match serde_json::to_value(item) {
+                Ok(value) => crate::ui::chat::item_tooltip_lines(&value, None, false),
+                Err(_) => Vec::new(),
+            };
+            if !lines.is_empty() {
+                super::common::push_tooltip_lines(
+                    self.elements,
+                    self.cursor,
+                    self.screen.0,
+                    self.screen.1,
+                    self.gs,
+                    lines,
+                );
+            }
+        }
         let shown = self
             .preview
             .map(|(_, r)| r)
