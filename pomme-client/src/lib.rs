@@ -201,12 +201,15 @@ pub fn run(args: LaunchArgs, platform: Platform) {
         std::process::exit(headless::run(rd, play, user, version, &data_dirs, &rt));
     }
 
+    // Harness builds join the runner's offline server as the player it
+    // names; launched without one (a release-profile harness build played
+    // on a real server), they sign in like a release.
+    let named = args.username.is_some() || args.uuid.is_some() || args.access_token.is_some();
     let (user, require_account) = UserData::for_launch(
         args.username,
         args.uuid,
         args.access_token,
-        // Harness builds join the runner's offline server, release or not.
-        cfg!(not(debug_assertions)) && !cfg!(feature = "test-harness"),
+        cfg!(not(debug_assertions)) && (!cfg!(feature = "test-harness") || !named),
         cfg!(mobile),
     );
 
