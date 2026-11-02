@@ -1,0 +1,37 @@
+# Standing on blocks with odd collision shapes: a stonecutter's 9-pixel slab
+# with an invisible armor stand on it (a station's hologram, which never
+# pushes the player) and a lectern's post (its top plate has no thickness).
+# The player stays where it lands rather than being pushed off.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/gamemode survival"
+
+[[step]]
+chat = "/setblock 5 -60 5 minecraft:stonecutter"
+
+[[step]]
+chat = "/summon minecraft:armor_stand 5.6 -59.4375 5.5 {Invisible:1b,NoGravity:1b}"
+
+[[step]]
+chat = "/tp @s 5.5 -59 5.5 0 0"
+
+[[step]]
+wait_ms = 3000
+
+[[step]]
+expect = { player = { position = [5.5, -59.4375, 5.5] } }
+
+[[step]]
+chat = "/setblock 8 -60 5 minecraft:lectern"
+
+[[step]]
+chat = "/tp @s 8.5 -58.5 5.5 0 0"
+
+[[step]]
+wait_ms = 3000
+
+[[step]]
+expect = { player = { position = [8.5, -59.125, 5.5] } }

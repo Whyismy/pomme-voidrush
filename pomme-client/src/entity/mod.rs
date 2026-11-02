@@ -973,12 +973,16 @@ fn living_entity_aabb(entity: &LivingEntity) -> Aabb {
 
 /// Per-kind `pushEntities` / `doPush` overrides. Team rules, spectators and
 /// shared vehicles are the caller's `pusher_allowed` filter.
-// TODO: once these kinds are modeled: ArmorStand no-ops doPush/pushEntities,
-// Vex ticks with noPhysics (no push), and Warden / Creaking gate the
-// reciprocal impulse in isPushable.
+// TODO: once these kinds are modeled: Vex ticks with noPhysics (no push),
+// and Warden / Creaking gate the reciprocal impulse in isPushable.
 fn pushes_local_player(entity: &LivingEntity) -> bool {
-    // `Parrot.doPush` skips players.
-    !matches!(entity.entity_type, EntityKind::Bat | EntityKind::Parrot)
+    // `Parrot.doPush` skips players; `ArmorStand.pushEntities` only pushes
+    // rideable minecarts (servers park invisible stands as holograms and
+    // pets on blocks people stand on).
+    !matches!(
+        entity.entity_type,
+        EntityKind::Bat | EntityKind::Parrot | EntityKind::ArmorStand
+    )
 }
 
 /// The pusher's `isPushable`, which gates only the reciprocal impulse.
@@ -3140,6 +3144,7 @@ mod tests {
             (4, EntityKind::Zombie),
             (5, EntityKind::Zombie),
             (6, EntityKind::Parrot),
+            (7, EntityKind::ArmorStand),
         ] {
             spawn(&mut store, id, kind, Position::new(0.25, 64.0, 0.0));
         }
@@ -3159,12 +3164,14 @@ mod tests {
         let expected = f64::from(0.05_f32) * 0.5;
 
         // A normal mob, a remote player, and a dying mob all push the local
-        // player. Bat and Parrot override the vanilla push path and don't.
+        // player. Bat, Parrot and ArmorStand override the vanilla push path
+        // and don't.
         assert_eq!(impulse, DVec3::new(-expected * 3.0, 0.0, 0.0));
         assert_eq!(store.living[&1].velocity, DVec3::new(expected, 0.0, 0.0));
         assert_eq!(store.living[&2].velocity, DVec3::new(expected, 0.0, 0.0));
         assert_eq!(store.living[&3].velocity, DVec3::ZERO);
         assert_eq!(store.living[&6].velocity, DVec3::ZERO);
+        assert_eq!(store.living[&7].velocity, DVec3::ZERO);
         // Dead LivingEntity::isPushable is false, so it does not receive the
         // reciprocal impulse even though its tick still pushes the local player.
         assert_eq!(store.living[&4].velocity, DVec3::ZERO);
