@@ -2206,6 +2206,9 @@ fn classify_block(block_state_data: &BlockStateData) -> BlockKind {
         "lava" => BlockKind::Lava,
         // Drawn by the block-entity pipeline; nothing to mesh.
         id if crate::world::block_entity::rendered_kind(id).is_some() => BlockKind::Air,
+        // Drawn as the player model's head (`entity::heads`); their block
+        // model is only a particle texture, which would mesh as a full cube.
+        "player_head" | "player_wall_head" => BlockKind::Air,
         _ => BlockKind::Solid,
     }
 }

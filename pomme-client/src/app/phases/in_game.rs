@@ -4117,6 +4117,7 @@ pub fn update_game(
                         &name,
                     ),
                     visibility: visibility(e.is_invisible, &name),
+                    head_only: false,
                     pack_shadow: if game.riding_vehicle_id == Some(entity_id) {
                         PackShadow::Player
                     } else if e
@@ -4234,6 +4235,87 @@ pub fn update_game(
             })
             .collect()
     };
+    // Placed player heads within name-tag range (vanilla
+    // `SkullBlockRenderer`), as the player model's head in the head's skin.
+    // TODO: skeleton, zombie, creeper, piglin and dragon heads.
+    if !benchmark_running {
+        let eye = gfx.renderer.camera_render_position();
+        for (pos, be) in &game.chunk_store.block_entities {
+            if be.kind != BlockEntityKind::Skull {
+                continue;
+            }
+            let block = glam::DVec3::new(f64::from(pos.x), f64::from(pos.y), f64::from(pos.z));
+            if (block - eye).length_squared() > 64.0 * 64.0 {
+                continue;
+            }
+            let state = game.chunk_store.get_block_state(pos.x, pos.y, pos.z);
+            let data = game.block_registry.block_state_data(state);
+            if !matches!(data.id(), "player_head" | "player_wall_head") {
+                continue;
+            }
+            let props = data.properties();
+            let (Some((offset, yaw)), Some(profile)) = (
+                crate::entity::heads::placed_skull(props.get("rotation"), props.get("facing")),
+                crate::entity::heads::block_profile(&be.nbt),
+            ) else {
+                continue;
+            };
+            let key = crate::entity::heads::skin_key(&profile);
+            core.queue_profile_skin(key, &profile);
+            let (scale, lift) = crate::entity::heads::player_head_placement(offset.y, 0.5);
+            entity_renders.push(EntityRenderInfo {
+                position: Position::new(block.x + offset.x, block.y + lift, block.z + offset.z),
+                head_y_rot_deg: yaw,
+                body_y_rot_deg: yaw,
+                entity_kind: EntityKind::Player,
+                player_uuid: Some(key),
+                head_only: true,
+                body_transform: Some(glam::Mat4::from_scale(glam::Vec3::splat(scale))),
+                light: block_lighter::light_coords(&world_light, [pos.x, pos.y, pos.z]),
+                ..Default::default()
+            });
+        }
+    }
+
+    // Vanilla `CustomHeadLayer`: a player head worn by an armor stand (how
+    // servers float pet heads), even an invisible one, drawn as the player
+    // model's head in the head's skin.
+    // TODO: heads worn by other mobs, which need their head part's pose.
+    if !benchmark_running {
+        for e in game.entity_store.living.values() {
+            if e.entity_type != EntityKind::ArmorStand {
+                continue;
+            }
+            let Some(profile) = e
+                .equipment(azalea_inventory::components::EquipmentSlot::Head)
+                .and_then(crate::entity::heads::item_profile)
+            else {
+                continue;
+            };
+            let (pivot, size) =
+                crate::entity::heads::armor_stand_skull(e.armor_stand_flags & 0x01 != 0);
+            let (scale, lift) = crate::entity::heads::player_head_placement(pivot, size);
+            let body_y = lerp_angle(e.prev_body_y_rot_deg, e.body_y_rot_deg, partial_tick);
+            let feet = e.prev_position.lerp(e.position, partial_tick as f64);
+            entity_renders.push(EntityRenderInfo {
+                position: feet + glam::DVec3::new(0.0, lift, 0.0),
+                head_y_rot_deg: body_y,
+                body_y_rot_deg: body_y,
+                entity_kind: EntityKind::Player,
+                player_uuid: Some(crate::entity::heads::skin_key(&profile)),
+                head_only: true,
+                body_transform: Some(glam::Mat4::from_scale(glam::Vec3::splat(scale))),
+                light: entity_light(
+                    &world_light,
+                    EntityKind::ArmorStand,
+                    e.eye_position(partial_tick),
+                    false,
+                    0,
+                ),
+                ..Default::default()
+            });
+        }
+    }
 
     // Vanilla only extracts the local player while it's the camera entity;
     // Iris's shadow pass draws it in first person too.
@@ -5704,6 +5786,12 @@ fn entity_extras(
             ..Default::default()
         },
         EntityKind::SulfurCube => sulfur_cube_extras(e, alpha),
+        // Arms (`ShowArms`) and no base plate, as the stand's model variant.
+        EntityKind::ArmorStand => EntityExtras {
+            variant_index: u32::from(e.armor_stand_flags & 0x04 != 0)
+                | u32::from(e.armor_stand_flags & 0x08 != 0) << 1,
+            ..Default::default()
+        },
         // `MagmaCubeRenderer.scale`: a slime's size and squish.
         EntityKind::MagmaCube => EntityExtras {
             body_transform: Some(cube_body_transform(e, alpha, true)),

@@ -22,7 +22,7 @@ pub use armadillo::*;
 pub use axolotl::*;
 pub use bee::*;
 pub use dolphin::*;
-pub(crate) use exported::{ExportedPart, bake_exported};
+pub(crate) use exported::{ExportedPart, bake_exported, bake_exported_hiding};
 pub use fox::*;
 pub use goat::*;
 pub use llama::*;

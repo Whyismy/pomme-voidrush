@@ -3,6 +3,7 @@ pub mod dimensions;
 pub mod display;
 pub mod falling_block;
 pub mod glowing;
+pub mod heads;
 pub mod light;
 pub mod name_tags;
 pub mod shadow;
@@ -760,6 +761,8 @@ pub struct LivingEntity {
     pub squish: f32,
     pub prev_squish: f32,
     pub slime_size: u8,
+    /// `ArmorStand.DATA_CLIENT_FLAGS`: small, arms, no base plate, marker.
+    pub armor_stand_flags: u8,
     /// Enderman screaming flag — raises the head and jitters the render
     /// position.
     pub is_creepy: bool,
@@ -1029,6 +1032,7 @@ impl LivingEntity {
             squish: 0.0,
             prev_squish: 0.0,
             slime_size: 1,
+            armor_stand_flags: 0,
             is_creepy: false,
             is_converting: false,
             is_sitting: false,
@@ -2023,6 +2027,11 @@ impl EntityStore {
             (_, 9, Float(h)) => entity.health = h,
             // Mob flags byte: bit 0x04 = aggressive. Players aren't mobs;
             // their 15 is Avatar's main hand (a byte on 1.21.9-1.21.10).
+            (EntityKind::ArmorStand, 15, Byte(f)) => {
+                entity.armor_stand_flags = f;
+                // A small stand draws its own small model, like a baby.
+                entity.is_baby = f & 0x01 != 0;
+            }
             (k, 15, Byte(f)) if k != EntityKind::Player => {
                 entity.no_ai = f & 0x01 != 0;
                 entity.aggressive = f & 0x04 != 0;
@@ -2575,6 +2584,7 @@ pub fn is_living_mob(kind: &EntityKind) -> bool {
                 // Drawn from vanilla's own layer geometry (`bake_exported`)
                 // or, for mannequins and wither skeletons, existing models.
                 | EntityKind::Mannequin
+                | EntityKind::ArmorStand
                 | EntityKind::WitherSkeleton
                 | EntityKind::Piglin
                 | EntityKind::PiglinBrute

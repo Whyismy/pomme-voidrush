@@ -30,6 +30,12 @@ pub(crate) struct ExportedQuad {
 /// with y up, and each quad wound like [`super::generate_cube_vertices`]'s
 /// (its first two edges cross to point into the model).
 pub(crate) fn bake_exported(parts: &[ExportedPart]) -> BakedEntityModel {
+    bake_exported_hiding(parts, &[])
+}
+
+/// [`bake_exported`] with the parts named in `hidden` left without
+/// geometry (kept as parts, so poses still find them by name).
+pub(crate) fn bake_exported_hiding(parts: &[ExportedPart], hidden: &[&str]) -> BakedEntityModel {
     let mut entity_parts = Vec::with_capacity(parts.len());
     let mut vertices = Vec::new();
     let mut part_ranges = Vec::with_capacity(parts.len());
@@ -43,7 +49,12 @@ pub(crate) fn bake_exported(parts: &[ExportedPart]) -> BakedEntityModel {
             parent: part.parent.map(usize::from),
         });
         let start = vertices.len() as u32;
-        for quad in part.quads {
+        let quads = if hidden.contains(&part.name) {
+            &[][..]
+        } else {
+            part.quads
+        };
+        for quad in quads {
             let normal = Vec3::new(quad.normal[0], -quad.normal[1], quad.normal[2]);
             let mut corners = quad
                 .corners
@@ -63,7 +74,11 @@ pub(crate) fn bake_exported(parts: &[ExportedPart]) -> BakedEntityModel {
         }
         part_ranges.push((start, vertices.len() as u32 - start));
     }
-    BakedEntityModel::new(entity_parts, vertices, part_ranges)
+    let mut model = BakedEntityModel::new(entity_parts, vertices, part_ranges);
+    // `PartPose` scale (uniform in every exported layer): the small armor
+    // stand's parts are posed at half and three-quarter size.
+    model.part_scales = parts.iter().map(|part| part.pose[6]).collect();
+    model
 }
 
 #[cfg(test)]

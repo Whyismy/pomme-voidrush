@@ -232,6 +232,9 @@ pub struct EntityRenderInfo {
     /// Vanilla `EntityRenderState.lightCoords`.
     pub light: LightLevels,
     pub pack_shadow: PackShadow,
+    /// Draw only the head (and what hangs from it): a player head worn by an
+    /// entity or placed as a block is the player model's head in its skin.
+    pub head_only: bool,
 }
 
 /// Everything inert: mob-family animation inputs zeroed, no overlays, white
@@ -311,6 +314,7 @@ impl Default for EntityRenderInfo {
             shadow: Default::default(),
             light: LightLevels::FULL_BRIGHT,
             pack_shadow: PackShadow::Entity,
+            head_only: false,
         }
     }
 }
@@ -2342,6 +2346,41 @@ fn mob_definitions() -> Vec<MobDef> {
             exported_data::CAMEL,
             tex_table!("camel" => "camel"),
         ),
+        // `ArmorStandRenderer`: arms only with `ShowArms`, the base plate
+        // unless `NoBasePlate`; the variant is those two flags. A small
+        // stand draws the small layer.
+        // TODO: the six synced poses (head, body, arms, legs).
+        MobDef {
+            kind: EntityKind::ArmorStand,
+            anim: AnimationType::Static,
+            adult: (0..4)
+                .map(|variant| {
+                    // `ArmorStandModel` hides the humanoid hat.
+                    let mut hidden = vec!["hat"];
+                    if variant & 1 == 0 {
+                        hidden.extend(["right_arm", "left_arm"]);
+                    }
+                    if variant & 2 != 0 {
+                        hidden.push("base_plate");
+                    }
+                    opaque(
+                        entity_model::bake_exported_hiding(exported_data::ARMOR_STAND, &hidden),
+                        tex_table!("armorstand" => "armorstand"),
+                        64,
+                    )
+                })
+                .collect(),
+            baby: Some(opaque(
+                entity_model::bake_exported_hiding(
+                    exported_data::ARMOR_STAND_SMALL,
+                    &["hat", "right_arm", "left_arm"],
+                ),
+                tex_table!("armorstand" => "armorstand"),
+                64,
+            )),
+            adult_overlays: vec![],
+            baby_overlays: vec![],
+        },
         MobDef {
             anim: AnimationType::Static,
             ..exported(
@@ -2732,6 +2771,25 @@ impl EntityRenderer {
     }
 
     fn compute_anim(
+        &self,
+        anim_type: AnimationType,
+        model: &BakedEntityModel,
+        info: &EntityRenderInfo,
+    ) -> entity_model::PartAnim {
+        let mut anim = self.compute_kind_anim(anim_type, model, info);
+        if info.head_only {
+            // Children follow their parent's scale, so hiding the other roots
+            // hides everything but the head and its hat.
+            for (i, part) in model.parts.iter().enumerate() {
+                if part.parent.is_none() && part.name != "head" {
+                    anim.scale.push((i, glam::Vec3::ZERO));
+                }
+            }
+        }
+        anim
+    }
+
+    fn compute_kind_anim(
         &self,
         anim_type: AnimationType,
         model: &BakedEntityModel,

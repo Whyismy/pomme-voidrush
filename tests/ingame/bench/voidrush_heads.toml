@@ -1,0 +1,45 @@
+# Player heads: placed on the floor at two rotations and on a wall, worn
+# by small invisible armor stands (how Void Rush floats its pets), and
+# armor stands themselves, with and without arms.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/setblock 0 -60 5 minecraft:player_head[rotation=0]{profile:{name:\"Notch\"}}"
+
+[[step]]
+chat = "/setblock 2 -60 5 minecraft:player_head[rotation=4]{profile:{name:\"jeb_\"}}"
+
+[[step]]
+chat = "/setblock 4 -59 7 minecraft:stone"
+
+[[step]]
+chat = "/setblock 4 -59 6 minecraft:player_wall_head[facing=north]{profile:{name:\"Notch\"}}"
+
+[[step]]
+chat = "/summon minecraft:armor_stand -2.5 -60 5.5 {Invisible:1b,Small:1b,NoGravity:1b,Rotation:[180f,0f],equipment:{head:{id:\"minecraft:player_head\",components:{\"minecraft:profile\":{name:\"Notch\"}}}}}"
+
+[[step]]
+chat = "/summon minecraft:armor_stand -4.5 -60 5.5 {Invisible:1b,NoGravity:1b,Rotation:[180f,0f],equipment:{head:{id:\"minecraft:player_head\",components:{\"minecraft:profile\":{name:\"jeb_\"}}}}}"
+
+[[step]]
+chat = "/summon minecraft:armor_stand 7.5 -60 5.5 {ShowArms:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:armor_stand 9.5 -60 5.5 {NoBasePlate:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:armor_stand 11.5 -60 5.5 {Small:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/tp @s 3.5 -59 -1.5 0 15"
+
+[[step]]
+wait_ms = 8000
+
+[[step]]
+screenshot = "heads"

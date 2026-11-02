@@ -1325,12 +1325,12 @@ impl AppCore {
         self.queue_skin(uuid, source, uuid);
     }
 
-    /// Vanilla `MannequinRenderer`'s skin: the profile's textures, else the
-    /// skin of the player it names by id or by name; with neither, the
-    /// mannequin keeps the default skin. Kept under the mannequin's own id.
-    fn queue_mannequin_skin(
+    /// A `ResolvableProfile`'s skin (a mannequin's, a player head's): the
+    /// profile's textures, else the skin of the player it names by id or by
+    /// name; with neither, the default skin stays. Kept under `key`.
+    pub(crate) fn queue_profile_skin(
         &mut self,
-        mannequin: uuid::Uuid,
+        key: uuid::Uuid,
         profile: &pomme_protocol::entity_data::Profile,
     ) {
         let id = profile.id.map(uuid::Uuid::from_u128);
@@ -1340,7 +1340,7 @@ impl AppCore {
             (None, _, Some(name)) if !name.is_empty() => PlayerSkinSource::Name(name.clone()),
             _ => return,
         };
-        self.queue_skin(mannequin, source, id.unwrap_or(mannequin));
+        self.queue_skin(key, source, id.unwrap_or(key));
     }
 
     /// Fetches `source`'s skin (a `Uuid` source names `profile`) and keeps
@@ -1357,6 +1357,7 @@ impl AppCore {
             return;
         }
 
+        tracing::debug!("Fetching the skin for {uuid} from {source:?}");
         let tx = self.player_skin_tx.clone();
         self.tokio_rt.spawn(async move {
             let result = fetch_skin(&source, Some(profile)).await;
@@ -1906,6 +1907,12 @@ impl AppCore {
                 NetworkEvent::EntityEquipment { entity_id, slots } => {
                     if let Some(e) = game.entity_store.living.get_mut(&entity_id) {
                         for (slot, item) in slots {
+                            if slot == azalea_inventory::components::EquipmentSlot::Head
+                                && let Some(profile) = crate::entity::heads::item_profile(&item)
+                            {
+                                let key = crate::entity::heads::skin_key(&profile);
+                                self.queue_profile_skin(key, &profile);
+                            }
                             e.set_equipment(slot, item);
                         }
                     }
@@ -2765,7 +2772,7 @@ impl AppCore {
                 NetworkEvent::MannequinProfile { id, profile } => {
                     if let Some(entity) = game.entity_store.living.get(&id) {
                         let uuid = entity.uuid;
-                        self.queue_mannequin_skin(uuid, &profile);
+                        self.queue_profile_skin(uuid, &profile);
                     }
                 }
                 NetworkEvent::MannequinDescription { id, spans } => {
