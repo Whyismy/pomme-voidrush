@@ -2,6 +2,13 @@
 //! `#bench start <label>` and `#bench stop` (never sent) bracket a window, and
 //! each window's summary is appended to the `POMME_BENCH_LOG` file as a JSON
 //! line. Without that variable, chat passes through untouched.
+//!
+//! `POMME_BENCH_AUTO=<label>,<start>,<seconds>,<count>` also opens `count`
+//! windows of `seconds` each, back to back, from `start` seconds after the
+//! first frame, for a live client nothing can type into.
+//!
+//! Each window also keeps the phases of its slow frames (over
+//! [`SLOW_FRAME_SECS`]) apart, to show what a frame-time spike was spent on.
 
 use std::io::Write as _;
 use std::sync::Mutex;
@@ -11,9 +18,85 @@ struct Window {
     frame_secs: Vec<f32>,
     /// Named per-frame costs in milliseconds, summed over the window.
     phases: std::collections::BTreeMap<&'static str, f64>,
+    /// The same, summed over the slow frames only.
+    slow_phases: std::collections::BTreeMap<&'static str, f64>,
+    slow_frames: usize,
+    /// The frame in progress's phases, until it ends.
+    frame: Vec<(&'static str, f32)>,
 }
 
+impl Window {
+    fn new(label: &str) -> Self {
+        Self {
+            label: label.trim().to_owned(),
+            frame_secs: Vec::new(),
+            phases: Default::default(),
+            slow_phases: Default::default(),
+            slow_frames: 0,
+            frame: Vec::new(),
+        }
+    }
+}
+
+/// A frame slower than 150 FPS counts as slow.
+const SLOW_FRAME_SECS: f32 = 1.0 / 150.0;
+
 static WINDOW: Mutex<Option<Window>> = Mutex::new(None);
+
+/// `POMME_BENCH_AUTO`'s schedule, timed from the first frame.
+struct Auto {
+    label: String,
+    start: f32,
+    seconds: f32,
+    count: u32,
+    first_frame: std::time::Instant,
+    /// Windows opened so far.
+    opened: u32,
+}
+
+static AUTO: Mutex<Option<Auto>> = Mutex::new(None);
+static AUTO_READ: std::sync::Once = std::sync::Once::new();
+
+fn read_auto() -> Option<Auto> {
+    let spec = std::env::var("POMME_BENCH_AUTO").ok()?;
+    let mut parts = spec.split(',');
+    let label = parts.next()?.trim().to_owned();
+    let start = parts.next()?.trim().parse().ok()?;
+    let seconds = parts.next()?.trim().parse().ok()?;
+    let count = parts.next().map_or(Some(1), |c| c.trim().parse().ok())?;
+    Some(Auto {
+        label,
+        start,
+        seconds,
+        count,
+        first_frame: std::time::Instant::now(),
+        opened: 0,
+    })
+}
+
+/// Opens and closes `POMME_BENCH_AUTO`'s windows on schedule.
+fn run_auto() {
+    AUTO_READ.call_once(|| *AUTO.lock().unwrap_or_else(|e| e.into_inner()) = read_auto());
+    let mut auto = AUTO.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(a) = auto.as_mut() else {
+        return;
+    };
+    let elapsed = a.first_frame.elapsed().as_secs_f32() - a.start;
+    if elapsed < 0.0 {
+        return;
+    }
+    // Window `n` (from 0) runs from `n * seconds`; one past the last stops.
+    let current = (elapsed / a.seconds) as u32;
+    if current >= a.count {
+        handle_chat("#bench stop");
+        *auto = None;
+        return;
+    }
+    if a.opened <= current {
+        handle_chat(&format!("#bench start {}#{}", a.label, current + 1));
+        a.opened = current + 1;
+    }
+}
 
 fn log_path() -> Option<std::path::PathBuf> {
     std::env::var_os("POMME_BENCH_LOG").map(Into::into)
@@ -29,42 +112,58 @@ pub fn handle_chat(message: &str) -> bool {
     };
     let mut window = WINDOW.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(label) = rest.strip_prefix("start ") {
-        *window = Some(Window {
-            label: label.trim().to_owned(),
-            frame_secs: Vec::new(),
-            phases: Default::default(),
-        });
+        if let Some(done) = window.take() {
+            finish(&done, &path);
+        }
+        *window = Some(Window::new(label));
     } else if rest.trim() == "stop"
         && let Some(done) = window.take()
     {
-        let line = summary(&done);
-        tracing::info!("bench {line}");
-        if let Ok(mut file) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)
-        {
-            let _ = writeln!(file, "{line}");
-        }
+        finish(&done, &path);
     }
     true
 }
 
-/// One frame's unclamped interval.
+/// Logs a window's summary and appends it to the bench log.
+fn finish(window: &Window, path: &std::path::Path) {
+    let line = summary(window);
+    tracing::info!("bench {line}");
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        let _ = writeln!(file, "{line}");
+    }
+}
+
+/// One frame's unclamped interval; the phases added since the last call are
+/// that frame's.
 pub fn record(frame_secs: f32) {
+    if log_path().is_some() {
+        run_auto();
+    }
     if let Ok(mut window) = WINDOW.try_lock()
         && let Some(window) = window.as_mut()
     {
         window.frame_secs.push(frame_secs);
+        let slow = frame_secs > SLOW_FRAME_SECS;
+        window.slow_frames += usize::from(slow);
+        for (phase, ms) in std::mem::take(&mut window.frame) {
+            *window.phases.entry(phase).or_default() += f64::from(ms);
+            if slow {
+                *window.slow_phases.entry(phase).or_default() += f64::from(ms);
+            }
+        }
     }
 }
 
-/// Adds `ms` to this window's `phase` total.
+/// Adds `ms` to this frame's `phase`.
 pub fn add(phase: &'static str, ms: f32) {
     if let Ok(mut window) = WINDOW.try_lock()
         && let Some(window) = window.as_mut()
     {
-        *window.phases.entry(phase).or_default() += f64::from(ms);
+        window.frame.push((phase, ms));
     }
 }
 
@@ -76,14 +175,19 @@ fn summary(window: &Window) -> String {
     let total: f32 = sorted.iter().sum();
     let at = |q: f32| sorted.get(((frames as f32 * q) as usize).min(frames.saturating_sub(1)));
     let fps = |secs: Option<&f32>| secs.map_or(0.0, |s| 1.0 / s.max(1e-6));
-    let per_frame: serde_json::Map<String, serde_json::Value> = window
-        .phases
-        .iter()
-        .map(|(phase, ms)| ((*phase).to_owned(), (ms / frames.max(1) as f64).into()))
-        .collect();
+    let per = |phases: &std::collections::BTreeMap<&'static str, f64>, n: usize| {
+        phases
+            .iter()
+            .map(|(phase, ms)| ((*phase).to_owned(), (ms / n.max(1) as f64).into()))
+            .collect::<serde_json::Map<String, serde_json::Value>>()
+    };
+    let per_frame = per(&window.phases, frames);
+    let per_slow_frame = per(&window.slow_phases, window.slow_frames);
     serde_json::json!({
         "label": window.label,
         "ms_per_frame": per_frame,
+        "slow_frames": window.slow_frames,
+        "ms_per_slow_frame": per_slow_frame,
         "frames": frames,
         "seconds": total,
         "avg_fps": if total > 0.0 { frames as f32 / total } else { 0.0 },

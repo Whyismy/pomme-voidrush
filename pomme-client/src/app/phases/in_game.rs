@@ -1347,6 +1347,7 @@ impl GameState {
         let upload_start = std::time::Instant::now();
         let dropped = renderer.upload_chunk_meshes(&batch);
         self.last_update_phases.upload_ms = upload_start.elapsed().as_secs_f32() * 1000.0;
+        crate::frame_log::add("mesh_upload", self.last_update_phases.upload_ms);
         self.clear_dropped_meshed(dropped);
     }
 
@@ -1389,6 +1390,7 @@ impl GameState {
             batch.push(mesh);
         }
         self.last_update_phases.mesh_drain_ms = drain_start.elapsed().as_secs_f32() * 1000.0;
+        crate::frame_log::add("mesh_drain", self.last_update_phases.mesh_drain_ms);
         batch
     }
 
@@ -2492,6 +2494,7 @@ pub fn update_game(
     // TODO: vanilla also skips this while singleplayer is paused and under
     // `/tick freeze` (`isLevelRunningNormally`); pomme tracks neither yet.
     let ticked = core.tick_accumulator >= TICK_RATE;
+    let ticks_start = std::time::Instant::now();
     if ticked {
         if game.deterministic {
             gfx.renderer.hold_texture_animations();
@@ -2611,9 +2614,13 @@ pub fn update_game(
         ));
     }
 
+    crate::frame_log::add("ticks", ticks_start.elapsed().as_secs_f32() * 1000.0);
+
     // Once per frame after the frame's ticks, where vanilla `Minecraft.runTick`
     // calls `level.update()`.
+    let light_start = std::time::Instant::now();
     game.update_light();
+    crate::frame_log::add("light", light_start.elapsed().as_secs_f32() * 1000.0);
 
     // F1 (vanilla keyToggleGui); only while no screen or chat is open.
     if core.input.action_input_just_pressed(Action::ToggleGui) && game.input_live() {
@@ -4598,6 +4605,7 @@ pub fn update_game(
     }
     // Whole-frame wall time (incl. render), read next frame to align with `raw_dt`.
     game.last_update_phases.update_ms = frame_start.elapsed().as_secs_f32() * 1000.0;
+    crate::frame_log::add("frame", game.last_update_phases.update_ms);
 
     // Vanilla `onClose`: `closeContainer`, then `onStopHovering`.
     let stop_hovering = close_inventory

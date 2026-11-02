@@ -3201,14 +3201,17 @@ impl AppCore {
         let loads_happened = std::mem::take(&mut game.pending_load_rescan);
         let ms = |t: std::time::Instant| t.elapsed().as_secs_f32() * 1000.0;
         game.last_update_phases.net_decode_ms = ms(t_net);
+        crate::frame_log::add("net", ms(t_net));
 
         let t_vis = std::time::Instant::now();
         game.update_visibility(renderer, player_chunk, loads_happened);
         game.last_update_phases.visibility_ms = ms(t_vis);
+        crate::frame_log::add("visibility", ms(t_vis));
 
         let t_rescan = std::time::Instant::now();
         game.rescan_mesh_jobs(self.menu.chunk_detail);
         game.last_update_phases.rescan_ms = ms(t_rescan);
+        crate::frame_log::add("rescan", ms(t_rescan));
 
         disconnect_reason
     }

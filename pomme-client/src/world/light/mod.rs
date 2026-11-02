@@ -390,12 +390,14 @@ impl LevelLightEngine {
         } else {
             size
         };
+        let tasks_start = std::time::Instant::now();
         for _ in 0..quota {
             let Some(task) = self.tasks.pop_front() else {
                 break;
             };
             self.apply_task(task, store, out);
         }
+        crate::frame_log::add("light_tasks", tasks_start.elapsed().as_secs_f32() * 1000.0);
         self.run_light_updates(store, block_state_table, out);
     }
 
@@ -487,6 +489,7 @@ impl LevelLightEngine {
         out: &mut LightDirty,
     ) {
         let (min_section_y, section_count) = (self.min_section_y, self.section_count);
+        let block_start = std::time::Instant::now();
         {
             let world = StoreWorld::new(store, block_state_table);
             self.block.begin_updates(&world);
@@ -504,6 +507,8 @@ impl LevelLightEngine {
             let world = StoreWorld::new(store, block_state_table);
             self.block.finish_updates(&world);
         }
+        crate::frame_log::add("light_block", block_start.elapsed().as_secs_f32() * 1000.0);
+        let sky_start = std::time::Instant::now();
         if let Some(sky) = &mut self.sky {
             {
                 let world = StoreWorld::new(store, block_state_table);
@@ -523,6 +528,7 @@ impl LevelLightEngine {
                 sky.finish_updates(&world);
             }
         }
+        crate::frame_log::add("light_sky", sky_start.elapsed().as_secs_f32() * 1000.0);
     }
 
     /// Writes changed sections into their columns' [`ChunkLightData`]
