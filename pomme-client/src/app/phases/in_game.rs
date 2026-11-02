@@ -4382,13 +4382,19 @@ pub fn update_game(
 
     // Vanilla `CustomHeadLayer`: a head or skull worn by an armor stand (how
     // servers float pet heads), even an invisible one, drawn as its model's
-    // head; a player head in the head's skin.
-    // TODO: heads worn by other mobs, which need their head part's pose.
+    // head; a player head in the head's skin. Humanoid mobs and other
+    // players wear theirs on their head part too.
     if !benchmark_running {
         for e in game.entity_store.living.values() {
-            if e.entity_type != EntityKind::ArmorStand {
-                continue;
-            }
+            let wearer = if e.entity_type == EntityKind::ArmorStand {
+                None
+            } else {
+                match crate::entity::heads::humanoid_skull(e.entity_type, e.is_baby, e.is_crouching)
+                {
+                    Some(placement) => Some(placement),
+                    None => continue,
+                }
+            };
             let Some(helmet) = e
                 .equipment(azalea_inventory::components::EquipmentSlot::Head)
                 .and_then(|stack| stack.as_present())
@@ -4411,17 +4417,29 @@ pub fn update_game(
             } else {
                 None
             };
-            let (pivot, size) =
-                crate::entity::heads::armor_stand_skull(e.armor_stand_flags & 0x01 != 0);
+            let (pivot, size) = wearer.unwrap_or_else(|| {
+                crate::entity::heads::armor_stand_skull(e.armor_stand_flags & 0x01 != 0)
+            });
             let (scale, lift) = crate::entity::heads::head_placement(model, pivot, size);
             let body_y = lerp_angle(e.prev_body_y_rot_deg, e.body_y_rot_deg, partial_tick);
             let feet = e.prev_position.lerp(e.position, partial_tick as f64);
-            // The skull turns with the stand's head pose (its roll aside).
-            let [head_x, head_y, _] = e.armor_stand_pose[0];
+            // A stand's skull turns with its head pose (its roll aside); a
+            // mob's with where it looks.
+            let (head_x, head_y) = if wearer.is_some() {
+                (
+                    e.prev_look_dir
+                        .x_rot_deg()
+                        .lerp(e.look_dir.x_rot_deg(), partial_tick),
+                    lerp_angle(e.prev_head_y_rot_deg, e.head_y_rot_deg, partial_tick),
+                )
+            } else {
+                let [x, y, _] = e.armor_stand_pose[0];
+                (x, body_y + y)
+            };
             entity_renders.push(EntityRenderInfo {
                 position: feet + glam::DVec3::new(0.0, lift, 0.0),
                 head_x_rot_deg: head_x,
-                head_y_rot_deg: body_y + head_y,
+                head_y_rot_deg: head_y,
                 body_y_rot_deg: body_y,
                 entity_kind: model,
                 player_uuid: skin,
@@ -4429,7 +4447,7 @@ pub fn update_game(
                 body_transform: Some(glam::Mat4::from_scale(glam::Vec3::splat(scale))),
                 light: entity_light(
                     &world_light,
-                    EntityKind::ArmorStand,
+                    e.entity_type,
                     e.eye_position(partial_tick),
                     false,
                     0,

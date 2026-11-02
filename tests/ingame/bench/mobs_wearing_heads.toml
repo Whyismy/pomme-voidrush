@@ -1,0 +1,29 @@
+# Skulls worn by humanoid mobs (vanilla CustomHeadLayer on the head part):
+# each at its wearer's scale, turned with its head.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/summon minecraft:zombie 0.5 -60 5.5 {NoAI:1b,Silent:1b,Rotation:[180f,0f],equipment:{head:{id:\"minecraft:creeper_head\"}}}"
+
+[[step]]
+chat = "/summon minecraft:skeleton 2.5 -60 5.5 {NoAI:1b,Silent:1b,Rotation:[180f,0f],equipment:{head:{id:\"minecraft:zombie_head\"}}}"
+
+[[step]]
+chat = "/summon minecraft:wither_skeleton 4.5 -60 5.5 {NoAI:1b,Silent:1b,Rotation:[180f,0f],equipment:{head:{id:\"minecraft:player_head\",components:{\"minecraft:profile\":{name:\"Notch\"}}}}}"
+
+[[step]]
+chat = "/summon minecraft:piglin 6.5 -60 5.5 {NoAI:1b,Silent:1b,IsImmuneToZombification:1b,Rotation:[180f,0f],equipment:{head:{id:\"minecraft:skeleton_skull\"}}}"
+
+[[step]]
+chat = "/tp @s 3.5 -59 0.5 0 5"
+
+[[step]]
+wait_ms = 8000
+
+[[step]]
+screenshot = "mobs"

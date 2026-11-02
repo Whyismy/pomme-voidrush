@@ -128,6 +128,44 @@ pub fn armor_stand_skull(small: bool) -> (f64, f32) {
     ((24.0 - pivot_y) / 16.0, 8.0 * 1.1875 / 16.0 * scale)
 }
 
+/// Vanilla `CustomHeadLayer` with `SkullBlockRenderer` on a `HumanoidModel`
+/// wearer: the skull, 1.1875 times a head cube, stands on the head part's
+/// pivot (1.501 model blocks up, a sneaking player's 4.2 pixels lower plus
+/// its renderer's 2-pixel drop), all at the wearer's render scale. Returns
+/// the pivot's height above the feet and the skull's size, in blocks; `None`
+/// for wearers with another head layout.
+// TODO: babies, villagers and zombie villagers (their own head offsets).
+pub fn humanoid_skull(wearer: EntityKind, baby: bool, crouching: bool) -> Option<(f64, f32)> {
+    if baby {
+        return None;
+    }
+    let scale: f32 = match wearer {
+        EntityKind::Player
+        | EntityKind::Mannequin
+        | EntityKind::Vindicator
+        | EntityKind::Pillager
+        | EntityKind::Evoker
+        | EntityKind::Illusioner => 0.9375,
+        EntityKind::WitherSkeleton => 1.2,
+        EntityKind::Husk => 1.0625,
+        EntityKind::Zombie
+        | EntityKind::Drowned
+        | EntityKind::Skeleton
+        | EntityKind::Stray
+        | EntityKind::Bogged
+        | EntityKind::Piglin
+        | EntityKind::PiglinBrute
+        | EntityKind::ZombifiedPiglin => 1.0,
+        _ => return None,
+    };
+    let sneaks = crouching && matches!(wearer, EntityKind::Player | EntityKind::Mannequin);
+    let pivot_pixels = 24.016 - if sneaks { 4.2 + 2.0 } else { 0.0 };
+    Some((
+        f64::from(pivot_pixels / 16.0 * scale),
+        8.0 * 1.1875 / 16.0 * scale,
+    ))
+}
+
 /// Where `model` drawn head-only puts a skull `size` blocks tall with its
 /// bottom `pivot` blocks above the origin: the model's own scale and its
 /// height offset. Every skull model's head cube is 8 pixels tall with its
@@ -207,6 +245,12 @@ mod tests {
         assert!((lift - (0.25 - 1.126)).abs() < 1e-6);
         assert_eq!(skull_model("piglin_wall_head"), Some(EntityKind::Piglin));
         assert_eq!(skull_model("dragon_head"), None);
+        // A standing player's head pivot is the model's 1.501 at 0.9375.
+        let (pivot, size) = humanoid_skull(EntityKind::Player, false, false).unwrap();
+        assert!((pivot - 1.501 * 0.9375).abs() < 1e-6);
+        assert!((size - 0.5 * 1.1875 * 0.9375).abs() < 1e-6);
+        assert_eq!(humanoid_skull(EntityKind::Cow, false, false), None);
+        assert_eq!(humanoid_skull(EntityKind::Zombie, true, false), None);
     }
 
     #[test]
