@@ -1887,6 +1887,7 @@ impl AppCore {
                     passengers,
                 } => {
                     game.display_store.set_passengers(vehicle, &passengers);
+                    game.interactions.set_passengers(vehicle, &passengers);
                     let me = game.player.entity_id;
                     if passengers.contains(&me) {
                         game.riding_vehicle_id = Some(vehicle);

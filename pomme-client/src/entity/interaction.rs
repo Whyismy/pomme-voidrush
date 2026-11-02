@@ -25,6 +25,9 @@ pub struct Interaction {
     /// `getResponse`: a use swings the arm (`SUCCESS`) rather than only
     /// consuming the click (`CONSUME`).
     pub response: bool,
+    /// The entity it rides, if any: furniture plugins seat the box on the
+    /// display it covers.
+    pub vehicle: Option<i32>,
 }
 
 impl Interaction {
@@ -52,6 +55,7 @@ impl InteractionStore {
                 width: 1.0,
                 height: 1.0,
                 response: false,
+                vehicle: None,
             },
         );
     }
@@ -77,6 +81,26 @@ impl InteractionStore {
             (HEIGHT, MetaValue::Float(h)) => e.height = h,
             (RESPONSE, MetaValue::Bool(r)) => e.response = r,
             _ => {}
+        }
+    }
+
+    pub fn set_passengers(&mut self, vehicle: i32, passengers: &[i32]) {
+        for (id, e) in &mut self.entities {
+            if passengers.contains(id) {
+                e.vehicle = Some(vehicle);
+            } else if e.vehicle == Some(vehicle) {
+                e.vehicle = None;
+            }
+        }
+    }
+
+    /// Riders follow their vehicle's riding position
+    /// (`Entity.positionRider`); `seat` gives it for a vehicle id.
+    pub fn tick(&mut self, seat: impl Fn(i32) -> Option<DVec3>) {
+        for e in self.entities.values_mut() {
+            if let Some(position) = e.vehicle.and_then(&seat) {
+                e.position = position.into();
+            }
         }
     }
 
@@ -108,5 +132,15 @@ mod tests {
         let aabb = e.bounding_box();
         assert_eq!(aabb.min, DVec3::new(9.0, 65.0, -4.0));
         assert_eq!(aabb.max, DVec3::new(11.0, 65.5, -2.0));
+
+        // Seated on a vehicle, it follows the vehicle's seat.
+        store.set_passengers(3, &[7]);
+        store.tick(|vehicle| (vehicle == 3).then_some(DVec3::new(1.0, 2.0, 3.0)));
+        assert_eq!(
+            DVec3::from(store.entities[&7].position),
+            DVec3::new(1.0, 2.0, 3.0)
+        );
+        store.set_passengers(3, &[]);
+        assert_eq!(store.entities[&7].vehicle, None);
     }
 }

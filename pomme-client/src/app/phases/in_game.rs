@@ -2553,6 +2553,13 @@ pub fn update_game(
             );
             game.display_store
                 .tick(|vehicle| display_seat(vehicle, living, positions, player));
+            // A display's passenger attachment is its 0 x 0 box's top.
+            let displays = &game.display_store.displays;
+            game.interactions
+                .tick(|vehicle| match displays.get(&vehicle) {
+                    Some(display) => Some(display.position),
+                    None => display_seat(vehicle, living, positions, player),
+                });
         }
         if !game.deterministic {
             game.level_runtime.animate_tick(
