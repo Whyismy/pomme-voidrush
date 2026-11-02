@@ -348,6 +348,7 @@ pub struct GameState {
     /// Entity names and whether they show (`entity::name_tags`).
     pub name_store: crate::entity::name_tags::NameStore,
     pub falling_blocks: crate::entity::falling_block::FallingBlockStore,
+    pub interactions: crate::entity::interaction::InteractionStore,
     pub particle_store: crate::particle::ParticleStore,
     pub level_runtime: crate::world::level::LevelRuntime,
     pub block_entity_anim: BlockEntityAnimStore,
@@ -522,6 +523,7 @@ impl GameState {
             display_store: crate::entity::display::DisplayStore::default(),
             name_store: crate::entity::name_tags::NameStore::default(),
             falling_blocks: Default::default(),
+            interactions: Default::default(),
             particle_store: {
                 let (grass, foliage, dry_foliage) = mesh_dispatcher.colormaps();
                 crate::particle::ParticleStore::new(

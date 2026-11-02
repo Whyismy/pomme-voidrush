@@ -4,6 +4,7 @@ pub mod display;
 pub mod falling_block;
 pub mod glowing;
 pub mod heads;
+pub mod interaction;
 pub mod light;
 pub mod name_tags;
 pub mod shadow;

@@ -22,6 +22,7 @@ use crate::app::input::{self, InputState};
 use crate::attribute::{AttributeKind, AttributeMap};
 use crate::audio::{AudioEngine, CATEGORY_BLOCKS, CATEGORY_PLAYERS, SoundRef};
 use crate::entity::components::{LookDirection, Position};
+use crate::entity::interaction::InteractionStore;
 use crate::entity::{EntityStore, living_entity_dimensions};
 use crate::mob_effect::{ActiveMobEffects, MINING_FATIGUE};
 use crate::net::sender::PacketSender;
@@ -69,6 +70,9 @@ pub struct EntityHitResult {
     pub entity_id: i32,
     pub location: DVec3,
     pub entity_pos: DVec3,
+    /// A use swings the arm: an `Interaction` entity's response flag, and
+    /// always for anything else.
+    pub swing_on_use: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -374,6 +378,7 @@ impl InteractionState {
         look_dir: LookDirection,
         chunks: &ChunkStore,
         entities: &EntityStore,
+        interactions: &InteractionStore,
         attributes: &AttributeMap,
         creative: bool,
         held_item: Option<&str>,
@@ -400,7 +405,7 @@ impl InteractionState {
             .unwrap_or(max_dist * max_dist);
         let to = from + dir.as_dvec3() * block_dist_sq.sqrt();
 
-        if let Some(hit) = nearest_entity_hit(from, to, entities) {
+        if let Some(hit) = nearest_entity_hit(from, to, entities, interactions) {
             let dist_sq = hit.location.distance_squared(from);
             if dist_sq < block_dist_sq {
                 self.target =
@@ -795,7 +800,9 @@ impl InteractionState {
                         hit.location - hit.entity_pos,
                         sneaking,
                     ));
-                    UseResult::Success { swing: true }
+                    UseResult::Success {
+                        swing: hit.swing_on_use,
+                    }
                 }
                 Some(HitResult::Block(hit)) => self.use_item_on(
                     block_registry,
@@ -1943,15 +1950,27 @@ pub fn raycast(
 }
 
 /// Ports vanilla `ProjectileUtil.getEntityHitResult`: clips the ray against
-/// each entity's bounding box and keeps the nearest hit. A box containing the
-/// ray origin counts as distance zero.
-fn nearest_entity_hit(from: DVec3, to: DVec3, entities: &EntityStore) -> Option<EntityHitResult> {
+/// each pickable entity's bounding box (living ones and `Interaction`
+/// boxes; display entities aren't pickable) and keeps the nearest hit. A
+/// box containing the ray origin counts as distance zero.
+fn nearest_entity_hit(
+    from: DVec3,
+    to: DVec3,
+    entities: &EntityStore,
+    interactions: &InteractionStore,
+) -> Option<EntityHitResult> {
+    let living = entities.living.iter().map(|(&id, entity)| {
+        let dims = living_entity_dimensions(entity);
+        let position: DVec3 = entity.position.into();
+        (id, dims.make_bounding_box(position), position, true)
+    });
+    let interactions = interactions
+        .entities
+        .iter()
+        .map(|(&id, e)| (id, e.bounding_box(), e.position.into(), e.response));
     let mut nearest_dist_sq = f64::MAX;
     let mut nearest = None;
-    for (&entity_id, entity) in &entities.living {
-        let dims = living_entity_dimensions(entity);
-        let aabb = dims.make_bounding_box(entity.position.into());
-
+    for (entity_id, aabb, entity_pos, swing_on_use) in living.chain(interactions) {
         let (location, dist_sq) = if aabb.contains(from) {
             (from, 0.0)
         } else if let Some(clip) = aabb.clip(from, to) {
@@ -1965,7 +1984,8 @@ fn nearest_entity_hit(from: DVec3, to: DVec3, entities: &EntityStore) -> Option<
             nearest = Some(EntityHitResult {
                 entity_id,
                 location,
-                entity_pos: entity.position.into(),
+                entity_pos,
+                swing_on_use,
             });
         }
     }
@@ -2333,6 +2353,7 @@ mod tests {
             entity_id: 300,
             location: DVec3::ZERO,
             entity_pos: DVec3::ZERO,
+            swing_on_use: true,
         }));
         interaction.pick_block_or_entity(&sender, false);
         match rx.try_recv().expect("entity pick packet") {
