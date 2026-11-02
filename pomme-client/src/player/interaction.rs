@@ -22,7 +22,6 @@ use crate::app::input::{self, InputState};
 use crate::attribute::{AttributeKind, AttributeMap};
 use crate::audio::{AudioEngine, CATEGORY_BLOCKS, CATEGORY_PLAYERS, SoundRef};
 use crate::entity::components::{LookDirection, Position};
-use crate::entity::interaction::InteractionStore;
 use crate::entity::{EntityStore, living_entity_dimensions};
 use crate::mob_effect::{ActiveMobEffects, MINING_FATIGUE};
 use crate::net::sender::PacketSender;
@@ -378,7 +377,7 @@ impl InteractionState {
         look_dir: LookDirection,
         chunks: &ChunkStore,
         entities: &EntityStore,
-        interactions: &InteractionStore,
+        pickables: &[Pickable],
         attributes: &AttributeMap,
         creative: bool,
         held_item: Option<&str>,
@@ -405,7 +404,7 @@ impl InteractionState {
             .unwrap_or(max_dist * max_dist);
         let to = from + dir.as_dvec3() * block_dist_sq.sqrt();
 
-        if let Some(hit) = nearest_entity_hit(from, to, entities, interactions) {
+        if let Some(hit) = nearest_entity_hit(from, to, entities, pickables) {
             let dist_sq = hit.location.distance_squared(from);
             if dist_sq < block_dist_sq {
                 self.target =
@@ -1953,24 +1952,33 @@ pub fn raycast(
 /// each pickable entity's bounding box (living ones and `Interaction`
 /// boxes; display entities aren't pickable) and keeps the nearest hit. A
 /// box containing the ray origin counts as distance zero.
+/// A non-living entity the crosshair can pick (vanilla `isPickable`): an
+/// interaction, an end crystal.
+pub struct Pickable {
+    pub id: i32,
+    pub aabb: Aabb,
+    pub position: DVec3,
+    /// Whether using it swings the arm (an interaction's `response`).
+    pub swing_on_use: bool,
+}
+
 fn nearest_entity_hit(
     from: DVec3,
     to: DVec3,
     entities: &EntityStore,
-    interactions: &InteractionStore,
+    pickables: &[Pickable],
 ) -> Option<EntityHitResult> {
     let living = entities.living.iter().map(|(&id, entity)| {
         let dims = living_entity_dimensions(entity);
         let position: DVec3 = entity.position.into();
         (id, dims.make_bounding_box(position), position, true)
     });
-    let interactions = interactions
-        .entities
+    let others = pickables
         .iter()
-        .map(|(&id, e)| (id, e.bounding_box(), e.position.into(), e.response));
+        .map(|p| (p.id, p.aabb, p.position, p.swing_on_use));
     let mut nearest_dist_sq = f64::MAX;
     let mut nearest = None;
-    for (entity_id, aabb, entity_pos, swing_on_use) in living.chain(interactions) {
+    for (entity_id, aabb, entity_pos, swing_on_use) in living.chain(others) {
         let (location, dist_sq) = if aabb.contains(from) {
             (from, 0.0)
         } else if let Some(clip) = aabb.clip(from, to) {

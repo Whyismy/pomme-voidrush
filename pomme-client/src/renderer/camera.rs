@@ -139,6 +139,9 @@ pub struct Camera {
     hurt_time: u8,
     hurt_dir: f32,
     damage_tilt_strength: f32,
+    /// Nausea's spin: its intensity, the ticks it has turned for, and
+    /// whether Nausea (not a portal) drives it.
+    confusion: (f32, f32, bool),
     /// Projection far plane, scaled with render distance (vanilla
     /// `Camera.depthFar` = render distance in blocks * 4).
     depth_far: f32,
@@ -167,6 +170,7 @@ impl Camera {
             hurt_time: 0,
             hurt_dir: 0.0,
             damage_tilt_strength: 1.0,
+            confusion: (0.0, 0.0, false),
             depth_far: MIN_FAR,
         }
     }
@@ -179,6 +183,27 @@ impl Camera {
         self.bob_walk_dist = walk_dist;
         self.bob_amount = bob;
         self.bob_enabled = enabled;
+    }
+
+    pub fn set_confusion(&mut self, intensity: f32, ticks: f32, nausea: bool) {
+        self.confusion = (intensity, ticks, nausea);
+    }
+
+    /// Vanilla `GameRenderer.renderLevel`'s Nausea warp: a squash along an
+    /// axis that turns 7 degrees a tick (20 in a portal), applied after the
+    /// view bob, before the camera's rotation; the hand doesn't take it.
+    fn confusion_matrix(&self) -> Mat4 {
+        let (intensity, ticks, nausea) = self.confusion;
+        if intensity <= 0.0 || self.top_down.is_some() {
+            return Mat4::IDENTITY;
+        }
+        let degrees_per_tick = if nausea { 7.0 } else { 20.0 };
+        let squash = (5.0 / (intensity * intensity + 5.0) - intensity * 0.04).powi(2);
+        let axis = Vec3::new(0.0, 1.0, 1.0).normalize();
+        let angle = (ticks * degrees_per_tick).to_radians();
+        Mat4::from_axis_angle(axis, angle)
+            * Mat4::from_scale(Vec3::new(1.0 / squash, 1.0, 1.0))
+            * Mat4::from_axis_angle(axis, -angle)
     }
 
     pub fn set_hurt(&mut self, hurt_time: u8, hurt_dir: f32, damage_tilt_strength: f32) {
@@ -500,7 +525,9 @@ impl Camera {
         // Vanilla renders the sky under the same level projection that already
         // contains bobHurt (death roll + hurt tilt) followed by bobView. Keep
         // the full view effect while omitting only camera translation.
-        let view = self.view_effect_matrix() * view::look_to_mat4(Vec3::ZERO, forward, up);
+        let view = self.view_effect_matrix()
+            * self.confusion_matrix()
+            * view::look_to_mat4(Vec3::ZERO, forward, up);
         let mut proj = proj::directx::perspective(
             self.fov_radians(self.render_partial_tick),
             self.aspect_ratio,
@@ -579,7 +606,9 @@ impl Camera {
     pub fn view_projection_with_fov(&self, fov: f32) -> Mat4 {
         let offset = self.third_person_offset();
         let (forward, up) = self.view_basis();
-        let view = self.view_effect_matrix() * view::look_to_mat4(offset, forward, up);
+        let view = self.view_effect_matrix()
+            * self.confusion_matrix()
+            * view::look_to_mat4(offset, forward, up);
         let mut proj = proj::directx::perspective(fov, self.aspect_ratio, NEAR, self.depth_far);
         proj.y_axis.y *= -1.0; // Vulkan NDC has +Y down
         proj * view
@@ -638,6 +667,10 @@ impl CameraUniform {
         let (fog_start, fog_end, env_start, env_end, fog_rgb) = if camera.top_down().is_some() {
             let far = camera.depth_far;
             (far, far, far, far, fog_color)
+        } else if let Some(effect) = sky.effect_fog {
+            // `FogRenderer`'s environments in order: the mob effects' come
+            // before the water's.
+            (blocks - span, blocks, effect.start, effect.end, fog_color)
         } else if eyes_in_water {
             // Vanilla's water fog is the environmental pair; the
             // render-distance band still applies on top (FogRenderer always

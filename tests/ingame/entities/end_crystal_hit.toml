@@ -1,0 +1,35 @@
+# An end crystal is pickable: a left click on it attacks it, and it
+# explodes, taking the ground under it.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/gamemode survival"
+
+[[step]]
+chat = "/effect give @s minecraft:resistance infinite 255 true"
+
+[[step]]
+chat = "/summon minecraft:end_crystal 0.5 -60 3.5 {ShowBottom:0b}"
+
+[[step]]
+chat = "/tp @s 0.5 -60 0.5"
+
+[[step]]
+look_at = [0.5, -59.0, 3.5]
+
+[[step]]
+wait_ms = 1000
+
+[[step]]
+mouse_down = "left"
+
+[[step]]
+wait_ms = 100
+
+[[step]]
+mouse_up = "left"
+
+[[step]]
+expect = { block = "air", at = [0, -61, 3] }

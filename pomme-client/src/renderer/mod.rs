@@ -300,6 +300,7 @@ pub struct Renderer {
     entity_shadow_pipeline: EntityShadowPipeline,
     moving_block_buffers: MovingBlockBuffers,
     block_entity_pipeline: BlockEntityPipeline,
+    end_portal_pipeline: pipelines::end_portal::EndPortalPipeline,
     /// The selected shader pack, and its render path once built.
     shader_pack: Option<(
         crate::shaderpack::ShaderPack,
@@ -501,6 +502,13 @@ impl Renderer {
             &lightmap,
         );
 
+        let end_portal_pipeline = pipelines::end_portal::EndPortalPipeline::new(
+            &ctx.device,
+            swapchain_state.targets(),
+            jar_assets_dir,
+            asset_index,
+        );
+
         let chunk_border_pipeline = pipelines::chunk_borders::ChunkBorderPipeline::new(
             &ctx.device,
             swapchain_state.targets(),
@@ -577,6 +585,7 @@ impl Renderer {
             entity_shadow_pipeline,
             moving_block_buffers,
             block_entity_pipeline,
+            end_portal_pipeline,
             shader_pack: None,
             shader_pack_selected: None,
             pack_world: Default::default(),
@@ -1082,6 +1091,8 @@ impl Renderer {
                 .recreate_pipeline(&self.ctx.device, targets);
             self.block_entity_pipeline
                 .recreate_pipeline(&self.ctx.device, targets);
+            self.end_portal_pipeline
+                .recreate_pipeline(&self.ctx.device, targets);
             self.item_entity_pipeline
                 .recreate_pipeline(&self.ctx.device, targets);
             self.held_item_pipeline
@@ -1191,6 +1202,21 @@ impl Renderer {
     pub fn set_hurt(&mut self, hurt_time: u8, hurt_dir: f32, damage_tilt_strength: f32) {
         self.camera
             .set_hurt(hurt_time, hurt_dir, damage_tilt_strength);
+    }
+
+    /// This frame's end portal and gateway blocks (see
+    /// [`pipelines::end_portal::EndPortalPipeline::set_blocks`]).
+    pub fn set_end_portals(
+        &mut self,
+        blocks: Vec<pipelines::end_portal::EndPortalBlock>,
+        clock_ticks: f32,
+    ) {
+        self.end_portal_pipeline.set_blocks(blocks, clock_ticks);
+    }
+
+    /// See [`Camera::set_confusion`].
+    pub fn set_confusion(&mut self, intensity: f32, ticks: f32, nausea: bool) {
+        self.camera.set_confusion(intensity, ticks, nausea);
     }
 
     pub fn reset_camera(&mut self, position: Position, look_dir: LookDirection) {
@@ -1489,7 +1515,7 @@ impl Renderer {
         sky.fog_color = fog::fog_color(&sky, self.camera.forward(), render_distance);
         // Vanilla clears to the fog colour, which shows below the sky disc's
         // rim; underwater, the water fog colour.
-        let [r, g, b] = if eyes_in_water {
+        let [r, g, b] = if eyes_in_water && sky.effect_fog.is_none() {
             camera::WATER_FOG_COLOR
         } else {
             sky.fog_color.to_array()
@@ -1938,25 +1964,27 @@ impl Renderer {
     /// its model's transform for that context, mirrored for the left hand.
     pub fn item_display_transform(&mut self, model: &str, context: u8) -> glam::Mat4 {
         use pipelines::item_display::{DisplayResolver, DisplayTransform};
-        let keys: &'static [&'static str] = match context {
-            1 => &["thirdperson_lefthand", "thirdperson_righthand"],
-            2 => &["thirdperson_righthand"],
-            3 => &["firstperson_lefthand", "firstperson_righthand"],
-            4 => &["firstperson_righthand"],
-            5 => &["head"],
-            6 => &["gui"],
-            7 => &["ground"],
-            8 => &["fixed"],
-            9 => &["on_shelf"],
+        let Some(&keys) = crate::world::block::model::DISPLAY_CONTEXT_KEYS
+            .get(usize::from(context))
+            .filter(|keys| !keys.is_empty())
+        else {
             // NONE.
-            _ => return glam::Mat4::IDENTITY,
+            return glam::Mat4::IDENTITY;
         };
+        // The baked models' own transforms, packs included; the jar's item
+        // definitions for anything else.
         let jar = &self.jar_assets_dir;
-        let transform = self
-            .item_display_resolvers
-            .entry(context)
-            .or_insert_with(|| DisplayResolver::new(jar, keys))
-            .resolve(model, DisplayTransform::IDENTITY);
+        let transform = match self
+            .render_assets()
+            .get_item_display_transform(model, context)
+        {
+            Some(transform) => transform,
+            None => self
+                .item_display_resolvers
+                .entry(context)
+                .or_insert_with(|| DisplayResolver::new(jar, keys))
+                .resolve(model, DisplayTransform::IDENTITY),
+        };
         if matches!(context, 1 | 3) {
             transform.mirrored().to_matrix()
         } else {
@@ -2052,6 +2080,7 @@ impl Renderer {
             self.entity_renderer.update_camera(frame, &uniform);
             self.entity_shadow_pipeline.update_camera(frame, &uniform);
             self.block_entity_pipeline.update_camera(frame, &uniform);
+            self.end_portal_pipeline.update_camera(frame, &uniform);
             self.chunk_border_pipeline.update_camera(frame, &uniform);
             self.item_entity_pipeline.update_camera(frame, &uniform);
             self.world_text_pipeline.update_camera(frame, &uniform);
@@ -2295,7 +2324,9 @@ impl Renderer {
                     // Vanilla water fog hides the sky dome and clouds; the framebuffer
                     // is cleared to the water fog color, so skipping them tints the view
                     // when looking up out of geometry.
-                    if !*eyes_in_water {
+                    // `LevelRenderer.doesMobEffectBlockSky`: none under
+                    // Blindness or Darkness either.
+                    if !*eyes_in_water && sky.effect_fog.is_none() {
                         self.sky_pipeline.update_and_draw(
                             &mut pass,
                             frame,
@@ -2360,6 +2391,7 @@ impl Renderer {
 
                     self.block_entity_pipeline
                         .draw(&mut pass, frame, anchor, block_entities);
+                    self.end_portal_pipeline.draw(&mut pass, frame, anchor);
 
                     self.item_entity_pipeline.draw(
                         &self.ctx.device,
@@ -2395,7 +2427,9 @@ impl Renderer {
 
                     // Clouds draw after opaque world geometry (so terrain occludes
                     // them) and before weather, depth-tested against the scene.
-                    if !*eyes_in_water {
+                    // Blindness's and Darkness's cloud fog ends well short
+                    // of any cloud.
+                    if !*eyes_in_water && sky.effect_fog.is_none() {
                         self.cloud_pipeline.update_and_draw(
                             &mut pass,
                             frame,
@@ -2517,7 +2551,9 @@ impl Renderer {
                     &item_atlas_uvs,
                 );
                 pass = blurred_pass;
-                self.menu_pipeline.draw_from(
+                // The previews draw over the screen but under its tooltips.
+                let previews = player_preview.is_some() || book_preview.is_some();
+                let vbase = self.menu_pipeline.draw_part_from(
                     &self.ctx.device,
                     &mut pass,
                     frame,
@@ -2526,6 +2562,11 @@ impl Renderer {
                     overlay,
                     &item_atlas_uvs,
                     vbase,
+                    if previews {
+                        pipelines::menu_overlay::Tooltips::Without
+                    } else {
+                        pipelines::menu_overlay::Tooltips::With
+                    },
                 );
 
                 // Each preview box gets its depth cleared and its own scissor
@@ -2553,6 +2594,20 @@ impl Renderer {
                     pass.set_scissor_rect(rect);
                     self.book_preview.draw_in_box(&mut pass, frame, *p, sw, sh);
                     pass.set_scissor_rect(scissor);
+                }
+
+                if previews {
+                    self.menu_pipeline.draw_part_from(
+                        &self.ctx.device,
+                        &mut pass,
+                        frame,
+                        sw,
+                        sh,
+                        overlay,
+                        &item_atlas_uvs,
+                        vbase,
+                        pipelines::menu_overlay::Tooltips::Only,
+                    );
                 }
 
                 self.last_timings.cull_ms = cull_ms;
@@ -2992,6 +3047,7 @@ impl Drop for Renderer {
         self.entity_shadow_pipeline.destroy(&self.ctx.device);
         self.moving_block_buffers.destroy(&self.ctx.device);
         self.block_entity_pipeline.destroy(&self.ctx.device);
+        self.end_portal_pipeline.destroy(&self.ctx.device);
         self.chunk_border_pipeline.destroy(&self.ctx.device);
         self.item_entity_pipeline.destroy(&self.ctx.device);
         self.held_item_pipeline.destroy(&self.ctx.device);

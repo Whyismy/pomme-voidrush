@@ -198,14 +198,23 @@ fn write_block(
     pos: crate::position::BlockPos,
     state: azalea_block::BlockState,
 ) {
-    crate::world::light::set_block_and_light(
-        &game.chunk_store,
-        &mut game.light_engine,
-        game.block_registry.block_state_table(),
+    if is_end_portal(game.block_registry.block_state_table(), state) {
+        game.end_portals.insert(pos);
+    } else {
+        game.end_portals.remove(&pos);
+    }
+    let (old, empty_flip) = game.chunk_store.set_block_state_tracked(
         pos.x,
         pos.y,
         pos.z,
         state,
+        game.block_registry.block_state_table(),
+    );
+    game.light_engine.on_block_changed(
+        crate::world::light::LightPos::new(pos.x, pos.y, pos.z),
+        old,
+        state,
+        empty_flip,
     );
     dirty_sections_for_block(
         priority_remesh,
@@ -474,9 +483,10 @@ impl GameState {
         self.biome_weights = Default::default();
         self.environment_probe = EnvironmentProbe::new(self.resolve_environment());
         self.chunk_store = ChunkStore::new_with_dimension(render_distance, height, min_y);
-        self.light_engine = crate::world::light::LevelLightEngine::new(height, min_y, has_skylight);
+        self.light_engine.reset(height, min_y, has_skylight);
         // The old level's block entities, moving blocks among them.
         self.block_entity_anim = Default::default();
+        self.end_portals.clear();
         self.position_set = false;
         // Login/respawn recreate vanilla's LocalPlayer, resetting
         // the XP display sentinel; waypoints persist.
@@ -520,11 +530,9 @@ impl GameState {
             tracing::error!("Failed to load chunk [{}, {}]: {e}", pos.x, pos.z);
             return;
         }
-        self.light_engine.on_chunk_loaded(
-            &mut self.chunk_store,
-            self.block_registry.block_state_table(),
-            (pos.x, pos.z),
-        );
+        self.light_engine
+            .on_chunk_loaded(&self.chunk_store, (pos.x, pos.z));
+        self.find_end_portals(pos);
         // The column meshes once its queued light applies (vanilla
         // schedules the rebuild from enableChunkLight, not here).
         queue_light_apply(self, pos, light, true);
@@ -557,11 +565,49 @@ impl GameState {
         queue_light_apply(self, pos, light, false);
     }
 
+    /// Notes a freshly loaded column's end portal and gateway blocks: only
+    /// sections whose palette may hold one are read.
+    fn find_end_portals(&mut self, pos: crate::position::ChunkPos) {
+        self.end_portals
+            .retain(|p| p.x.div_euclid(16) != pos.x || p.z.div_euclid(16) != pos.z);
+        let table = self.block_registry.block_state_table();
+        let wanted = |id: u32| {
+            table
+                .try_state(id)
+                .is_some_and(|state| is_end_portal(table, state))
+        };
+        let Some(chunk) = self.chunk_store.get_chunk(&pos) else {
+            return;
+        };
+        let min_y = self.chunk_store.min_y();
+        let chunk = chunk.read();
+        for (index, section) in chunk.sections.iter().enumerate() {
+            if section.block_count == 0 || !section.states.may_contain(wanted) {
+                continue;
+            }
+            for y in 0..16 {
+                for z in 0..16 {
+                    for x in 0..16 {
+                        if wanted(section.states.get(x, y, z)) {
+                            self.end_portals.insert(crate::position::BlockPos::new(
+                                pos.x * 16 + x as i32,
+                                min_y + index as i32 * 16 + y as i32,
+                                pos.z * 16 + z as i32,
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// The caller removes the column's mesh.
     pub fn unload_chunk(&mut self, pos: crate::position::ChunkPos) {
         self.chunk_store.unload_chunk(&pos);
         self.block_entity_anim.drop_chunk(pos.x, pos.z);
         self.light_engine.on_chunk_unloaded((pos.x, pos.z));
+        self.end_portals
+            .retain(|p| p.x.div_euclid(16) != pos.x || p.z.div_euclid(16) != pos.z);
         self.light_engine
             .queue_task(crate::world::light::LightTask::Remove {
                 pos: (pos.x, pos.z),
@@ -2564,13 +2610,7 @@ impl AppCore {
                     let min_y = game.chunk_store.min_y();
                     let n = game.chunk_store.section_count();
                     for b in ack_dirty {
-                        game.light_engine.on_block_dirty(
-                            &game.chunk_store,
-                            game.block_registry.block_state_table(),
-                            b.x,
-                            b.y,
-                            b.z,
-                        );
+                        game.light_engine.on_block_dirty(b.x, b.y, b.z);
                         dirty_sections_for_block(&mut priority_remesh, b.x, b.y, b.z, min_y, n);
                     }
                 }
@@ -3666,7 +3706,7 @@ impl AppCore {
             game.player.look_dir,
             &game.chunk_store,
             &game.entity_store,
-            &game.interactions,
+            &pickables(game),
             &game.player.attributes,
             creative,
             held_item.as_deref(),
@@ -3780,16 +3820,9 @@ impl AppCore {
             let n = game.chunk_store.section_count();
             let mut sections: Vec<(crate::position::ChunkPos, i32)> = Vec::new();
             for b in dirty {
-                // Light lands in this frame's update_light, matching vanilla's
-                // prediction timing (setBlockState queues; the per-frame
-                // ClientLevel.update drains).
-                game.light_engine.on_block_dirty(
-                    &game.chunk_store,
-                    game.block_registry.block_state_table(),
-                    b.x,
-                    b.y,
-                    b.z,
-                );
+                // Vanilla relights in this frame's ClientLevel.update; the
+                // light worker lands it a frame or so later.
+                game.light_engine.on_block_dirty(b.x, b.y, b.z);
                 dirty_sections_for_block(&mut sections, b.x, b.y, b.z, min_y, n);
             }
             // One span per column so each column builds its mesh snapshot
@@ -4189,6 +4222,35 @@ fn particle_look(
             }),
         _ => ParticleLook::None,
     }
+}
+
+/// An end portal or gateway block, which `TheEndPortalRenderer` draws.
+fn is_end_portal(
+    table: crate::world::block::BlockStateTable,
+    state: azalea_block::BlockState,
+) -> bool {
+    matches!(
+        table.block_state_data(state).id(),
+        "end_portal" | "end_gateway"
+    )
+}
+
+/// The non-living entities the crosshair can pick.
+fn pickables(game: &GameState) -> Vec<crate::player::interaction::Pickable> {
+    use crate::player::interaction::Pickable;
+    let interactions = game.interactions.entities.iter().map(|(&id, e)| Pickable {
+        id,
+        aabb: e.bounding_box(),
+        position: e.position.into(),
+        swing_on_use: e.response,
+    });
+    let crystals = game.end_crystals.crystals.iter().map(|(&id, c)| Pickable {
+        id,
+        aabb: c.bounding_box(),
+        position: c.position.into(),
+        swing_on_use: true,
+    });
+    interactions.chain(crystals).collect()
 }
 
 #[cfg(test)]

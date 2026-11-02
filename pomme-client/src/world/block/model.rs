@@ -86,6 +86,26 @@ enum GuiLight {
     Side,
 }
 
+/// The `display` keys each item display context reads, indexed as vanilla's
+/// `ItemDisplayContext` ids (0 is `none`): the first a model in the parent
+/// chain has, in order, since vanilla's `ItemTransforms` falls back from a
+/// missing left-hand entry to the same model's right-hand one.
+pub(crate) const DISPLAY_CONTEXT_KEYS: [&[&str]; 10] = [
+    &[],
+    &["thirdperson_lefthand", "thirdperson_righthand"],
+    &["thirdperson_righthand"],
+    &["firstperson_lefthand", "firstperson_righthand"],
+    &["firstperson_righthand"],
+    &["head"],
+    &["gui"],
+    &["ground"],
+    &["fixed"],
+    &["on_shelf"],
+];
+
+/// A model's transform per display context ([`DISPLAY_CONTEXT_KEYS`]).
+pub(crate) type DisplayTransforms = [Option<DisplayTransform>; 10];
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct DisplayTransform {
     pub(crate) rotation: Vec3,
@@ -694,6 +714,8 @@ pub struct BakedItemModels {
     pub flat_texture_keys: HashMap<String, Vec<Option<String>>>,
     pub(crate) gui_transforms: HashMap<String, DisplayTransform>,
     pub ground_transforms: HashMap<String, Mat4>,
+    /// Every display context's transform, from the item's own (pack) models.
+    pub(crate) display_transforms: HashMap<String, DisplayTransforms>,
     pub tint_sources: HashMap<String, Vec<ItemTintSource>>,
 }
 
@@ -888,6 +910,18 @@ pub fn bake_item_models(
     let mut flat_keys: HashMap<String, Vec<Option<String>>> = HashMap::new();
     let mut gui_transforms: HashMap<String, DisplayTransform> = HashMap::new();
     let mut ground_transforms: HashMap<String, Mat4> = HashMap::new();
+    let mut display_transforms: HashMap<String, DisplayTransforms> = HashMap::new();
+    // 26.1 moved the shield's textures into `entity/shield/`.
+    let shield_texture = [
+        "entity/shield/shield_base_nopattern",
+        "entity/shield_base_nopattern",
+    ]
+    .into_iter()
+    .find(|texture| {
+        let key = format!("minecraft/textures/{texture}.png");
+        resolve_asset_path_with_packs(jar_assets_dir, asset_index, &key, None).exists()
+    })
+    .unwrap_or("entity/shield_base_nopattern");
     let mut tint_sources: HashMap<String, Vec<ItemTintSource>> = HashMap::new();
     let grass_colormap = Colormap::load(
         jar_assets_dir,
@@ -907,6 +941,7 @@ pub fn bake_item_models(
         let mut ground_transform: Option<Mat4> = None;
         let mut gui_transform: Option<DisplayTransform> = None;
         let mut gui_light: Option<GuiLight> = None;
+        let mut display: Option<DisplayTransforms> = None;
         for part in parts {
             let resolved = resolve_model(
                 &part.path,
@@ -915,6 +950,7 @@ pub fn bake_item_models(
                 &mut model_cache,
                 packs,
             );
+            display.get_or_insert(resolved.display);
             match ground_transform {
                 None => ground_transform = Some(resolved.ground_transform),
                 Some(existing) if existing.abs_diff_eq(resolved.ground_transform, 1.0e-6) => {}
@@ -950,7 +986,7 @@ pub fn bake_item_models(
             // A generated flat item may have several layers. Vanilla assigns
             // tint index N to layerN, so keep every layer in order instead of
             // collapsing the item to layer0.
-            if parts.len() == 1 && resolved.elements.is_empty() {
+            if parts.len() == 1 && !part.shield && resolved.elements.is_empty() {
                 let mut keys = Vec::new();
                 for layer in 0..5 {
                     let Some(value) = resolved.textures.get(&format!("layer{layer}")) else {
@@ -968,7 +1004,12 @@ pub fn bake_item_models(
                 item_tints.extend(part_tints);
                 break;
             }
-            let Some(mut baked) = bake_resolved_model(&resolved, 0, 0, Tint::None) else {
+            let baked = if part.shield {
+                Some(bake_shield_item_model(shield_texture))
+            } else {
+                bake_resolved_model(&resolved, 0, 0, Tint::None)
+            };
+            let Some(mut baked) = baked else {
                 continue;
             };
             for quad in &mut baked.quads {
@@ -999,6 +1040,9 @@ pub fn bake_item_models(
         }
         let gui_transform = gui_transform.unwrap_or(DisplayTransform::IDENTITY);
         gui_transforms.insert(name.to_string(), gui_transform);
+        if let Some(display) = display {
+            display_transforms.insert(name.to_string(), display);
+        }
         if !item_tints.is_empty() {
             tint_sources.insert(name.to_string(), item_tints);
         }
@@ -1069,6 +1113,7 @@ pub fn bake_item_models(
             bake_chest_item_model(&texture, chest.gui_transform, chest.gui_light),
         );
         gui_transforms.insert(name.clone(), chest.gui_transform);
+        display_transforms.insert(name.clone(), chest.display);
         ground_transforms.insert(name.clone(), chest.ground_transform);
         flat_keys.remove(&name);
     }
@@ -1085,6 +1130,7 @@ pub fn bake_item_models(
         flat_texture_keys: flat_keys,
         gui_transforms,
         ground_transforms,
+        display_transforms,
         tint_sources,
     }
 }
@@ -1160,6 +1206,47 @@ fn bake_chest_item_model(tex: &str, gui: DisplayTransform, gui_light: GuiLight) 
         tex,
         shades,
     );
+    BakedModel {
+        quads,
+        is_full_cube: false,
+    }
+}
+
+/// Vanilla `ShieldSpecialRenderer` drawing `ShieldModel` (a 12x22 plate and
+/// its handle) in `entity/shield_base_nopattern`, turned by its
+/// `scale(1, -1, -1)` into the item model's space.
+// TODO: banner patterns (`shield_base` under the pattern layers) and the
+// base color.
+fn bake_shield_item_model(texture: &str) -> BakedModel {
+    let mut quads = Vec::new();
+    // `ShieldModel.createLayer`: (texOffs, origin, size), in pixels.
+    for ((u, v), (x, y, z), (w, h, d)) in [
+        ((0.0, 0.0), (-6.0, -11.0, -2.0), (12.0, 22.0, 1.0)),
+        ((26.0, 0.0), (-1.0, -3.0, -1.0), (2.0, 6.0, 6.0)),
+    ] {
+        // The model's corners through the flip, in the block-model frame,
+        // whose x runs opposite the entity models' (as the chest's). Its
+        // origin is the item's corner: `ItemStackRenderState` translates by
+        // -0.5 before a special renderer too, and the shield's display
+        // transforms make up for it.
+        let at = |px: f32, sign: f32| sign * px / 16.0;
+        add_chest_cube(
+            &mut quads,
+            at(x, -1.0),
+            at(y, -1.0),
+            at(z, 1.0),
+            at(x + w, -1.0),
+            at(y + h, -1.0),
+            at(z + d, 1.0),
+            u,
+            v,
+            w,
+            h,
+            d,
+            texture,
+            [1.0; 6],
+        );
+    }
     BakedModel {
         quads,
         is_full_cube: false,
@@ -1350,6 +1437,9 @@ struct ModelPart {
     path: String,
     transform: Option<Mat4>,
     tints: Vec<serde_json::Value>,
+    /// A special `shield` model: `path` is its `base`, which carries the
+    /// display transforms, and the mesh is [`bake_shield_item_model`]'s.
+    shield: bool,
 }
 
 /// Model references to bake for one item. `minecraft:composite` contributes
@@ -1380,6 +1470,7 @@ fn node_model_parts(node: &serde_json::Value) -> Vec<ModelPart> {
                 .and_then(|value| value.as_array())
                 .cloned()
                 .unwrap_or_default(),
+            shield: false,
         });
     } else if let Some(path) = first_model_ref(root) {
         // A special renderer's `base` carries its transforms but no tints.
@@ -1387,6 +1478,7 @@ fn node_model_parts(node: &serde_json::Value) -> Vec<ModelPart> {
             path,
             transform: None,
             tints: Vec::new(),
+            shield: false,
         });
     }
     parts
@@ -1611,6 +1703,28 @@ fn collect_parts_from_node(
                         .and_then(|value| value.as_array())
                         .cloned()
                         .unwrap_or_default(),
+                    shield: false,
+                });
+            }
+        }
+        // A plain stack is in no condition (not in use, not cast, no
+        // component), so it draws the `on_false` branch.
+        Some("condition") => {
+            if let Some(branch) = node.get("on_false") {
+                collect_parts_from_node(branch, transform, parts);
+            }
+        }
+        Some("special")
+            if node
+                .get("model")
+                .is_some_and(|model| node_type(model) == Some("shield")) =>
+        {
+            if let Some(base) = node.get("base").and_then(|b| b.as_str()) {
+                parts.push(ModelPart {
+                    path: strip_mc_prefix(base).to_string(),
+                    transform,
+                    tints: Vec::new(),
+                    shield: true,
                 });
             }
         }
@@ -1819,6 +1933,7 @@ struct ResolvedModel {
     gui_transform: DisplayTransform,
     gui_light: GuiLight,
     ground_transform: Mat4,
+    display: DisplayTransforms,
 }
 
 fn resolve_model(
@@ -1834,6 +1949,7 @@ fn resolve_model(
     let mut gui_light: Option<GuiLight> = None;
     let mut ground_transform: Option<Mat4> = None;
     let mut ambient_occlusion: Option<bool> = None;
+    let mut display: DisplayTransforms = [None; 10];
     let mut current_id = model_id.to_string();
 
     for _ in 0..20 {
@@ -1857,6 +1973,13 @@ fn resolve_model(
         }
         if gui_light.is_none() {
             gui_light = model.gui_light;
+        }
+        for (slot, keys) in display.iter_mut().zip(DISPLAY_CONTEXT_KEYS) {
+            if slot.is_none() {
+                *slot = keys
+                    .iter()
+                    .find_map(|key| model.display.get(*key).and_then(parse_display_transform));
+            }
         }
         if ambient_occlusion.is_none() {
             ambient_occlusion = model.ambientocclusion;
@@ -1888,6 +2011,7 @@ fn resolve_model(
         gui_transform: gui_transform.unwrap_or(DisplayTransform::IDENTITY),
         gui_light: gui_light.unwrap_or_default(),
         ground_transform: ground_transform.unwrap_or(Mat4::IDENTITY),
+        display,
     }
 }
 
@@ -2591,6 +2715,7 @@ mod tests {
             gui_transform: DisplayTransform::IDENTITY,
             gui_light: GuiLight::Side,
             ground_transform: Mat4::IDENTITY,
+            display: [None; 10],
         };
 
         let baked = bake_resolved_model(&resolved, 0, 270, Tint::None).unwrap();
@@ -2621,6 +2746,7 @@ mod tests {
             gui_transform: DisplayTransform::IDENTITY,
             gui_light: GuiLight::default(),
             ground_transform: Mat4::IDENTITY,
+            display: [None; 10],
         };
         let baked = bake_resolved_model(&resolved, 0, 0, Tint::None).unwrap();
         assert_eq!(baked.quads[0].tint_index, Some(1));
@@ -3176,6 +3302,84 @@ mod tests {
     }
 
     use crate::test_util::test_temp_dir;
+
+    /// A shield (a special `shield` model under `using_item`) bakes vanilla's
+    /// plate and handle around the item's center, takes its base model's
+    /// display transforms, and a pack's composite case adds its own model.
+    #[test]
+    fn shields_bake_the_special_model() {
+        let root = test_temp_dir("shield_special");
+        let jar = root.join("jar");
+        let items = jar.join("minecraft/items");
+        let models = jar.join("minecraft/models/item");
+        for dir in [&items, &models] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        let special = |base: &str| {
+            format!(
+                r#"{{"type":"minecraft:special","base":"minecraft:item/{base}","model":{{"type":"minecraft:shield"}}}}"#
+            )
+        };
+        std::fs::write(
+            items.join("shield.json"),
+            format!(
+                r#"{{"model":{{"type":"minecraft:select","property":"minecraft:custom_model_data",
+                "cases":[{{"when":"frame","model":{{"type":"minecraft:condition","property":"minecraft:using_item",
+                    "on_false":{{"type":"minecraft:composite","models":[{},{{"type":"minecraft:model","model":"minecraft:item/frame"}}]}},
+                    "on_true":{}}}}}],
+                "fallback":{{"type":"minecraft:condition","property":"minecraft:using_item","on_false":{},"on_true":{}}}}}}}"#,
+                special("shield"),
+                special("shield_blocking"),
+                special("shield"),
+                special("shield_blocking"),
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            models.join("shield.json"),
+            r#"{"gui_light":"front","display":{"thirdperson_righthand":{"rotation":[0,90,0],"translation":[10,6,-4]},"gui":{"rotation":[15,-25,-5],"translation":[2,3,0],"scale":[0.65,0.65,0.65]}}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            models.join("frame.json"),
+            r##"{"parent":"minecraft:item/shield","textures":{"frame":"block/stone"},
+                "elements":[{"from":[-7,-12,0.6],"to":[-5.5,15,2.4],"faces":{"south":{"uv":[0,0,1,1],"texture":"#frame"}}}]}"##,
+        )
+        .unwrap();
+
+        let baked = bake_item_models(&jar, &None, None);
+        let bounds = |key: &str| {
+            let quads = &baked.models[key].quads;
+            let points = quads.iter().flat_map(|quad| quad.positions);
+            let min = points.clone().fold([f32::MAX; 3], |a, p| {
+                std::array::from_fn(|i| a[i].min(p[i]))
+            });
+            let max = points.fold([f32::MIN; 3], |a, p| {
+                std::array::from_fn(|i| a[i].max(p[i]))
+            });
+            (quads.len(), min, max)
+        };
+        // The plate (12x22x1) and handle (2x6x6) around the item model's
+        // origin, the handle behind the plate.
+        let (quads, min, max) = bounds("shield");
+        assert_eq!(quads, 12);
+        let close = |a: [f32; 3], b: [f32; 3]| a.iter().zip(b).all(|(a, b)| (a - b).abs() < 1e-5);
+        assert!(
+            close(min, [-6.0 / 16.0, -11.0 / 16.0, -2.0 / 16.0]),
+            "{min:?}"
+        );
+        assert!(close(max, [6.0 / 16.0, 11.0 / 16.0, 5.0 / 16.0]), "{max:?}");
+        let display = baked.display_transforms["shield"];
+        assert_eq!(display[6].map(|t| t.scale), Some(Vec3::splat(0.65)));
+        assert_eq!(
+            display[2].map(|t| t.rotation),
+            Some(Vec3::new(0.0, 90.0, 0.0))
+        );
+        // The pack's frame joins the plate, with the same transforms.
+        let framed = custom_model_key("shield", "frame");
+        assert_eq!(bounds(&framed).0, 13);
+        assert_eq!(baked.display_transforms[&framed], display);
+    }
 
     /// A resource pack's `custom_model_data` select (Void Rush's layout): each
     /// case bakes under its own key, a plain stack takes the fallback, and a

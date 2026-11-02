@@ -1,0 +1,57 @@
+# The effects that change the view: Blindness (black fog five blocks out, no
+# sky), Darkness (fog fifteen blocks out, pulsing light) and Nausea (the
+# warp), each against the same flat daytime view with a stone pillar close by.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/fill 0 -60 4 0 -55 4 minecraft:stone"
+
+[[step]]
+chat = "/fill 0 -60 12 0 -50 12 minecraft:stone"
+
+[[step]]
+chat = "/tp @s 0.5 -60 0.5 0 0"
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+screenshot = "plain"
+
+[[step]]
+chat = "/effect give @s minecraft:blindness 30 0"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "blindness"
+
+[[step]]
+chat = "/effect clear @s"
+
+[[step]]
+chat = "/effect give @s minecraft:darkness 30 0"
+
+[[step]]
+wait_ms = 2500
+
+[[step]]
+screenshot = "darkness"
+
+[[step]]
+chat = "/effect clear @s"
+
+[[step]]
+chat = "/effect give @s minecraft:nausea 30 0"
+
+[[step]]
+wait_ms = 6000
+
+[[step]]
+screenshot = "nausea"

@@ -254,24 +254,36 @@ impl AttributeInstance {
         }
     }
 
-    fn amounts(&self, operation: AttributeModifierOperation) -> impl Iterator<Item = f64> + '_ {
+    fn amounts<'a>(
+        &'a self,
+        operation: AttributeModifierOperation,
+        skip: Option<&'a str>,
+    ) -> impl Iterator<Item = f64> + 'a {
         self.modifiers
             .values()
-            .filter(move |modifier| modifier.operation == operation)
+            .filter(move |modifier| {
+                modifier.operation == operation && Some(modifier.id.as_str()) != skip
+            })
             .map(|modifier| modifier.amount)
     }
 
     /// Vanilla 26.2 `AttributeInstance.calculateValue`.
     pub fn value(&self) -> f64 {
+        self.value_without(None)
+    }
+
+    /// [`Self::value`] without the modifier `skip`: one the client keeps
+    /// itself (`LocalPlayer.setSprinting`'s), whatever the server last sent.
+    pub fn value_without(&self, skip: Option<&str>) -> f64 {
         use AttributeModifierOperation::*;
         let base = self
-            .amounts(Value)
+            .amounts(Value, skip)
             .fold(self.base_value, |acc, amount| acc + amount);
         let result = self
-            .amounts(MultipliedBase)
+            .amounts(MultipliedBase, skip)
             .fold(base, |acc, amount| acc + base * amount);
         let result = self
-            .amounts(MultipliedTotal)
+            .amounts(MultipliedTotal, skip)
             .fold(result, |acc, amount| acc * (1.0 + amount));
         self.attribute.definition().sanitize(result)
     }

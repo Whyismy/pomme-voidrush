@@ -409,11 +409,13 @@ impl MenuGeometry {
         (geometry, atlases)
     }
 
-    /// Builds the vertices and draw batches for `elements`.
+    /// Builds the vertices and draw batches for `elements`, or for the part
+    /// `tooltips` picks.
     fn build(
         &mut self,
         elements: &[MenuElement],
         item_atlas_uvs: &HashMap<String, [f32; 4]>,
+        tooltips: Tooltips,
     ) -> MenuMesh {
         let mut vertices: Vec<Vertex> = Vec::with_capacity(elements.len() * 24);
         // Moved out so the element loop can record into it while `self` is
@@ -433,7 +435,12 @@ impl MenuGeometry {
                     | MenuElement::TooltipLines { .. }
                     | MenuElement::BundleTooltip { .. }
             ) {
-                deferred_tooltips.push(elem);
+                if tooltips != Tooltips::Without {
+                    deferred_tooltips.push(elem);
+                }
+                continue;
+            }
+            if tooltips == Tooltips::Only {
                 continue;
             }
             if matches!(
@@ -1727,13 +1734,41 @@ impl MenuOverlayPipeline {
         item_atlas_uvs: &HashMap<String, [f32; 4]>,
         vertex_base: u32,
     ) -> u32 {
+        self.draw_part_from(
+            device,
+            pass,
+            frame,
+            screen_w,
+            screen_h,
+            elements,
+            item_atlas_uvs,
+            vertex_base,
+            Tooltips::With,
+        )
+    }
+
+    /// Like [`Self::draw_from`], for the part of `elements` that `tooltips`
+    /// picks: a screen's 3D previews draw between its body and its tooltips.
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_part_from(
+        &mut self,
+        device: &rhi::backend::Device,
+        pass: &mut rhi::backend::RenderPassEncoder,
+        frame: usize,
+        screen_w: f32,
+        screen_h: f32,
+        elements: &[MenuElement],
+        item_atlas_uvs: &HashMap<String, [f32; 4]>,
+        vertex_base: u32,
+        tooltips: Tooltips,
+    ) -> u32 {
         let globals: [f32; 2] = [screen_w, screen_h];
         self.globals_buffers[frame].write(bytemuck::cast_slice(&globals));
 
         let MenuMesh {
             vertices,
             ops: draw_ops,
-        } = self.geometry.build(elements, item_atlas_uvs);
+        } = self.geometry.build(elements, item_atlas_uvs, tooltips);
 
         if draw_ops.is_empty() {
             return vertex_base;
@@ -2375,6 +2410,15 @@ pub fn item_icon_atlas_key(item_name: &str, item_tints: &[u32]) -> String {
         let _ = write!(key, "{color:06x}-");
     }
     key
+}
+
+/// Which of a screen's elements a draw takes: vanilla draws tooltips after
+/// everything else on the screen (`renderDeferredElements`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Tooltips {
+    With,
+    Without,
+    Only,
 }
 
 #[allow(dead_code)]

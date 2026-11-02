@@ -219,6 +219,8 @@ pub struct EntityRenderInfo {
     /// Extra scale applied after the entity rotation (slime size + squish),
     /// shared by base and overlay draws.
     pub body_transform: Option<glam::Mat4>,
+    /// Vanilla `LivingEntityRenderState.scale`: the `scale` attribute.
+    pub scale: f32,
     /// Interpolated entity age in ticks; drives the undead idle arm bob.
     pub age_in_ticks: f32,
     /// Arm-swing progress 0..1; drives the zombie attack swing.
@@ -312,6 +314,7 @@ impl Default for EntityRenderInfo {
             golem_offer_flower_ticks: 0,
             base_tint: WHITE_TINT,
             body_transform: None,
+            scale: 1.0,
             age_in_ticks: 0.0,
             attack_time: 0.0,
             skip_cull: false,
@@ -1326,6 +1329,7 @@ fn mob_definitions() -> Vec<MobDef> {
     const CREEPER_ARMOR_TEX: &[&[&str]] = tex_table!("creeper" => "creeper_armor");
     const SPIDER_TEX: &[&[&str]] = tex_table!("spider" => "spider");
     const SPIDER_EYES_TEX: &[&[&str]] = tex_table!("spider" => "spider_eyes");
+    const CAVE_SPIDER_TEX: &[&[&str]] = tex_table!("spider" => "cave_spider");
     const ENDERMAN_TEX: &[&[&str]] = tex_table!("enderman" => "enderman");
     const ENDERMAN_EYES_TEX: &[&[&str]] = tex_table!("enderman" => "enderman_eyes");
     const SLIME_TEX: &[&[&str]] = tex_table!("slime" => "slime");
@@ -1835,6 +1839,26 @@ fn mob_definitions() -> Vec<MobDef> {
             adult: vec![opaque(entity_model::bake_spider_model(), SPIDER_TEX, 64)],
             baby: None,
             // Slot 0: glowing eyes (translucent, full-bright), always visible.
+            adult_overlays: vec![VariantDef {
+                model: entity_model::bake_spider_model(),
+                tex_variants: SPIDER_EYES_TEX,
+                tex_size: 64,
+                overlay_kind: OverlayKind::EyesTranslucent,
+                invisible_outline: false,
+            }],
+            baby_overlays: vec![],
+        },
+        // `CaveSpiderRenderer`: the spider's model, eyes included, in its own
+        // skin (scaled down by its extras).
+        MobDef {
+            kind: EntityKind::CaveSpider,
+            anim: AnimationType::Spider,
+            adult: vec![opaque(
+                entity_model::bake_spider_model(),
+                CAVE_SPIDER_TEX,
+                64,
+            )],
+            baby: None,
             adult_overlays: vec![VariantDef {
                 model: entity_model::bake_spider_model(),
                 tex_variants: SPIDER_EYES_TEX,
@@ -3287,6 +3311,11 @@ impl EntityRenderer {
                 -step_z * head_offset,
             ));
         }
+        // `LivingEntityRenderer.submit` scales after the bed offset, before
+        // `setupRotations`.
+        if info.scale != 1.0 {
+            base *= glam::Mat4::from_scale(glam::Vec3::splat(info.scale));
+        }
         if !info.is_sleeping {
             base *= glam::Mat4::from_rotation_y((180.0 - body_y_rot_deg).to_radians());
         }
@@ -4041,6 +4070,7 @@ fn entity_bounds(kind: EntityKind, is_baby: bool) -> (f32, f32) {
         EntityKind::Skeleton | EntityKind::Stray | EntityKind::Bogged => (0.6, 1.99),
         EntityKind::Creeper => (0.6, 1.7),
         EntityKind::Spider => (1.4, 0.9),
+        EntityKind::CaveSpider => (0.7, 0.5),
         EntityKind::Enderman => (0.6, 2.9),
         EntityKind::Slime => (0.52, 0.52),
         EntityKind::Wolf => (0.6, 0.85),

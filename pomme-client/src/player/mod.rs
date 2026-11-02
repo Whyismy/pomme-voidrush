@@ -166,6 +166,10 @@ pub struct LocalPlayer {
     pub camera_distance: f32,
     pub attributes: AttributeMap,
     pub hurt_time: u8,
+    /// Vanilla `LocalPlayer.spinningEffectIntensity` (Nausea's screen warp)
+    /// and last tick's.
+    pub spinning_intensity: f32,
+    pub prev_spinning_intensity: f32,
     pub hurt_dir: f32,
     flash_on_set_health: bool,
     pub food: u32,
@@ -291,6 +295,8 @@ impl LocalPlayer {
             camera_distance: crate::renderer::camera::THIRD_PERSON_DISTANCE,
             attributes: AttributeMap::player(),
             hurt_time: 0,
+            spinning_intensity: 0.0,
+            prev_spinning_intensity: 0.0,
             hurt_dir: 0.0,
             flash_on_set_health: false,
             food: 20,
@@ -790,6 +796,22 @@ impl LocalPlayer {
 
     /// Vanilla Player.tick sleep-counter branch: ramps to 100 while sleeping,
     /// then runs 100..110 after waking and resets to 0.
+    /// Vanilla `LocalPlayer.handleConfusionTransitionEffect`, outside a
+    /// portal: Nausea winds the warp up over 150 ticks, and it unwinds in 20
+    /// once Nausea has three seconds left.
+    // TODO: the nether portal's own warp.
+    pub fn tick_confusion(&mut self) {
+        self.prev_spinning_intensity = self.spinning_intensity;
+        let step = if self.effects.nausea_lasts(60) {
+            1.0 / 150.0
+        } else if self.spinning_intensity > 0.0 {
+            -0.05
+        } else {
+            0.0
+        };
+        self.spinning_intensity = (self.spinning_intensity + step).clamp(0.0, 1.0);
+    }
+
     pub fn tick_sleep(&mut self) {
         if self.is_sleeping() {
             self.sleep_counter = (self.sleep_counter + 1).min(100);

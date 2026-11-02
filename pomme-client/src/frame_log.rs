@@ -203,8 +203,21 @@ pub fn record(frame_secs: f32) {
     }
 }
 
+thread_local! {
+    static MUTED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Drops this thread's [`add`]s: its work isn't part of any frame (the light
+/// worker's runs).
+pub fn mute_this_thread() {
+    MUTED.with(|muted| muted.set(true));
+}
+
 /// Adds `ms` to this frame's `phase`.
 pub fn add(phase: &'static str, ms: f32) {
+    if MUTED.with(std::cell::Cell::get) {
+        return;
+    }
     if let Ok(mut window) = WINDOW.try_lock()
         && let Some(window) = window.as_mut()
     {

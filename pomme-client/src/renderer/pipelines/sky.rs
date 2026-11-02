@@ -141,6 +141,54 @@ pub struct SkyState {
     pub fog_color: Vec3,
     /// The dimension's directional light, vanilla `Lighting.updateLevel`.
     pub cardinal_light: CardinalLightType,
+    /// Blindness's or Darkness's fog, which takes over from the atmosphere's
+    /// and the water's and hides the sky.
+    pub effect_fog: Option<EffectFog>,
+}
+
+/// Vanilla `MobEffectFogEnvironment`: `BlindnessFogEnvironment` or
+/// `DarknessFogEnvironment`'s band, and how far it darkens the fog colour
+/// (`getModifiedDarkness`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EffectFog {
+    pub start: f32,
+    pub end: f32,
+    pub darkness: f32,
+}
+
+impl EffectFog {
+    /// The fog of the camera's Blindness (its remaining ticks, `-1` for
+    /// none's end), else of its Darkness (blend factor), `render_distance`
+    /// blocks out.
+    pub fn new(blindness: Option<i32>, darkness: f32, render_distance: f32) -> Option<Self> {
+        if let Some(duration) = blindness {
+            let end = if duration < 0 {
+                5.0
+            } else {
+                render_distance + (5.0 - render_distance) * (duration as f32 / 20.0).min(1.0)
+            };
+            // Old `FogRenderer.setupColor`: black, lifting over the last
+            // second.
+            let darkness = if (0..20).contains(&duration) {
+                duration as f32 / 20.0
+            } else {
+                1.0
+            };
+            return Some(Self {
+                start: end * 0.25,
+                end,
+                darkness,
+            });
+        }
+        (darkness > 0.0).then(|| {
+            let end = render_distance + (15.0 - render_distance) * darkness;
+            Self {
+                start: end * 0.75,
+                end,
+                darkness,
+            }
+        })
+    }
 }
 
 impl SkyState {
@@ -154,6 +202,7 @@ impl SkyState {
             attributes: EnvAttributes::default(),
             skybox: Skybox::Overworld,
             void_darkness: 0.0,
+            effect_fog: None,
             dark_disc: false,
             fog_color: Vec3::ZERO,
             cardinal_light: CardinalLightType::Default,

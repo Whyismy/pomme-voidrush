@@ -105,6 +105,7 @@ pub struct BlockRenderAssets {
     flat_item_texture_keys: HashMap<String, Vec<Option<String>>>,
     item_gui_transforms: HashMap<String, model::DisplayTransform>,
     item_ground_transforms: HashMap<String, glam::Mat4>,
+    item_display_transforms: HashMap<String, model::DisplayTransforms>,
     item_tint_sources: HashMap<String, Vec<model::ItemTintSource>>,
 }
 
@@ -214,6 +215,7 @@ impl BlockRenderAssets {
         let flat_item_texture_keys = baked_items.flat_texture_keys;
         let item_gui_transforms = baked_items.gui_transforms;
         let item_ground_transforms = baked_items.ground_transforms;
+        let item_display_transforms = baked_items.display_transforms;
         let item_tint_sources = baked_items.tint_sources;
 
         Self {
@@ -226,6 +228,7 @@ impl BlockRenderAssets {
             flat_item_texture_keys,
             item_gui_transforms,
             item_ground_transforms,
+            item_display_transforms,
             item_tint_sources,
         }
     }
@@ -327,6 +330,23 @@ impl BlockRenderAssets {
 
     pub fn get_item_ground_transform(&self, name: &str) -> Option<glam::Mat4> {
         self.item_ground_transforms.get(name).copied()
+    }
+
+    /// A baked item model's transform for display context `context`
+    /// ([`model::DISPLAY_CONTEXT_KEYS`]); `None` for models it didn't bake.
+    pub(crate) fn get_item_display_transform(
+        &self,
+        name: &str,
+        context: u8,
+    ) -> Option<model::DisplayTransform> {
+        let display = self.item_display_transforms.get(name)?;
+        Some(
+            display
+                .get(context as usize)
+                .copied()
+                .flatten()
+                .unwrap_or(model::DisplayTransform::IDENTITY),
+        )
     }
 
     fn state_render(

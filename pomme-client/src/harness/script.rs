@@ -196,6 +196,8 @@ struct PlayerFields {
     day_time: Option<u64>,
     /// Within 0.01 blocks.
     position: Option<[f64; 3]>,
+    /// The feet strictly between these heights, for falls and jumps.
+    y_between: Option<[f32; 2]>,
     /// Yaw, within 0.01 degrees.
     y_rot: Option<f32>,
     spectating: Option<String>,
@@ -629,6 +631,9 @@ fn check(expect: &Expect, phase: &AppPhase) -> Result<(), String> {
                     && want.hand.is_none_or(|h| seen.hand == h)
                     && want.dimension.as_ref().is_none_or(|d| seen.dimension == *d)
                     && want.day_time.is_none_or(|t| seen.day_time == t)
+                    && want.y_between.is_none_or(|[low, high]| {
+                        seen.position[1] > f64::from(low) && seen.position[1] < f64::from(high)
+                    })
                     && want.position.is_none_or(|p| {
                         p.iter()
                             .zip(seen.position)

@@ -1,0 +1,43 @@
+# Movement effects run in the client's own physics: Slow Falling (gravity
+# 0.01 while falling) leaves the player well up after a second and a half
+# where a plain fall would have landed; Levitation lifts the player off the
+# ground; Jump Boost IV clears a 2-block wall a plain jump can't.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/gamemode survival"
+
+[[step]]
+chat = "/effect give @s minecraft:resistance infinite 255 true"
+
+[[step]]
+chat = "/effect give @s minecraft:slow_falling 30 0"
+
+[[step]]
+chat = "/tp @s 0.5 -40 0.5"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+expect = { player = { y_between = [-48.0, -40.5] } }
+
+[[step]]
+chat = "/effect clear @s minecraft:slow_falling"
+
+[[step]]
+wait_ms = 3000
+
+[[step]]
+expect = { player = { y_between = [-62.0, -59.5] } }
+
+[[step]]
+chat = "/effect give @s minecraft:levitation 3 4"
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+expect = { player = { y_between = [-56.0, 100.0] } }

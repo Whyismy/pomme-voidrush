@@ -22,7 +22,15 @@ const fn effect(name: &'static str, beneficial: bool, color: u32) -> MobEffectIn
 
 pub const HASTE: u32 = 2;
 pub const MINING_FATIGUE: u32 = 3;
+pub const JUMP_BOOST: u32 = 7;
+pub const NAUSEA: u32 = 8;
+pub const LEVITATION: u32 = 24;
+pub const SLOW_FALLING: u32 = 27;
 pub const CONDUIT_POWER: u32 = 28;
+pub const DOLPHINS_GRACE: u32 = 29;
+pub const DARKNESS: u32 = 32;
+/// `MobEffects.DARKNESS`'s `setBlendDuration(22)`.
+const DARKNESS_BLEND_TICKS: i32 = 22;
 
 pub const MOB_EFFECTS: [MobEffectInfo; 40] = [
     effect("speed", true, 3402751),
@@ -112,58 +120,67 @@ fn cmp_vanilla(a: &MobEffectInstance, b: &MobEffectInstance) -> std::cmp::Orderi
 
 /// The local player's active effects (vanilla `LivingEntity.activeEffects`).
 #[derive(Default)]
-pub struct ActiveMobEffects(Vec<MobEffectInstance>);
+pub struct ActiveMobEffects {
+    effects: Vec<MobEffectInstance>,
+    /// Darkness's `MobEffectInstance.BlendState`: last tick's factor and
+    /// this tick's.
+    darkness_blend: (f32, f32),
+}
 
 impl ActiveMobEffects {
     /// Vanilla `forceAddEffect`: replaces any instance of the same effect.
     pub fn update(&mut self, instance: MobEffectInstance) {
         match self
-            .0
+            .effects
             .iter_mut()
             .find(|e| e.effect_id == instance.effect_id)
         {
             Some(existing) => *existing = instance,
-            None => self.0.push(instance),
+            None => self.effects.push(instance),
         }
     }
 
     pub fn remove(&mut self, effect_id: u32) {
-        self.0.retain(|e| e.effect_id != effect_id);
+        self.effects.retain(|e| e.effect_id != effect_id);
+        if effect_id == DARKNESS {
+            self.darkness_blend = (0.0, 0.0);
+        }
     }
 
     pub fn clear(&mut self) {
-        self.0.clear();
+        self.effects.clear();
+        self.darkness_blend = (0.0, 0.0);
     }
 
     pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.effects.is_empty()
     }
 
     /// The active effects' registry paths.
     #[cfg(feature = "test-harness")]
     pub fn names(&self) -> impl Iterator<Item = &'static str> + '_ {
-        self.0
+        self.effects
             .iter()
             .filter_map(|e| info(e.effect_id).map(|i| i.name))
     }
 
     /// Vanilla `hasEffect`, by registry path.
     pub fn has(&self, name: &str) -> bool {
-        self.0
+        self.effects
             .iter()
             .any(|e| info(e.effect_id).is_some_and(|i| i.name == name))
     }
 
     /// The remaining ticks of the effect named `name`, `-1` if infinite.
     pub fn duration(&self, name: &str) -> Option<i32> {
-        self.0
+        self.effects
             .iter()
             .find(|e| info(e.effect_id).is_some_and(|i| i.name == name))
             .map(|e| e.duration)
     }
 
     pub fn amplifier(&self, effect_id: u32) -> Option<i32> {
-        self.0
+        self.effects
             .iter()
             .find(|effect| effect.effect_id == effect_id)
             .map(|effect| effect.amplifier)
@@ -178,16 +195,48 @@ impl ActiveMobEffects {
     /// Vanilla `tickClient`: durations floor at 0 and the entry stays until
     /// the server's remove packet.
     pub fn tick(&mut self) {
-        for e in &mut self.0 {
+        for e in &mut self.effects {
             if e.duration > 0 {
                 e.duration -= 1;
             }
         }
+        // `BlendState.tick`: toward 1 while the effect lasts, toward 0 over
+        // its last blend-out ticks, a blend duration's worth a tick.
+        let target = self
+            .effects
+            .iter()
+            .find(|e| e.effect_id == DARKNESS)
+            .is_some_and(|e| !e.ends_within(DARKNESS_BLEND_TICKS));
+        let (_, factor) = self.darkness_blend;
+        let step = 1.0 / DARKNESS_BLEND_TICKS as f32;
+        let next = if target {
+            (factor + step).min(1.0)
+        } else {
+            (factor - step).max(0.0)
+        };
+        self.darkness_blend = (factor, next);
+    }
+
+    /// Whether Nausea is on and not within its last `ticks`.
+    pub fn nausea_lasts(&self, ticks: i32) -> bool {
+        self.effects
+            .iter()
+            .any(|e| e.effect_id == NAUSEA && !e.ends_within(ticks))
+    }
+
+    pub fn has_nausea(&self) -> bool {
+        self.amplifier(NAUSEA).is_some()
+    }
+
+    /// `BlendState.getFactor` for Darkness, between ticks.
+    pub fn darkness_factor(&self, partial_tick: f32) -> f32 {
+        let (previous, factor) = self.darkness_blend;
+        previous + (factor - previous) * partial_tick
     }
 
     /// Vanilla `Ordering.natural().reverse().sortedCopy(activeEffects)`.
     pub fn sorted_desc(&self) -> Vec<MobEffectInstance> {
-        let mut sorted = self.0.clone();
+        let mut sorted = self.effects.clone();
         sorted.sort_by(|a, b| cmp_vanilla(b, a));
         sorted
     }

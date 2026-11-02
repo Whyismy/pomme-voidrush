@@ -957,22 +957,28 @@ pub(crate) fn baby_dimensions(kind: EntityKind, width: f32, height: f32) -> (f32
 // multi-seat ones (camels, boats, minecarts).
 pub fn passenger_attachment_height(entity: &LivingEntity) -> f64 {
     let dims = living_entity_dimensions(entity);
-    let unscaled = EntityDimensions::of(entity.entity_type).height;
+    let scale = entity_scale(entity);
+    let unscaled = EntityDimensions::of(entity.entity_type).height * scale;
     let age = if unscaled > 0.0 {
         dims.height / unscaled
     } else {
         1.0
     };
     let attachment = match entity.entity_type {
-        EntityKind::Ravager => 2.2625 * age,
-        EntityKind::Zombie | EntityKind::PiglinBrute => 2.0125 * age,
+        EntityKind::Ravager => 2.2625 * age * scale,
+        EntityKind::Zombie | EntityKind::PiglinBrute => 2.0125 * age * scale,
         _ => dims.height,
     };
-    let scale = entity
+    f64::from(attachment)
+}
+
+/// Vanilla `LivingEntity.getScale`: the `scale` attribute, which sizes the
+/// box and the model alike.
+pub fn entity_scale(entity: &LivingEntity) -> f32 {
+    entity
         .attributes
         .value(crate::attribute::AttributeKind::Scale)
-        .unwrap_or(1.0);
-    f64::from(attachment) * scale
+        .unwrap_or(1.0) as f32
 }
 
 pub(crate) fn living_entity_dimensions(entity: &LivingEntity) -> EntityDimensions {
@@ -985,6 +991,10 @@ pub(crate) fn living_entity_dimensions(entity: &LivingEntity) -> EntityDimension
         (dims.width, dims.height) = baby_dimensions(entity.entity_type, dims.width, dims.height);
     }
     dims.height *= entity.stand_height_scale();
+    // `LivingEntity.getDimensions`: the whole box at the `scale` attribute.
+    let scale = entity_scale(entity);
+    dims.width *= scale;
+    dims.height *= scale;
     // TODO: `Goat.getDefaultDimensions` scales by 0.7 in `Pose.LONG_JUMPING`;
     // pomme tracks only the crouching pose.
     dims
@@ -2611,6 +2621,7 @@ pub fn is_living_mob(kind: &EntityKind) -> bool {
                 | EntityKind::Skeleton
                 | EntityKind::Creeper
                 | EntityKind::Spider
+                | EntityKind::CaveSpider
                 | EntityKind::Villager
                 | EntityKind::Enderman
                 | EntityKind::Slime

@@ -1,0 +1,35 @@
+# End portal blocks (a 3x3 pool in an end-stone rim) and an end gateway
+# (TheEndPortalRenderer's projected stars), from slightly above.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/gamemode creative"
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/fill 37 -61 3 41 -61 7 minecraft:end_stone"
+
+[[step]]
+chat = "/fill 38 -61 4 40 -61 6 minecraft:end_portal"
+
+[[step]]
+chat = "/setblock 44 -59 5 minecraft:end_gateway"
+
+[[step]]
+chat = "/tp @s 39.5 -60 0.5"
+
+[[step]]
+wait_ms = 1000
+
+[[step]]
+look_at = [40.5, -60.5, 5.5]
+
+[[step]]
+wait_ms = 11000
+
+[[step]]
+screenshot = "portals"

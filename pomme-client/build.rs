@@ -138,6 +138,8 @@ fn main() {
         ("block_entity.vert", shaderc::ShaderKind::Vertex),
         ("chunk_border.vert", shaderc::ShaderKind::Vertex),
         ("chunk_border.frag", shaderc::ShaderKind::Fragment),
+        ("end_portal.vert", shaderc::ShaderKind::Vertex),
+        ("end_portal.frag", shaderc::ShaderKind::Fragment),
         ("item_entity.vert", shaderc::ShaderKind::Vertex),
         ("item_entity_world.vert", shaderc::ShaderKind::Vertex),
         ("item_entity.frag", shaderc::ShaderKind::Fragment),

@@ -1914,8 +1914,8 @@ fn mesh_chunk_snapshot(
                             tracing::warn!("Missing model: {id}");
                         }
                     }
+                    let table = snapshot.block_state_table;
                     if let Some(pack) = &snapshot.pack {
-                        let table = snapshot.block_state_table;
                         let entity = if fluid {
                             pack.fluid(table.fluid_block(table.block_state_data(state).fluid()))
                         } else {
@@ -1927,6 +1927,30 @@ fn mesh_chunk_snapshot(
                     }
                     if !fluid {
                         snapshot.flatten_shade(&mut sink.vertices[first_vertex..]);
+                    }
+                    // Vanilla `SectionCompiler` meshes every block's fluid
+                    // state, so a waterlogged block shows its water too.
+                    let block_fluid = table.block_state_data(state).fluid();
+                    let fluid_kind = match block_fluid.kind {
+                        FluidKind::Water => Some(BlockKind::Water),
+                        FluidKind::Lava => Some(BlockKind::Lava),
+                        FluidKind::Empty => None,
+                    };
+                    if lod == 0
+                        && !fluid
+                        && let Some(fluid_kind) = fluid_kind
+                    {
+                        let first_fluid_vertex = sink.vertices.len();
+                        emit_fluid(
+                            &mut sink, fluid_kind, block_pos, state, snapshot, registry, uv_map,
+                            bx, by, bz,
+                        );
+                        if let Some(pack) = &snapshot.pack {
+                            let entity = pack.fluid(table.fluid_block(block_fluid));
+                            for vertex in &mut sink.vertices[first_fluid_vertex..] {
+                                vertex.entity = entity;
+                            }
+                        }
                     }
                     by += step;
                 }
@@ -2202,6 +2226,9 @@ fn classify_block(block_state_data: &BlockStateData) -> BlockKind {
         "cave_air" | "void_air" | "light" | "barrier" | "structure_void" | "moving_piston" => {
             BlockKind::Air
         }
+        // `TheEndPortalRenderer` draws them; their block model is only a
+        // particle texture.
+        "end_portal" | "end_gateway" => BlockKind::Air,
         "water" | "bubble_column" => BlockKind::Water,
         "lava" => BlockKind::Lava,
         // Drawn by the block-entity pipeline; nothing to mesh.
@@ -2389,14 +2416,20 @@ fn emit_fluid(
     block_pos: [f32; 3],
     state: azalea_block::BlockState,
     snapshot: &ChunkStoreSnapshot,
-    registry: BlockRenderView<'_>,
+    _registry: BlockRenderView<'_>,
     uv_map: &AtlasUVMap,
     bx: i32,
     by: i32,
     bz: i32,
 ) {
-    let (region, tint) =
-        block_face_tex_tint(state, Direction::Up, uv_map, snapshot, registry, bx, by, bz);
+    // The fluid's own texture, whatever block holds it (a waterlogged one).
+    let (region, tint) = match kind {
+        BlockKind::Lava => (uv_map.get_region("lava_still"), PACKED_WHITE_SHIFTED),
+        _ => (
+            uv_map.get_region("water_still"),
+            pack_tint_shifted(snapshot.water_tint(bx, by, bz)),
+        ),
+    };
     // TODO: vanilla `FluidRenderer`'s per-face light positions.
     let fluid_light = block_lighter::light_coords(snapshot, [bx, by, bz])
         .max(block_lighter::light_coords(snapshot, [bx, by + 1, bz]));

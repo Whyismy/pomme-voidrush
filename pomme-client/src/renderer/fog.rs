@@ -10,7 +10,9 @@ use super::pipelines::sky::SkyState;
 /// The fog colour for a camera looking along `forward`, `render_distance`
 /// chunks out.
 pub fn fog_color(sky: &SkyState, forward: Vec3, render_distance: u32) -> Vec3 {
-    base_color(sky, forward, render_distance) * (1.0 - sky.void_darkness).powi(2)
+    let effect_darkness = sky.effect_fog.map_or(0.0, |fog| fog.darkness);
+    let brightness = (1.0 - sky.void_darkness) * (1.0 - effect_darkness);
+    base_color(sky, forward, render_distance) * brightness.powi(2)
 }
 
 /// `AtmosphericFogEnvironment.getBaseColor`: the fog colour, tinted toward the

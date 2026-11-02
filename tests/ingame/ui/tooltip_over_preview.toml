@@ -1,0 +1,29 @@
+# A hovered armor slot's tooltip spreads over the player preview, and draws
+# over it as vanilla defers tooltips past everything else on a screen.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/clear @s"
+
+[[step]]
+chat = "/item replace entity @s armor.head with minecraft:diamond_helmet[custom_name={text:\"Helm of the Void Rush Wardens\",color:\"aqua\"}]"
+
+[[step]]
+wait_ms = 1000
+
+[[step]]
+open_inventory = true
+
+[[step]]
+wait_ms = 1000
+
+[[step]]
+cursor = [142, 52]
+
+[[step]]
+wait_ms = 500
+
+[[step]]
+screenshot = "over_preview"

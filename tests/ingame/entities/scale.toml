@@ -1,0 +1,29 @@
+# The `scale` attribute sizes mobs' models (and boxes): zombies at 0.5, 1
+# and 2, standing on the ground side by side.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/time set 18000"
+
+[[step]]
+chat = "/effect give @s minecraft:night_vision infinite 0 true"
+
+[[step]]
+chat = "/summon minecraft:zombie -2.5 -60 6.5 {NoAI:1b,Silent:1b,Rotation:[180f,0f],attributes:[{id:\"minecraft:scale\",base:0.5}]}"
+
+[[step]]
+chat = "/summon minecraft:zombie 0.5 -60 6.5 {NoAI:1b,Silent:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:zombie 4 -60 7.5 {NoAI:1b,Silent:1b,Rotation:[180f,0f],attributes:[{id:\"minecraft:scale\",base:2.0}]}"
+
+[[step]]
+chat = "/tp @s 0.5 -59 -2.5 0 5"
+
+[[step]]
+wait_ms = 4000
+
+[[step]]
+screenshot = "zombies"

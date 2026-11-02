@@ -278,6 +278,16 @@ impl PalettedContainer {
             .value_for(self.storage.get(self.index(x, y, z)))
     }
 
+    /// Whether any entry may hold a value `wanted` accepts: exact for a
+    /// single or list palette, always for a global one.
+    pub fn may_contain(&self, wanted: impl Fn(u32) -> bool) -> bool {
+        match &self.palette {
+            Palette::SingleValue(value) => wanted(*value),
+            Palette::List(values) => values.iter().any(|&value| wanted(value)),
+            Palette::Global => true,
+        }
+    }
+
     /// The single value every entry holds, if the palette has only one.
     pub fn single_value(&self) -> Option<u32> {
         match self.palette {

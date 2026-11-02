@@ -9,6 +9,7 @@ use glam::DVec3;
 
 use crate::entity::MetaValue;
 use crate::entity::components::Position;
+use crate::physics::aabb::Aabb;
 
 /// `EndCrystal.DATA_SHOW_BOTTOM`.
 const SHOW_BOTTOM: u8 = 9;
@@ -19,6 +20,13 @@ pub struct EndCrystal {
     /// `EndCrystal.time`, the ticks it has existed.
     pub age: u32,
     pub shows_bottom: bool,
+}
+
+impl EndCrystal {
+    /// `EntityType.END_CRYSTAL`'s 2x2 box.
+    pub fn bounding_box(&self) -> Aabb {
+        Aabb::from_center(self.position.into(), 1.0, 1.0)
+    }
 }
 
 #[derive(Default)]

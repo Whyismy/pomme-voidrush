@@ -1,0 +1,26 @@
+# A spider and a cave spider (CaveSpiderRenderer: the spider model and eyes
+# at 0.7 scale in its own skin), side by side.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/summon minecraft:spider -1.5 -60 5.5 {NoAI:1b,Rotation:[160f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:cave_spider 2 -60 5.5 {NoAI:1b,Rotation:[200f,0f]}"
+
+[[step]]
+expect = { entity = "cave_spider" }
+
+[[step]]
+chat = "/tp @s 0.5 -59 1 0 20"
+
+[[step]]
+wait_ms = 4000
+
+[[step]]
+screenshot = "spiders"

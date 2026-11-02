@@ -1,0 +1,42 @@
+# Shields (vanilla ShieldSpecialRenderer: the plate and handle of
+# ShieldModel): in the hotbar, on a fixed item display, in the player's
+# offhand, and in a zombie's offhand up close from its left.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/clear @s"
+
+[[step]]
+chat = "/give @s minecraft:shield"
+
+[[step]]
+chat = "/item replace entity @s weapon.offhand with minecraft:shield"
+
+[[step]]
+chat = "/summon minecraft:item_display 0.5 -58.5 4.5 {Rotation:[180f,0f],item:{id:\"minecraft:shield\",count:1},item_display:\"fixed\"}"
+
+[[step]]
+chat = "/summon minecraft:zombie 3.5 -60 4.5 {NoAI:1b,Silent:1b,Rotation:[180f,0f],equipment:{offhand:{id:\"minecraft:shield\"}}}"
+
+[[step]]
+chat = "/tp @s 0.5 -59 0.5 0 10"
+
+[[step]]
+wait_ms = 5000
+
+[[step]]
+screenshot = "front"
+
+[[step]]
+chat = "/tp @s 1 -59 4.5 -90 10"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "zombie_left"

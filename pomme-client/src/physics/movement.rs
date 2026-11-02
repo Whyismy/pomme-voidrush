@@ -11,7 +11,9 @@ use super::collision::{
     CollisionWorld, find_supporting_block, no_collision, resolve_collision, state_boxes,
 };
 use crate::app::input::{self, InputState};
+use crate::attribute::AttributeKind;
 use crate::entity::components::Velocity;
+use crate::mob_effect;
 use crate::player::{CROUCH_HEIGHT, LocalPlayer, PLAYER_HALF_WIDTH, STANDING_HEIGHT, is_spectator};
 use crate::position::BlockPos;
 use crate::world::block::model::Direction;
@@ -19,9 +21,8 @@ use crate::world::block::{BlockStateData, BlockStateTable, BlockTags, FluidKind}
 use crate::world::chunk::ChunkStore;
 use crate::world::piston::{self, MovingPiston};
 
-// TODO: read movement speed, sprint modifier, jump strength, step height,
-// gravity, sneaking speed and water movement efficiency from
-// `player.attributes` instead of these defaults.
+// The player's defaults for the attributes physics reads (see
+// [`attribute`]); the server's modifiers and potion effects come on top.
 const GRAVITY: f64 = 0.08;
 // Vanilla mixes float and double physics values. Keep float values as f32 until
 // the exact point where vanilla widens them into Vec3/AABB doubles.
@@ -39,9 +40,13 @@ const SPRINT_SPEED_MODIFIER: f64 = 0.3_f32 as f64;
 const SNEAKING_SPEED: f32 = 0.3_f64 as f32;
 const INPUT_DAMPING: f32 = 0.98;
 const AIR_ACCELERATION: f32 = 0.02;
-// TODO: WATER_MOVEMENT_EFFICIENCY attribute - scales drag toward 0.54600006f
-// and accel toward land speed.
 const WATER_ACCELERATION: f32 = 0.02;
+// `travelInWater`'s drag at full water movement efficiency.
+const EFFICIENT_WATER_DRAG: f32 = 0.546_000_06;
+// `travelInWater` under Dolphin's Grace.
+const DOLPHINS_GRACE_WATER_DRAG: f32 = 0.96;
+// `LocalPlayer.setSprinting`'s own movement-speed modifier.
+const SPRINTING_MODIFIER_ID: &str = "minecraft:sprinting";
 const WATER_HORIZONTAL_DRAG: f32 = 0.8;
 const WATER_HORIZONTAL_DRAG_SPRINT: f32 = 0.9;
 const WATER_VERTICAL_DRAG: f32 = 0.8;
@@ -116,7 +121,13 @@ pub fn tick(
     // Vanilla `LocalPlayer.modifyInput` keeps the entire input pipeline in
     // float: damping, item-use slowdown, sneaking slowdown, then square remap.
     let moving_slowly = is_moving_slowly(player);
-    let (mut forward, mut strafe) = movement_input(input, moving_slowly, use_speed_multiplier);
+    let sneaking_speed =
+        attribute(player, AttributeKind::SneakingSpeed, SNEAKING_SPEED.into()) as f32;
+    let (mut forward, mut strafe) = movement_input(
+        input,
+        moving_slowly.then_some(sneaking_speed),
+        use_speed_multiplier,
+    );
     let forward_pressed = has_forward_impulse(input);
 
     update_sprint_state(
@@ -323,8 +334,15 @@ fn jump_from_ground(
     sin_y_rot: f32,
     cos_y_rot: f32,
 ) {
+    // `LivingEntity.getJumpPower`: jump strength times the block's factor,
+    // plus Jump Boost's 0.1 a level; no jump at all at (near) zero.
     let jump_factor = block_jump_factor(player, world);
-    let jump_velocity = JUMP_VELOCITY * jump_factor;
+    let jump_velocity = attribute(player, AttributeKind::JumpStrength, JUMP_VELOCITY.into()) as f32
+        * jump_factor
+        + jump_boost_power(player);
+    if jump_velocity <= 1.0e-5 {
+        return;
+    }
     player.velocity.y = f64::from(jump_velocity).max(player.velocity.y);
 
     if player.sprinting {
@@ -442,7 +460,7 @@ fn tick_land(
     } else {
         1.0
     };
-    let speed = movement_speed(player.sprinting);
+    let speed = movement_speed(player);
     let accel = friction_influenced_speed(speed, player, block_friction);
     move_relative(player, forward, strafe, accel, sin_y_rot, cos_y_rot);
 
@@ -467,8 +485,15 @@ fn tick_land(
     player.velocity.x *= f64::from(speed_factor);
     player.velocity.z *= f64::from(speed_factor);
 
+    // `travelInAir`: Levitation eases toward its climb rate in place of
+    // gravity.
     // TODO: over an unloaded chunk vanilla sets vy to -0.1 instead.
-    player.velocity.y -= GRAVITY;
+    match player.effects.amplifier(mob_effect::LEVITATION) {
+        Some(amplifier) => {
+            player.velocity.y += (0.05 * f64::from(amplifier + 1) - player.velocity.y) * 0.2;
+        }
+        None => player.velocity.y -= effective_gravity(player),
+    }
     player.velocity.y *= f64::from(VERTICAL_DRAG);
 
     let h_friction = if on_ground_at_start {
@@ -538,14 +563,30 @@ fn tick_water(
     let old_y = player.position.y;
     let saved_vy = player.velocity.y;
 
-    move_relative(
-        player,
-        forward,
-        strafe,
-        WATER_ACCELERATION,
-        sin_y_rot,
-        cos_y_rot,
-    );
+    // `travelInWater`: water movement efficiency (Depth Strider) eases the
+    // drag and acceleration toward land's, Dolphin's Grace lifts the drag.
+    let mut slow_down = if player.sprinting {
+        WATER_HORIZONTAL_DRAG_SPRINT
+    } else {
+        WATER_HORIZONTAL_DRAG
+    };
+    let mut acceleration = WATER_ACCELERATION;
+    let mut efficiency = attribute(player, AttributeKind::WaterMovementEfficiency, 0.0) as f32;
+    if !player.on_ground {
+        efficiency *= 0.5;
+    }
+    if efficiency > 0.0 {
+        slow_down += (EFFICIENT_WATER_DRAG - slow_down) * efficiency;
+        acceleration += (movement_speed(player) - acceleration) * efficiency;
+    }
+    if player
+        .effects
+        .amplifier(mob_effect::DOLPHINS_GRACE)
+        .is_some()
+    {
+        slow_down = DOLPHINS_GRACE_WATER_DRAG;
+    }
+    move_relative(player, forward, strafe, acceleration, sin_y_rot, cos_y_rot);
 
     apply_collision(player, input, world, forward, strafe, sin_y_rot, cos_y_rot);
     // TODO: `Entity.move`'s block speed factor also applies in water.
@@ -556,22 +597,19 @@ fn tick_water(
         player.velocity.y = CLIMB_UP_VELOCITY;
     }
 
-    let slow_down = if player.sprinting {
-        WATER_HORIZONTAL_DRAG_SPRINT
-    } else {
-        WATER_HORIZONTAL_DRAG
-    };
     player.velocity.x *= f64::from(slow_down);
     player.velocity.y *= f64::from(WATER_VERTICAL_DRAG);
     player.velocity.z *= f64::from(slow_down);
 
     // `LivingEntity.getFluidFallingAdjustedMovement`.
+    let gravity = effective_gravity(player);
     player.velocity.y =
-        water_falling_adjusted_y(player.velocity.y, GRAVITY, is_falling, player.sprinting);
+        water_falling_adjusted_y(player.velocity.y, gravity, is_falling, player.sprinting);
 
     // `LivingEntity.jumpOutOfFluid`.
     if player.horizontal_collision {
-        let y_offset = player.velocity.y + f64::from(STEP_HEIGHT) - player.position.y + old_y;
+        let y_offset =
+            player.velocity.y + f64::from(step_height(player)) - player.position.y + old_y;
         let ctx = collision_context(player, input.performing_action(input::Action::Sneak));
         let probe =
             player
@@ -638,7 +676,7 @@ fn apply_collision(
         world,
         aabb,
         delta.into(),
-        f64::from(STEP_HEIGHT),
+        f64::from(step_height(player)),
         player.on_ground,
         &ctx,
     );
@@ -862,7 +900,7 @@ fn back_off_from_edge(
     let bb = &player.bounding_box();
     let can_fall = |dx, dz, min_height| can_fall_at_least(world, bb, dx, dz, min_height, ctx);
     // `Player.isAboveGround`.
-    let max_down_step = f64::from(STEP_HEIGHT);
+    let max_down_step = f64::from(step_height(player));
     let above_ground = player.on_ground
         || (player.fall_distance < max_down_step
             && !can_fall(0.0, 0.0, max_down_step - player.fall_distance));
@@ -923,12 +961,54 @@ fn can_fall_at_least(
     )
 }
 
-fn movement_speed(sprinting: bool) -> f32 {
-    let mut speed = MOVEMENT_SPEED_ATTRIBUTE;
+/// `Player.getSpeed`: the movement-speed attribute (Speed, Slowness and the
+/// server's own modifiers), with the client's sprint modifier for its own
+/// sprint state.
+fn movement_speed(player: &LocalPlayer) -> f32 {
+    let base = player
+        .attributes
+        .instance(AttributeKind::MovementSpeed)
+        .map_or(MOVEMENT_SPEED_ATTRIBUTE, |instance| {
+            instance.value_without(Some(SPRINTING_MODIFIER_ID))
+        });
+    speed_with_sprint(base, player.sprinting)
+}
+
+fn speed_with_sprint(base: f64, sprinting: bool) -> f32 {
+    let mut speed = base;
     if sprinting {
         speed *= 1.0 + SPRINT_SPEED_MODIFIER;
     }
     speed as f32
+}
+
+/// The player's value of `kind`, or its default without one.
+fn attribute(player: &LocalPlayer, kind: AttributeKind, default: f64) -> f64 {
+    player.attributes.value(kind).unwrap_or(default)
+}
+
+/// `LivingEntity.getEffectiveGravity`: the gravity attribute, at most 0.01
+/// while falling under Slow Falling.
+fn effective_gravity(player: &LocalPlayer) -> f64 {
+    let gravity = attribute(player, AttributeKind::Gravity, GRAVITY);
+    if player.velocity.y <= 0.0 && player.effects.amplifier(mob_effect::SLOW_FALLING).is_some() {
+        gravity.min(0.01)
+    } else {
+        gravity
+    }
+}
+
+/// `LivingEntity.getJumpBoostPower`.
+fn jump_boost_power(player: &LocalPlayer) -> f32 {
+    player
+        .effects
+        .amplifier(mob_effect::JUMP_BOOST)
+        .map_or(0.0, |amplifier| 0.1 * (amplifier as f32 + 1.0))
+}
+
+/// `LivingEntity.maxUpStep`, the step-height attribute as a float.
+fn step_height(player: &LocalPlayer) -> f32 {
+    attribute(player, AttributeKind::StepHeight, STEP_HEIGHT.into()) as f32
 }
 
 /// Vanilla `Entity.moveRelative`.
@@ -1088,14 +1168,20 @@ fn block_speed_factor(player: &LocalPlayer, world: CollisionWorld<'_>) -> f32 {
         .block_state_table
         .block_state_data(block_state_at_player_position(player, world.chunks));
     let here_factor = block_state_data.movement_speed_factor();
-    if matches!(block_state_data.id(), "water" | "bubble_column") || f64::from(here_factor) != 1.0 {
+    let factor = if matches!(block_state_data.id(), "water" | "bubble_column")
+        || f64::from(here_factor) != 1.0
+    {
         here_factor
     } else {
         world
             .block_state_table
             .block_state_data(block_below_affecting_movement(player, world))
             .movement_speed_factor()
-    }
+    };
+    // `LivingEntity.getBlockSpeedFactor`: movement efficiency (Soul Speed)
+    // eases slow blocks back toward full speed.
+    let efficiency = attribute(player, AttributeKind::MovementEfficiency, 0.0) as f32;
+    factor + (1.0 - factor) * efficiency
 }
 
 fn friction_influenced_speed(speed: f32, player: &LocalPlayer, block_friction: f32) -> f32 {
@@ -1175,9 +1261,10 @@ fn has_forward_impulse(input: &InputState) -> bool {
 }
 
 /// `strafe` follows vanilla xxa: positive is left.
+/// `sneaking_speed` scales the input while moving slowly.
 fn movement_input(
     input: &InputState,
-    moving_slowly: bool,
+    sneaking_speed: Option<f32>,
     use_speed_multiplier: f32,
 ) -> (f32, f32) {
     let (mut strafe, mut forward) = move_vector(input);
@@ -1190,9 +1277,9 @@ fn movement_input(
     strafe *= use_speed_multiplier;
     forward *= use_speed_multiplier;
 
-    if moving_slowly {
-        strafe *= SNEAKING_SPEED;
-        forward *= SNEAKING_SPEED;
+    if let Some(sneaking_speed) = sneaking_speed {
+        strafe *= sneaking_speed;
+        forward *= sneaking_speed;
     }
 
     let (strafe, forward) = square_movement(strafe, forward);
@@ -1313,7 +1400,7 @@ fn move_by_piston(player: &mut LocalPlayer, mv: PistonMove<'_>, delta: DVec3) {
         mv.world,
         player.bounding_box(),
         delta.into(),
-        f64::from(STEP_HEIGHT),
+        f64::from(step_height(player)),
         player.on_ground,
         &ctx,
     );
@@ -1825,19 +1912,99 @@ mod tests {
         assert_eq!(vertical_edge.y, -0.003);
     }
 
+    fn with_effect(player: &mut LocalPlayer, effect_id: u32, amplifier: i32) {
+        player.effects.update(crate::mob_effect::MobEffectInstance {
+            effect_id,
+            amplifier,
+            duration: 200,
+            ambient: false,
+            show_icon: true,
+        });
+    }
+
+    /// Slow Falling caps gravity at 0.01 only while falling; Jump Boost adds
+    /// 0.1 a level to the jump; Levitation is handled in `tick_land`.
+    #[test]
+    fn effects_change_gravity_and_jump_like_vanilla() {
+        let mut player = LocalPlayer::new();
+        player.velocity.y = -0.5;
+        assert_eq!(effective_gravity(&player), GRAVITY);
+        with_effect(&mut player, crate::mob_effect::SLOW_FALLING, 0);
+        assert_eq!(effective_gravity(&player), 0.01);
+        player.velocity.y = 0.2;
+        assert_eq!(
+            effective_gravity(&player),
+            GRAVITY,
+            "rising keeps full gravity"
+        );
+
+        assert_eq!(jump_boost_power(&player), 0.0);
+        with_effect(&mut player, crate::mob_effect::JUMP_BOOST, 1);
+        assert!((jump_boost_power(&player) - 0.2).abs() < 1e-6);
+    }
+
+    /// Speed and Slowness reach the client as movement-speed modifiers; the
+    /// sprint modifier is the client's own, whatever the server sent.
+    #[test]
+    fn movement_speed_reads_the_attribute() {
+        use crate::attribute::{AttributeModifier, AttributeModifierOperation, AttributeSnapshot};
+        let mut player = LocalPlayer::new();
+        let snapshot = |modifiers| AttributeSnapshot {
+            attribute: AttributeKind::MovementSpeed,
+            base: MOVEMENT_SPEED_ATTRIBUTE,
+            modifiers,
+        };
+        let speed_ii = AttributeModifier {
+            id: "minecraft:effect.speed".into(),
+            amount: 0.4,
+            operation: AttributeModifierOperation::MultipliedTotal,
+        };
+        let sprinting = AttributeModifier {
+            id: SPRINTING_MODIFIER_ID.into(),
+            amount: SPRINT_SPEED_MODIFIER,
+            operation: AttributeModifierOperation::MultipliedTotal,
+        };
+        assert!(
+            player
+                .attributes
+                .apply_snapshot(&snapshot(vec![speed_ii, sprinting]))
+        );
+        let boosted = (MOVEMENT_SPEED_ATTRIBUTE * 1.4) as f32;
+        assert!((movement_speed(&player) - boosted).abs() < 1e-7);
+        player.sprinting = true;
+        let sprinting = (MOVEMENT_SPEED_ATTRIBUTE * 1.4 * 1.3) as f32;
+        assert!((movement_speed(&player) - sprinting).abs() < 1e-7);
+    }
+
     #[test]
     fn movement_speed_matches_vanilla_attribute_rounding() {
-        assert_eq!(movement_speed(false).to_bits(), 0x3dcccccd);
-        assert_eq!(movement_speed(true).to_bits(), 0x3e051eb9);
+        assert_eq!(
+            speed_with_sprint(MOVEMENT_SPEED_ATTRIBUTE, false).to_bits(),
+            0x3dcccccd
+        );
+        assert_eq!(
+            speed_with_sprint(MOVEMENT_SPEED_ATTRIBUTE, true).to_bits(),
+            0x3e051eb9
+        );
 
         let mut player = LocalPlayer::new();
         player.on_ground = true;
         assert_eq!(
-            friction_influenced_speed(movement_speed(false), &player, 0.6_f32).to_bits(),
+            friction_influenced_speed(
+                speed_with_sprint(MOVEMENT_SPEED_ATTRIBUTE, false),
+                &player,
+                0.6_f32
+            )
+            .to_bits(),
             0x3dcccccd
         );
         assert_eq!(
-            friction_influenced_speed(movement_speed(true), &player, 0.6_f32).to_bits(),
+            friction_influenced_speed(
+                speed_with_sprint(MOVEMENT_SPEED_ATTRIBUTE, true),
+                &player,
+                0.6_f32
+            )
+            .to_bits(),
             0x3e051eb9
         );
     }
@@ -2122,8 +2289,12 @@ mod tests {
 
         let mut input = InputState::released();
         input.set_key_pressed_for_test(KeyCode::KeyW, true);
-        let (slowed_forward, _) = movement_input(&input, is_moving_slowly(&player), 1.0);
-        let (full_forward, _) = movement_input(&input, false, 1.0);
+        let (slowed_forward, _) = movement_input(
+            &input,
+            is_moving_slowly(&player).then_some(SNEAKING_SPEED),
+            1.0,
+        );
+        let (full_forward, _) = movement_input(&input, None, 1.0);
 
         assert_eq!(full_forward.to_bits(), INPUT_DAMPING.to_bits());
         assert_eq!(
@@ -2416,7 +2587,13 @@ mod tests {
         assert_eq!(cos.to_bits(), 0x3f3504f3);
 
         let forward = f32::from_bits(0x3f3504f2);
-        let (dx, dz) = movement_delta(forward, 0.0, movement_speed(false), sin, cos);
+        let (dx, dz) = movement_delta(
+            forward,
+            0.0,
+            speed_with_sprint(MOVEMENT_SPEED_ATTRIBUTE, false),
+            sin,
+            cos,
+        );
         assert_eq!(dx.to_bits(), 0xbfa999996d18578d);
         assert_eq!(dz.to_bits(), 0x3fa999996d18578d);
 
@@ -2539,13 +2716,13 @@ mod tests {
             vec![input::InputKey::Keyboard(KeyCode::KeyK)],
         );
         input.set_key_pressed_for_test(KeyCode::KeyW, true);
-        assert_eq!(movement_input(&input, false, 1.0), (0.0, 0.0));
+        assert_eq!(movement_input(&input, None, 1.0), (0.0, 0.0));
 
         input.set_key_pressed_for_test(KeyCode::KeyI, true);
-        assert_eq!(movement_input(&input, false, 1.0), (INPUT_DAMPING, 0.0));
+        assert_eq!(movement_input(&input, None, 1.0), (INPUT_DAMPING, 0.0));
         assert!(has_forward_impulse(&input));
         input.set_key_pressed_for_test(KeyCode::KeyK, true);
-        assert_eq!(movement_input(&input, false, 1.0), (0.0, 0.0));
+        assert_eq!(movement_input(&input, None, 1.0), (0.0, 0.0));
         assert!(!has_forward_impulse(&input));
 
         let mut player = LocalPlayer::new();

@@ -152,9 +152,10 @@ impl OpenContainer {
 
 pub struct GameState {
     pub chunk_store: ChunkStore,
-    /// Client-side light engine (vanilla `LevelLightEngine`); recreated with
-    /// the chunk store on dimension changes, drained once per tick.
-    pub light_engine: crate::world::light::LevelLightEngine,
+    /// Client-side light engine (vanilla `LevelLightEngine`), on its own
+    /// thread; reset with the chunk store on dimension changes, polled once a
+    /// frame.
+    pub light_engine: crate::world::light::LightWorker,
     /// Set by [`Self::update_light`] when chunk-load light marked columns
     /// dirty; consumed by the visibility refresh as its new-loads signal.
     pub pending_load_rescan: bool,
@@ -349,6 +350,9 @@ pub struct GameState {
     pub name_store: crate::entity::name_tags::NameStore,
     pub falling_blocks: crate::entity::falling_block::FallingBlockStore,
     pub interactions: crate::entity::interaction::InteractionStore,
+    /// The loaded end portal and gateway blocks (`TheEndPortalRenderer`'s),
+    /// found when their chunk loads and kept up as blocks change.
+    pub end_portals: std::collections::HashSet<BlockPos>,
     pub end_crystals: crate::entity::end_crystal::EndCrystalStore,
     pub particle_store: crate::particle::ParticleStore,
     /// `WeatherEffectRenderer.rainSoundTime`: ticks since the last rain sound.
@@ -502,10 +506,11 @@ impl GameState {
 
         let chunk_store = ChunkStore::new(render_distance);
         Self {
-            light_engine: crate::world::light::LevelLightEngine::new(
+            light_engine: crate::world::light::LightWorker::new(
                 chunk_store.height(),
                 chunk_store.min_y(),
                 true,
+                block_registry.block_state_table(),
             ),
             pending_load_rescan: false,
             chunk_store,
@@ -527,6 +532,7 @@ impl GameState {
             name_store: crate::entity::name_tags::NameStore::default(),
             falling_blocks: Default::default(),
             interactions: Default::default(),
+            end_portals: Default::default(),
             end_crystals: Default::default(),
             rain_sound_time: 0,
             particle_store: {
@@ -1297,18 +1303,14 @@ impl GameState {
         )
     }
 
-    /// Runs one light update (vanilla `ClientLevel.update`, called per frame
-    /// from `Minecraft.runTick`: drain queued light tasks, then
-    /// `runLightUpdates`) and turns the resulting dirty scope into remesh
+    /// Takes the light worker's finished light (vanilla `ClientLevel.update`,
+    /// called per frame from `Minecraft.runTick`: drain queued light tasks,
+    /// then `runLightUpdates`) and turns the resulting dirty scope into remesh
     /// work: columns whose chunk-load light applied remesh whole like chunk
     /// loads, individual lit sections remesh as edits.
     pub fn update_light(&mut self) {
         let mut dirty = crate::world::light::LightDirty::default();
-        self.light_engine.poll_and_run(
-            &mut self.chunk_store,
-            self.block_registry.block_state_table(),
-            &mut dirty,
-        );
+        self.light_engine.poll(&mut self.chunk_store, &mut dirty);
         if dirty.columns.is_empty() && dirty.sections.is_empty() {
             return;
         }
@@ -2647,6 +2649,7 @@ pub fn update_game(
             // run on the tick-20 removal tick, then stop with future entity ticks.
             game.player.tick_hurt();
             game.player.effects.tick();
+            game.player.tick_confusion();
             game.player.tick_sleep();
         }
         game.item_entity_store
@@ -2919,6 +2922,17 @@ pub fn update_game(
         game.player.hurt_dir,
         core.menu.damage_tilt_strength,
     );
+    // `GameRenderer.renderLevel`'s spin, at the default screen-effect scale;
+    // `confusionAnimationTick` counts client ticks as the game clock does.
+    let spin = game
+        .player
+        .prev_spinning_intensity
+        .lerp(game.player.spinning_intensity, partial_tick);
+    gfx.renderer.set_confusion(
+        spin,
+        game.sky_state.game_time as f32 + partial_tick,
+        game.player.effects.has_nausea(),
+    );
     // Plain lerp (vanilla getInterpolatedWalkDistance); the forward-extrapolating
     // camera variant judders across tick boundaries when per-tick speed varies.
     let bob_walk = game
@@ -3155,11 +3169,11 @@ pub fn update_game(
             },
             BarChoice::Empty => hud::ContextualBarKind::Empty,
         };
-        // Vanilla `renderMaxAttackIndicator`: the picked entity is living
-        // (implicit: pomme entity hits only come from `living`), alive, at
-        // full charge, and the weapon is slow enough to matter (delay > 5).
-        // TODO: vanilla also skips it when the active item's ATTACK_RANGE
-        // component says the hit is out of range (spears).
+        // Vanilla `renderMaxAttackIndicator`: the picked entity is living (not
+        // an interaction or end crystal) and alive, at full charge, and the weapon is
+        // slow enough to matter (delay > 5). TODO: vanilla also skips it when
+        // the active item's ATTACK_RANGE component says the hit is out of range
+        // (spears).
         let delay = crate::player::interaction::attack_strength_delay(&game.player.attributes);
         let scale = game.interaction.attack_strength_scale(delay);
         let show_full = scale >= 1.0
@@ -4348,6 +4362,7 @@ pub fn update_game(
                     golem_attack_ticks: extras.golem_attack_ticks,
                     golem_offer_flower_ticks: extras.golem_offer_flower_ticks,
                     body_transform: extras.body_transform,
+                    scale: crate::entity::entity_scale(e),
                     age_in_ticks: e.age_in_ticks as f32 + partial_tick,
                     attack_time: e.swing_progress(partial_tick),
                     skip_cull: false,
@@ -4565,6 +4580,11 @@ pub fn update_game(
             },
             light: player_light,
             armor: armor_render_infos(game.player.inventory.armor_slots()),
+            scale: game
+                .player
+                .attributes
+                .value(crate::attribute::AttributeKind::Scale)
+                .unwrap_or(1.0) as f32,
             has_red_overlay: has_red_overlay(game.player.hurt_time, game.player.death_time),
             death_time: render_death_time(game.player.death_time, partial_tick),
             skip_cull: true,
@@ -4603,6 +4623,11 @@ pub fn update_game(
             < horizon
             && !game.player.eyes_in_water,
         cardinal_light: game.cardinal_light,
+        effect_fog: crate::renderer::pipelines::sky::EffectFog::new(
+            game.player.effects.duration("blindness"),
+            game.player.effects.darkness_factor(partial_tick),
+            effective_render_distance(core, game) as f32 * 16.0,
+        ),
         ..game.sky_state.clone()
     };
     if game.show_chunk_borders {
@@ -4750,6 +4775,15 @@ pub fn update_game(
             .collect()
     };
 
+    gfx.renderer.set_end_portals(
+        if benchmark_running {
+            Vec::new()
+        } else {
+            end_portal_blocks(game)
+        },
+        (game.sky_state.game_time % 24000) as f32 + partial_tick,
+    );
+
     let weather_columns = if benchmark_running {
         Vec::new()
     } else {
@@ -4782,11 +4816,7 @@ pub fn update_game(
     );
     crate::frame_log::add("particle_count", particle_quads.len() as f32);
 
-    let effective_rd = if game.server_render_distance > 0 {
-        core.menu.render_distance.min(game.server_render_distance)
-    } else {
-        core.menu.render_distance
-    };
+    let effective_rd = effective_render_distance(core, game);
     let inventory = &game.player.inventory;
     let main_stack = &inventory.hotbar_slots()[core.input.selected_slot() as usize];
     let shown_hands = game
@@ -6176,6 +6206,12 @@ fn entity_extras(
             overlay_tints: SLOT0_TINTS,
             ..Default::default()
         },
+        // `CaveSpiderRenderer.SCALE`.
+        EntityKind::CaveSpider => EntityExtras {
+            overlay_tints: SLOT0_TINTS,
+            body_transform: Some(glam::Mat4::from_scale(glam::Vec3::splat(0.7))),
+            ..Default::default()
+        },
         EntityKind::Enderman => EntityExtras {
             overlay_tints: SLOT0_TINTS,
             // Vanilla `EndermanRenderer.getRenderOffset`: per-frame gaussian
@@ -6968,6 +7004,61 @@ fn night_vision_scale(duration: Option<i32>, partial_tick: f32) -> f32 {
     }
 }
 
+/// The end portal and gateway blocks to draw, with the faces each shows: a
+/// gateway's where its neighbour doesn't hide them (`Block.shouldRenderFace`).
+fn end_portal_blocks(
+    game: &GameState,
+) -> Vec<crate::renderer::pipelines::end_portal::EndPortalBlock> {
+    use crate::renderer::pipelines::end_portal::EndPortalBlock;
+    const NEIGHBOURS: [[i32; 3]; 6] = [
+        [0, -1, 0],
+        [0, 1, 0],
+        [0, 0, -1],
+        [0, 0, 1],
+        [-1, 0, 0],
+        [1, 0, 0],
+    ];
+    let block_at = |x, y, z| {
+        game.block_registry
+            .block_state_data(game.chunk_store.get_block_state(x, y, z))
+    };
+    game.end_portals
+        .iter()
+        .filter_map(|pos| {
+            let gateway = match block_at(pos.x, pos.y, pos.z).id() {
+                "end_portal" => false,
+                "end_gateway" => true,
+                _ => return None,
+            };
+            let faces = if gateway {
+                NEIGHBOURS
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, [dx, dy, dz])| {
+                        !block_at(pos.x + dx, pos.y + dy, pos.z + dz).occludes_neighbor_faces()
+                    })
+                    .fold(0, |faces, (i, _)| faces | 1 << i)
+            } else {
+                EndPortalBlock::PORTAL_FACES
+            };
+            Some(EndPortalBlock {
+                pos: *pos,
+                gateway,
+                faces,
+            })
+        })
+        .collect()
+}
+
+/// The render distance in chunks: the client's, capped by the server's.
+fn effective_render_distance(core: &AppCore, game: &GameState) -> u32 {
+    if game.server_render_distance > 0 {
+        core.menu.render_distance.min(game.server_render_distance)
+    } else {
+        core.menu.render_distance
+    }
+}
+
 /// How far the clock is between its last tick and the next.
 fn sky_partial_tick(core: &AppCore) -> f32 {
     (core.time_tick_accumulator / TICK_RATE).clamp(0.0, 1.0)
@@ -6975,20 +7066,34 @@ fn sky_partial_tick(core: &AppCore) -> f32 {
 
 /// Vanilla `LightmapRenderStateExtractor.extract`, which samples the
 /// attribute probe at the frame's partial tick.
-/// TODO: darkness, boss fog and the lightning and end flashes.
+/// TODO: boss fog and the lightning and end flashes.
 fn lightmap_info(game: &GameState, brightness: f32, partial_tick: f32) -> LightmapInfo {
     let attributes = game.environment_probe.at(partial_tick);
     let with = |rgb: glam::Vec3, w: f32| rgb.extend(w).to_array();
+    // Darkness (at the default darkness-effect scale of 1): the gamma it
+    // takes off the brightness, and its pulse.
+    let darkness_gamma = game.player.effects.darkness_factor(partial_tick);
     LightmapInfo {
         block_light_tint: with(attributes.block_light_tint, game.block_light_flicker + 1.4),
         sky_light_color: with(attributes.sky_light_color, attributes.sky_light_factor),
-        ambient_color: with(attributes.ambient_light_color, brightness),
+        ambient_color: with(
+            attributes.ambient_light_color,
+            (brightness - darkness_gamma).max(0.0),
+        ),
         night_vision_color: with(
             attributes.night_vision_color,
             night_vision_scale(game.player.effects.duration("night_vision"), partial_tick),
         ),
+        darkness_scale: darkness_scale(game.sky_state.game_time, darkness_gamma, partial_tick),
         ..bytemuck::Zeroable::zeroed()
     }
+}
+
+/// Vanilla `calculateDarknessScale`: Darkness's pulse, four seconds a beat
+/// (timed off the game clock rather than the player's age).
+fn darkness_scale(game_time: u64, gamma: f32, partial_tick: f32) -> f32 {
+    let t = (game_time % 80) as f32 - partial_tick;
+    ((t * std::f32::consts::PI * 0.025).cos() * 0.45 * gamma).max(0.0)
 }
 
 #[cfg(test)]

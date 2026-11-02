@@ -16,6 +16,7 @@ mod queue;
 mod sky;
 mod sources;
 mod storage;
+mod worker;
 mod world;
 
 use std::collections::VecDeque;
@@ -31,10 +32,11 @@ use sky::SkyLightEngine;
 use sources::ChunkSkyLightSources;
 use storage::StorageCore;
 pub(crate) use storage::{LightPos, SectionKey};
-use world::StoreWorld;
+pub(crate) use worker::LightWorker;
+use world::{LightChunks, StoreWorld};
 
 use crate::world::block::{BlockStateData, BlockStateTable};
-use crate::world::chunk::{ChunkLightData, ChunkStore};
+use crate::world::chunk::ChunkLightData;
 
 /// Vanilla `Lightmap.getBrightness`: a 0..15 light level on the lightmap
 /// curve, lifted by the dimension's ambient light.
@@ -156,9 +158,11 @@ pub(crate) fn section_entries(
 }
 
 /// The block-mutation sites' shared path: vanilla `LevelChunk.setBlockState`'s
-/// write plus its light hooks. Returns the previous state.
+/// write plus its light hooks, with the engine on this thread (the game's
+/// runs on [`LightWorker`]). Returns the previous state.
+#[cfg(test)]
 pub(crate) fn set_block_and_light(
-    store: &ChunkStore,
+    store: &crate::world::chunk::ChunkStore,
     engine: &mut LevelLightEngine,
     block_state_table: BlockStateTable,
     x: i32,
@@ -200,6 +204,15 @@ pub(crate) struct LightDirty {
     pub sections: HashSet<SectionKey>,
     /// Columns whose chunk-load light applied: remesh column + neighbors.
     pub columns: Vec<(i32, i32)>,
+    /// Columns whose light was switched on or off, in order
+    /// ([`LevelLightEngine::light_on_in_column`]).
+    pub lit: Vec<((i32, i32), bool)>,
+}
+
+impl LightDirty {
+    pub fn is_empty(&self) -> bool {
+        self.sections.is_empty() && self.columns.is_empty() && self.lit.is_empty()
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -253,6 +266,10 @@ impl LevelLightEngine {
 
     pub fn queue_task(&mut self, task: LightTask) {
         self.tasks.push_back(task);
+    }
+
+    pub fn has_tasks(&self) -> bool {
+        !self.tasks.is_empty()
     }
 
     /// Vanilla `LevelChunk.setBlockState`'s light lines: section empty-status
@@ -309,21 +326,21 @@ impl LevelLightEngine {
     /// small recompute cost.
     pub fn on_block_dirty(
         &mut self,
-        store: &ChunkStore,
+        store: &impl LightChunks,
         block_state_table: BlockStateTable,
         x: i32,
         y: i32,
         z: i32,
     ) {
         let pos = LightPos::new(x, y, z);
-        let empty = store.section_is_empty((x >> 4, z >> 4), y >> 4);
+        let empty = store.section_is_empty_at((x >> 4, z >> 4), y >> 4);
         self.block.update_section_status(pos.section(), empty);
         if let Some(sky) = &mut self.sky {
             sky.update_section_status(pos.section(), empty);
             if let Some(sources) = sky.sources.get_mut(&(x >> 4, z >> 4)) {
                 sources.update(
                     block_state_table,
-                    &|cy| store.get_block_state(x, cy, z),
+                    &|cy| store.block_state_at(x, cy, z),
                     x & 15,
                     y,
                     z & 15,
@@ -343,7 +360,7 @@ impl LevelLightEngine {
     /// later publishes only need to touch changed sections.
     pub fn on_chunk_loaded(
         &mut self,
-        store: &mut ChunkStore,
+        store: &mut impl LightChunks,
         block_state_table: BlockStateTable,
         pos: (i32, i32),
     ) {
@@ -364,7 +381,7 @@ impl LevelLightEngine {
                 .sky
                 .column_top(pos)
                 .map(|top| top - (self.min_section_y - 1));
-            if let Some(chunk) = store.get_chunk(&crate::position::ChunkPos::new(pos.0, pos.1)) {
+            if let Some(chunk) = store.chunk_at(pos) {
                 sky.sources.insert(
                     pos,
                     ChunkSkyLightSources::fill_from(
@@ -375,7 +392,7 @@ impl LevelLightEngine {
                 );
             }
         }
-        store.light_data.insert(
+        store.insert_light_column(
             pos,
             Arc::new(ChunkLightData {
                 sky_sections,
@@ -400,7 +417,7 @@ impl LevelLightEngine {
     /// the light updates. Call once per game tick.
     pub fn poll_and_run(
         &mut self,
-        store: &mut ChunkStore,
+        store: &mut impl LightChunks,
         block_state_table: BlockStateTable,
         out: &mut LightDirty,
     ) {
@@ -423,7 +440,7 @@ impl LevelLightEngine {
         self.run_light_updates(store, block_state_table, out);
     }
 
-    fn apply_task(&mut self, task: LightTask, store: &mut ChunkStore, out: &mut LightDirty) {
+    fn apply_task(&mut self, task: LightTask, store: &impl LightChunks, out: &mut LightDirty) {
         match task {
             LightTask::ApplyLight {
                 pos,
@@ -462,12 +479,13 @@ impl LevelLightEngine {
                 if let Some(engine) = &mut self.sky {
                     engine.set_light_enabled(pos, true);
                 }
+                out.lit.push((pos, self.light_on_in_column(pos)));
                 if enable {
                     // Vanilla enableChunkLight: report each block section's
                     // emptiness, then schedule the column's meshes.
                     for section_y in self.min_section_y..self.min_section_y + self.section_count {
                         let key = SectionKey::new(pos.0, section_y, pos.1);
-                        let empty = store.section_is_empty(pos, section_y);
+                        let empty = store.section_is_empty_at(pos, section_y);
                         self.block.update_section_status(key, empty);
                         if let Some(engine) = &mut self.sky {
                             engine.update_section_status(key, empty);
@@ -483,6 +501,7 @@ impl LevelLightEngine {
                 if let Some(engine) = &mut self.sky {
                     engine.set_light_enabled(pos, false);
                 }
+                out.lit.push((pos, self.light_on_in_column(pos)));
                 for index in 0..self.light_section_count() {
                     let key = self.light_section_key(pos, index);
                     self.block.queue_section_data(key, None);
@@ -506,7 +525,7 @@ impl LevelLightEngine {
     /// pass, before the increase pass.
     fn run_light_updates(
         &mut self,
-        store: &mut ChunkStore,
+        store: &mut impl LightChunks,
         block_state_table: BlockStateTable,
         out: &mut LightDirty,
     ) {
@@ -563,7 +582,7 @@ impl LevelLightEngine {
     fn publish(
         storage: &mut StorageCore,
         sky: Option<&sky::SkyStorage>,
-        store: &mut ChunkStore,
+        store: &mut impl LightChunks,
         layer: LayerKind,
         min_section_y: i32,
         section_count: i32,
@@ -574,7 +593,7 @@ impl LevelLightEngine {
         for key in changed {
             // Columns without chunk data have no ChunkLightData; their layers
             // republish via on_chunk_loaded when the chunk arrives.
-            let Some(column) = store.light_data.get_mut(&key.column()) else {
+            let Some(column) = store.light_column_mut(key.column()) else {
                 continue;
             };
             let index = key.y - (min_section_y - 1);
@@ -609,6 +628,7 @@ mod tests {
 
     use super::world::LightBlockGetter;
     use super::*;
+    use crate::world::chunk::ChunkStore;
 
     fn find_state(name: &str, props: &[(&str, &str)]) -> BlockState {
         BlockStateTable::native().find_state(name, props)
