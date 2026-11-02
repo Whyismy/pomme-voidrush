@@ -347,6 +347,7 @@ pub struct GameState {
     pub display_store: crate::entity::display::DisplayStore,
     /// Entity names and whether they show (`entity::name_tags`).
     pub name_store: crate::entity::name_tags::NameStore,
+    pub falling_blocks: crate::entity::falling_block::FallingBlockStore,
     pub particle_store: crate::particle::ParticleStore,
     pub level_runtime: crate::world::level::LevelRuntime,
     pub block_entity_anim: BlockEntityAnimStore,
@@ -520,6 +521,7 @@ impl GameState {
             item_entity_store: ItemEntityStore::new(),
             display_store: crate::entity::display::DisplayStore::default(),
             name_store: crate::entity::name_tags::NameStore::default(),
+            falling_blocks: Default::default(),
             particle_store: {
                 let (grass, foliage, dry_foliage) = mesh_dispatcher.colormaps();
                 crate::particle::ParticleStore::new(
@@ -2534,6 +2536,8 @@ pub fn update_game(
         }
         game.item_entity_store
             .tick(&game.chunk_store, game.block_registry.block_state_table());
+        game.falling_blocks
+            .tick(&game.chunk_store, game.block_registry.block_state_table());
         {
             let living = &game.entity_store.living;
             let positions = &game.entity_positions;
@@ -4359,6 +4363,16 @@ pub fn update_game(
     }
     crate::frame_log::add("displays", display_start.elapsed().as_secs_f32() * 1000.0);
     item_renders.extend(display_items);
+    if !benchmark_running {
+        build_falling_blocks(
+            &game.falling_blocks,
+            &world_light,
+            &mut gfx.renderer,
+            game.block_registry.block_state_table(),
+            partial_tick,
+            &mut item_renders,
+        );
+    }
     // Nothing writes depth, so overlapping texts layer back to front.
     world_texts.sort_by(|a, b| b.0.total_cmp(&a.0));
     gfx.renderer
@@ -5305,6 +5319,44 @@ fn build_display_renders(
     // Copies of one mesh draw as one instanced call only when consecutive.
     items.sort_unstable_by(|a, b| a.item_name.cmp(&b.item_name));
     (items, texts)
+}
+
+/// Vanilla `FallingBlockRenderer`: the block's model, its corner at the
+/// entity's feet less half a block, lit where the entity is.
+fn build_falling_blocks(
+    blocks: &crate::entity::falling_block::FallingBlockStore,
+    world_light: &WorldLight,
+    renderer: &mut Renderer,
+    table: crate::world::block::BlockStateTable,
+    partial_tick: f32,
+    out: &mut Vec<crate::renderer::pipelines::item_entity::ItemRenderInfo>,
+) {
+    use crate::renderer::pipelines::item_entity::ItemRenderInfo;
+    let anchor = renderer.camera_anchor();
+    for block in blocks.blocks.values() {
+        let feet = block
+            .prev_position
+            .lerp(block.position, f64::from(partial_tick));
+        let Some((item_name, tints)) = renderer.ensure_block_display_mesh(table, block.state)
+        else {
+            continue;
+        };
+        // The baked meshes are centred on the block.
+        let centre = *feet + glam::DVec3::Y * 0.5;
+        out.push(ItemRenderInfo {
+            item_name,
+            outline_color: None,
+            tints,
+            model_matrix: glam::Mat4::from_translation((centre - anchor).as_vec3()),
+            light: entity_light(
+                world_light,
+                EntityKind::FallingBlock,
+                Position::new(centre.x, centre.y, centre.z),
+                false,
+                0,
+            ),
+        });
+    }
 }
 
 /// What [`build_name_tags`] reads.

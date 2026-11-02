@@ -436,6 +436,8 @@ pub enum NetworkEvent {
         y_rot_deg: f32,
         x_rot_deg: f32,
         head_y_rot_deg: f32,
+        /// The spawn packet's per-type data: a falling block's state id.
+        data: i32,
     },
     EntityMoved {
         id: i32,

@@ -1,0 +1,38 @@
+# Falling blocks: hovering ones (NoGravity, how plugins hang blocks in the
+# air) in a row, and a column of sand dropped from 15 blocks up, caught mid-fall.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/tp @s 2.5 -60 -3.5 0 -10"
+
+[[step]]
+chat = "/summon minecraft:falling_block 0.5 -58 6.5 {BlockState:{Name:\"minecraft:red_sand\"},NoGravity:1b,Time:1}"
+
+[[step]]
+chat = "/summon minecraft:falling_block 2.5 -58 6.5 {BlockState:{Name:\"minecraft:anvil\",Properties:{facing:\"east\"}},NoGravity:1b,Time:1}"
+
+[[step]]
+chat = "/summon minecraft:falling_block 4.5 -58 6.5 {BlockState:{Name:\"minecraft:magenta_concrete_powder\"},NoGravity:1b,Time:1}"
+
+[[step]]
+wait_ms = 3000
+
+[[step]]
+chat = "/fill 6 -46 22 6 -42 22 minecraft:sand"
+
+[[step]]
+wait_ms = 600
+
+[[step]]
+screenshot = "falling"
+
+[[step]]
+wait_ms = 4000
+
+[[step]]
+screenshot = "landed"

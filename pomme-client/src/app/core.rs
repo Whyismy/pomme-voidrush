@@ -2567,8 +2567,12 @@ impl AppCore {
                     y_rot_deg,
                     x_rot_deg,
                     head_y_rot_deg,
+                    data,
                 } => {
                     game.entity_positions.insert(id, position);
+                    if entity_type == azalea_registry::builtin::EntityKind::FallingBlock {
+                        game.falling_blocks.spawn(id, data, position, velocity);
+                    }
                     game.silent_entities.remove(&id);
                     if crate::entity::is_living_mob(&entity_type) {
                         game.entity_store.spawn_living(
@@ -2607,6 +2611,8 @@ impl AppCore {
                     game.entity_store
                         .move_living_delta(id, dx, dy, dz, on_ground);
                     game.item_entity_store.move_delta(id, dx, dy, dz, on_ground);
+                    game.falling_blocks
+                        .move_delta(id, dvec3(dx, dy, dz), on_ground);
                     game.display_store.move_delta(id, dvec3(dx, dy, dz), None);
                     if let Some(pos) = game.entity_positions.get_mut(&id) {
                         *pos += dvec3(dx, dy, dz);
@@ -2627,6 +2633,8 @@ impl AppCore {
                     game.entity_store
                         .rotate_living(id, y_rot_deg, x_rot_deg, on_ground);
                     game.item_entity_store.move_delta(id, dx, dy, dz, on_ground);
+                    game.falling_blocks
+                        .move_delta(id, dvec3(dx, dy, dz), on_ground);
                     game.display_store.move_delta(
                         id,
                         dvec3(dx, dy, dz),
@@ -2654,6 +2662,7 @@ impl AppCore {
                         game.player.velocity = velocity.into();
                     } else {
                         game.item_entity_store.set_motion(id, velocity);
+                        game.falling_blocks.set_motion(id, velocity);
                         game.entity_store.set_living_motion(id, velocity);
                     }
                 }
@@ -2677,6 +2686,7 @@ impl AppCore {
                     }
                     game.item_entity_store
                         .teleport(id, position, velocity, on_ground);
+                    game.falling_blocks.teleport(id, position, velocity);
                     game.display_store
                         .teleport(id, *position, y_rot_deg, x_rot_deg);
                     game.entity_positions.insert(id, position);
@@ -2737,6 +2747,7 @@ impl AppCore {
                         self.audio.stop_entity_sounds(*id);
                     }
                     game.item_entity_store.remove(&ids);
+                    game.falling_blocks.remove(&ids);
                     game.display_store.remove(&ids);
                     game.name_store.remove(&ids);
                     if game.controlled_vehicle_id.is_some_and(|v| ids.contains(&v)) {
@@ -2789,6 +2800,11 @@ impl AppCore {
                     }
                     game.display_store.apply_entity_data(id, index, value);
                     game.name_store.apply_entity_data(id, index, value);
+                    if index == 5
+                        && let crate::entity::MetaValue::Bool(no_gravity) = value
+                    {
+                        game.falling_blocks.set_no_gravity(id, no_gravity);
+                    }
                     game.entity_store.apply_entity_data(id, index, value);
                 }
                 NetworkEvent::DisplayData { id, index, value } => {
@@ -3076,6 +3092,7 @@ impl AppCore {
                     self.audio.stop_all_sounds();
                     game.entity_store = crate::entity::EntityStore::new();
                     game.item_entity_store = crate::entity::ItemEntityStore::new();
+                    game.falling_blocks.clear();
                     game.display_store.clear();
                     game.name_store.clear();
                     game.entity_positions.clear();

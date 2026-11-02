@@ -43,7 +43,7 @@ fn event(packet: EntityPacket) -> Option<NetworkEvent> {
             x_rot,
             y_rot,
             y_head_rot,
-            data: _,
+            data,
         } => {
             let Some(entity_type) = native_entity_type(entity_type) else {
                 tracing::debug!("Dropping entity {id} of an unknown type {entity_type}");
@@ -58,6 +58,7 @@ fn event(packet: EntityPacket) -> Option<NetworkEvent> {
                 y_rot_deg: y_rot,
                 x_rot_deg: x_rot,
                 head_y_rot_deg: y_head_rot,
+                data,
             }
         }
         EntityPacket::Remove { ids } => NetworkEvent::EntitiesRemoved { ids },
