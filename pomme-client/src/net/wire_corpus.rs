@@ -101,6 +101,56 @@ fn every_version_reads_its_join_traffic() {
     assert!(unexpected.is_empty(), "\n{}", unexpected.join("\n"));
 }
 
+/// Replays a live server's `--capture-frames` recording (`POMME_REPLAY`, at
+/// wire protocol `POMME_REPLAY_PROTOCOL`, 774 by default) and writes every
+/// frame the client drops or misreads to `POMME_REPLAY_OUT`, one per line:
+/// the packet, the error, and the frame in hex as the server sent it and as
+/// translated. For finding what a real server sends that the fixtures miss:
+/// `cargo test -p pomme-client --lib replay_live_capture -- --ignored`.
+#[test]
+#[ignore = "needs a capture from a live server"]
+fn replay_live_capture() {
+    use std::fmt::Write as _;
+    let path = std::env::var("POMME_REPLAY").expect("POMME_REPLAY names a capture");
+    let out = std::env::var("POMME_REPLAY_OUT").expect("POMME_REPLAY_OUT names the report");
+    let protocol = std::env::var("POMME_REPLAY_PROTOCOL").map_or(774, |p| p.parse().unwrap());
+    let bytes = std::fs::read(path).expect("capture reads");
+    let records = pomme_protocol::capture::records(&bytes).expect("capture records");
+
+    let wire = PacketTable::for_protocol(protocol).expect("wire table");
+    let translation = Translation::for_protocol(protocol);
+    let mut session = Session::new(protocol);
+    let hex = |bytes: &[u8]| {
+        bytes.iter().fold(String::new(), |mut s, b| {
+            let _ = write!(s, "{b:02x}");
+            s
+        })
+    };
+    let (mut report, mut failed, mut total) = (String::new(), 0, 0);
+    for (phase, frame) in records {
+        total += 1;
+        let id = pomme_protocol::codec::Reader::new(frame).varint().unwrap();
+        let packet = wire
+            .name_of(phase, Direction::Clientbound, id)
+            .unwrap_or("?");
+        let read = match phase {
+            Phase::Login => session.login(translation.as_ref(), frame),
+            Phase::Configuration => session.config(translation.as_ref(), frame),
+            _ => session.game(translation.as_ref(), frame),
+        };
+        if let Err(error) = read {
+            failed += 1;
+            let translated = (phase == Phase::Game)
+                .then(|| translation.as_ref()?.translate_game_frame(frame.into()))
+                .flatten()
+                .map_or_else(String::new, |t| hex(&t));
+            let _ = writeln!(report, "{packet}	{error}	{}	{translated}", hex(frame));
+        }
+    }
+    std::fs::write(out, report).expect("report writes");
+    println!("{failed} of {total} frames failed");
+}
+
 /// Every frame of `version`'s fixture that the client would drop or misread,
 /// as `(wire packet name, why)`.
 fn replay(version: &ProtocolVersion) -> Vec<(String, String)> {
