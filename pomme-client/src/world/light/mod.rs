@@ -69,6 +69,20 @@ pub(crate) fn has_different_light_properties(
         || o.use_shape_for_light_occlusion
 }
 
+/// The part of [`has_different_light_properties`] sky light depends on: how
+/// the two states block light, not what they emit.
+fn blocks_light_differently(
+    old: BlockState,
+    new: BlockState,
+    block_state_table: BlockStateTable,
+) -> bool {
+    let (o, n) = (
+        block_state_table.block_state_data(old).light_props(),
+        block_state_table.block_state_data(new).light_props(),
+    );
+    n.dampening != o.dampening || n.use_shape_for_light_occlusion || o.use_shape_for_light_occlusion
+}
+
 /// One light section's payload from a chunk-load or light-update packet,
 /// mirroring vanilla `readSectionList`: present bytes, explicitly empty, or
 /// untouched.
@@ -262,7 +276,14 @@ impl LevelLightEngine {
             }
         }
         if has_different_light_properties(old, new, block_state_table) {
-            if let Some(sky) = &mut self.sky
+            // Sky light reads only how a block blocks light, never what it
+            // emits, so a change of emission alone (Void Rush's player light,
+            // a light block moved four times a second) leaves it as it was.
+            // Vanilla re-checks the sky anyway, and under cover that check
+            // empties and refloods ~20 sections back to the same levels.
+            let sky_relevant = blocks_light_differently(old, new, block_state_table);
+            if sky_relevant
+                && let Some(sky) = &mut self.sky
                 && let Some(sources) = sky.sources.get_mut(&(pos.x >> 4, pos.z >> 4))
             {
                 sources.update(
@@ -274,7 +295,7 @@ impl LevelLightEngine {
                 );
             }
             self.block.check_block(pos);
-            if let Some(sky) = &mut self.sky {
+            if sky_relevant && let Some(sky) = &mut self.sky {
                 sky.check_block(pos);
             }
         }
@@ -514,9 +535,14 @@ impl LevelLightEngine {
         if let Some(sky) = &mut self.sky {
             {
                 let world = StoreWorld::new(store, block_state_table);
+                let lap = std::time::Instant::now();
                 sky.begin_updates(&world);
+                crate::frame_log::add("light_sky_begin", lap.elapsed().as_secs_f32() * 1000.0);
+                let lap = std::time::Instant::now();
                 sky.finish_updates(&world);
+                crate::frame_log::add("light_sky_finish", lap.elapsed().as_secs_f32() * 1000.0);
             }
+            let lap = std::time::Instant::now();
             Self::publish(
                 &mut sky.storage,
                 Some(&sky.sky),
@@ -526,6 +552,7 @@ impl LevelLightEngine {
                 section_count,
                 out,
             );
+            crate::frame_log::add("light_sky_publish", lap.elapsed().as_secs_f32() * 1000.0);
         }
         crate::frame_log::add("light_sky", sky_start.elapsed().as_secs_f32() * 1000.0);
     }
@@ -585,6 +612,92 @@ mod tests {
 
     fn find_state(name: &str, props: &[(&str, &str)]) -> BlockState {
         BlockStateTable::native().find_state(name, props)
+    }
+
+    /// Times a light block moved a step on a void-world island with sky light
+    /// (how Void Rush's player light moves, 4 times a second): run with
+    /// `--release -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "a timing, not a check"]
+    fn time_a_player_light_move() {
+        let table = BlockStateTable::native();
+        let mut store = ChunkStore::new(4);
+        let sections = store.section_count() as usize;
+        let columns: Vec<(i32, i32)> = (-2..=2)
+            .flat_map(|x| (-2..=2).map(move |z| (x, z)))
+            .collect();
+        for &(x, z) in &columns {
+            store.insert_chunk(
+                crate::position::ChunkPos::new(x, z),
+                crate::world::chunk::Chunk::empty(sections),
+            );
+        }
+        let height = (store.section_count() * 16) as u32;
+        let mut engine = LevelLightEngine::new(height, store.min_y(), true);
+        let stone = find_state("stone", &[]);
+        for &(cx, cz) in &columns {
+            for x in cx * 16..cx * 16 + 16 {
+                for z in cz * 16..cz * 16 + 16 {
+                    // A void-world island whose top ends a section, so the
+                    // light at the player's feet sits alone in the section
+                    // above (its every move flips that section's emptiness).
+                    for y in 76..80 {
+                        store.set_block_state_tracked(x, y, z, stone, table);
+                    }
+                }
+            }
+        }
+        for &pos in &columns {
+            engine.on_chunk_loaded(&mut store, table, pos);
+            engine.queue_task(LightTask::ApplyLight {
+                pos,
+                sky: Vec::new(),
+                block: Vec::new(),
+                enable: true,
+            });
+        }
+        for _ in 0..200 {
+            engine.poll_and_run(&mut store, table, &mut LightDirty::default());
+        }
+        let light = find_state("light", &[("level", "15"), ("waterlogged", "false")]);
+        let mut at = (0, 80, 0);
+        set_block_and_light(&store, &mut engine, table, at.0, at.1, at.2, light);
+        engine.poll_and_run(&mut store, table, &mut LightDirty::default());
+        let sky_before: Vec<u8> = (-20..20)
+            .flat_map(|x| (76..92).map(move |y| (x, y)))
+            .map(|(x, y)| store.get_sky_light(x, y, 0))
+            .collect();
+        let moves = 40;
+        let start = std::time::Instant::now();
+        let mut dirty_sections = 0;
+        for i in 0..moves {
+            let next = (if i % 2 == 0 { 1 } else { 0 }, 80, 0);
+            set_block_and_light(
+                &store,
+                &mut engine,
+                table,
+                at.0,
+                at.1,
+                at.2,
+                BlockState::AIR,
+            );
+            set_block_and_light(&store, &mut engine, table, next.0, next.1, next.2, light);
+            let mut dirty = LightDirty::default();
+            engine.poll_and_run(&mut store, table, &mut dirty);
+            dirty_sections += dirty.sections.len();
+            at = next;
+        }
+        println!(
+            "{:.3?} a move, {} dirty sections a move",
+            start.elapsed() / moves,
+            dirty_sections / moves as usize
+        );
+        // Moving a light changes no sky light.
+        let sky_after: Vec<u8> = (-20..20)
+            .flat_map(|x| (76..92).map(move |y| (x, y)))
+            .map(|(x, y)| store.get_sky_light(x, y, 0))
+            .collect();
+        assert_eq!(sky_after, sky_before);
     }
 
     /// A light block moved a step in one update (how servers make a player
