@@ -1373,7 +1373,7 @@ impl GameState {
             }
             if let Some(t) = &mesh.timing {
                 let ms = |d: std::time::Duration| d.as_secs_f32() * 1000.0;
-                tracing::debug!(
+                tracing::trace!(
                     "edit remesh [{}, {}]: queue {:.1}ms + mesh {:.1}ms + drain {:.1}ms = {:.1}ms",
                     mesh.pos.x,
                     mesh.pos.z,

@@ -1,0 +1,83 @@
+# Server block edits at Void Rush's live rate: a 10 x 10 patch over the
+# player flips between stone and air every other tick (about 1,000 edits a
+# second, each shading the sky light below), driven by repeating command
+# blocks. Measured with "#bench" windows before and while it runs. Needs
+# enable-command-block=true in POMME_INGAME_SERVER_PROPERTIES.
+
+[[step]]
+wait_ms = 3000
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/gamerule doDaylightCycle false"
+
+[[step]]
+chat = "/gamemode spectator"
+
+[[step]]
+chat = "/tp @s 4.5 -57 -6.5 0 20"
+
+[[step]]
+look_at = [4.5, -55.0, 6.5]
+
+[[step]]
+chat = "/scoreboard objectives add vre dummy"
+
+[[step]]
+chat = "/setblock -20 -60 -20 minecraft:repeating_command_block{auto:1b,Command:\"scoreboard players add t vre 1\"}"
+
+[[step]]
+chat = "/setblock -20 -60 -18 minecraft:repeating_command_block{auto:1b,Command:\"execute if score t vre matches 2.. run scoreboard players set t vre 0\"}"
+
+[[step]]
+wait_ms = 4000
+
+[[step]]
+chat = "#bench start still#1"
+
+[[step]]
+wait_ms = 8000
+
+[[step]]
+chat = "#bench stop"
+
+[[step]]
+chat = "#bench start still#2"
+
+[[step]]
+wait_ms = 8000
+
+[[step]]
+chat = "#bench stop"
+
+[[step]]
+chat = "/setblock -18 -60 -20 minecraft:repeating_command_block{auto:1b,Command:\"execute if score t vre matches 0 run fill 0 -54 2 9 -54 11 minecraft:stone replace minecraft:air\"}"
+
+[[step]]
+chat = "/setblock -18 -60 -18 minecraft:repeating_command_block{auto:1b,Command:\"execute if score t vre matches 1 run fill 0 -54 2 9 -54 11 minecraft:air replace minecraft:stone\"}"
+
+[[step]]
+wait_ms = 4000
+
+[[step]]
+screenshot = "edits"
+
+[[step]]
+chat = "#bench start edits#1"
+
+[[step]]
+wait_ms = 8000
+
+[[step]]
+chat = "#bench stop"
+
+[[step]]
+chat = "#bench start edits#2"
+
+[[step]]
+wait_ms = 8000
+
+[[step]]
+chat = "#bench stop"
