@@ -1576,6 +1576,8 @@ impl Renderer {
             Some(packs),
         )
         .expect("failed to rebuild atlas");
+        // OptiFine skies come with packs too.
+        self.sky_pipeline.load_custom_sky(&self.ctx.device, packs);
 
         self.chunk_pipeline
             .rebind_atlas(&self.ctx.device, &self.atlas);

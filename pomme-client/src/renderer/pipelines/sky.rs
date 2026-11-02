@@ -31,6 +31,10 @@ pub struct SkyVertex {
 }
 
 impl SkyVertex {
+    pub(crate) fn new(position: [f32; 3], uv: [f32; 2]) -> Self {
+        Self { position, uv }
+    }
+
     pub const BUFFER: rhi::VertexBufferLayout<'static> =
         rhi::vertex_buffer!(Self, [Float32x3, Float32x2]);
 }
@@ -87,6 +91,8 @@ pub const SKY_PUSH_SIZE: u32 = size_of::<SkyPush>() as u32;
 #[derive(Clone, Copy)]
 pub struct SkyDraw {
     pub stage: SkyStage,
+    /// An OptiFine sky layer blended by adding, with the overlay blend.
+    additive: bool,
     push: SkyPush,
     texture: rhi::backend::BindGroup,
     vertices: (u32, u32),
@@ -102,6 +108,7 @@ impl SkyDraw {
     ) -> Self {
         Self {
             stage,
+            additive: false,
             push: SkyPush {
                 pose: pose.to_cols_array_2d(),
                 color: color.to_array(),
@@ -184,6 +191,23 @@ pub struct SkyPipeline {
     moons: Vec<rhi::backend::Texture>,
     end_sky: rhi::backend::Texture,
     end_sky_sampler: rhi::backend::Sampler,
+    /// The active packs' OptiFine sky layers ([`super::custom_sky`]), in
+    /// file order, with the skybox they belong to.
+    custom: Vec<CustomLayer>,
+}
+
+struct CustomLayer {
+    skybox: Skybox,
+    props: super::custom_sky::LayerProps,
+    texture: rhi::backend::Texture,
+    set: rhi::backend::BindGroup,
+}
+
+impl SkyDraw {
+    /// Whether it draws with the additive overlay blend.
+    pub fn overlay(&self) -> bool {
+        self.stage.overlay() || self.additive
+    }
 }
 
 impl SkyPipeline {
@@ -278,6 +302,63 @@ impl SkyPipeline {
             moons,
             end_sky,
             end_sky_sampler,
+            custom: Vec::new(),
+        }
+    }
+
+    /// Loads the OptiFine sky layers of the active packs
+    /// (`optifine/sky/world0` for the overworld, `world1` for the End,
+    /// `sky0.properties` upwards), replacing those of the last packs.
+    pub fn load_custom_sky(
+        &mut self,
+        device: &rhi::backend::Device,
+        packs: &crate::resource_pack::ResourcePackManager,
+    ) {
+        self.destroy_custom(device);
+        for (world, skybox) in [(0, Skybox::Overworld), (1, Skybox::End)] {
+            let dir = format!("minecraft/optifine/sky/world{world}");
+            for i in 0..100 {
+                let Some(path) = packs.resolve_asset(&format!("{dir}/sky{i}.properties")) else {
+                    continue;
+                };
+                let Some(props) = std::fs::read_to_string(&path)
+                    .ok()
+                    .and_then(|text| super::custom_sky::LayerProps::parse(&text, &dir))
+                else {
+                    tracing::warn!("Skipping OptiFine sky layer {}", path.display());
+                    continue;
+                };
+                let Some((pixels, w, h)) = packs
+                    .resolve_asset(&props.source)
+                    .and_then(|p| util::load_png(&p))
+                else {
+                    tracing::warn!("OptiFine sky layer {i}: no texture {}", props.source);
+                    continue;
+                };
+                let texture = util::create_sampled_texture(device, "optifine_sky", &pixels, w, h);
+                let set = util::create_texture_group(
+                    device,
+                    self.tex_layout,
+                    texture.handle(),
+                    self.sampler,
+                );
+                self.custom.push(CustomLayer {
+                    skybox,
+                    props,
+                    texture,
+                    set,
+                });
+            }
+        }
+        if !self.custom.is_empty() {
+            tracing::info!("Loaded {} OptiFine sky layers", self.custom.len());
+        }
+    }
+
+    fn destroy_custom(&mut self, device: &rhi::backend::Device) {
+        for layer in self.custom.drain(..) {
+            layer.set.destroy(device);
+            layer.texture.destroy(device);
         }
     }
 
@@ -299,7 +380,7 @@ impl SkyPipeline {
 
         let mut overlay = None;
         for draw in self.draws(camera, sky, 0.0) {
-            let blend = draw.stage.overlay();
+            let blend = draw.overlay();
             if overlay != Some(blend) {
                 overlay = Some(blend);
                 pass.set_pipeline(if blend {
@@ -316,7 +397,7 @@ impl SkyPipeline {
     /// [`elements`] with their textures and vertices; `tilt` is a shader
     /// pack's `sunPathRotation`.
     pub fn draws(&self, camera: &Camera, sky: &SkyState, tilt: f32) -> Vec<SkyDraw> {
-        elements(sky, camera.top_down().is_some(), tilt)
+        let mut draws: Vec<SkyDraw> = elements(sky, camera.top_down().is_some(), tilt)
             .into_iter()
             .map(|(stage, pose, color)| {
                 let (texture, vertices) = match stage {
@@ -333,7 +414,45 @@ impl SkyPipeline {
                 };
                 SkyDraw::new(stage, pose, color, texture, vertices)
             })
-            .collect()
+            .collect();
+        // OptiFine's custom sky: after the sky colour and sunset (or the End's
+        // sky), before the sun, moon and stars.
+        let at = draws
+            .iter()
+            .position(|d| {
+                !matches!(
+                    d.stage,
+                    SkyStage::Sky | SkyStage::Sunset | SkyStage::CustomSky
+                )
+            })
+            .unwrap_or(draws.len());
+        let layers = self
+            .custom
+            .iter()
+            .filter(|l| l.skybox == sky.skybox)
+            .filter_map(|layer| {
+                let p = &layer.props;
+                let b = p.brightness(sky.day_time, sky.rain(), sky.thunder());
+                (b > 0.0).then(|| {
+                    use super::custom_sky::Blend;
+                    let color = match p.blend {
+                        Blend::Replace => Vec4::new(b, b, b, 1.0),
+                        Blend::Alpha | Blend::Add => Vec4::new(1.0, 1.0, 1.0, b),
+                    };
+                    let mut draw = SkyDraw::new(
+                        SkyStage::CustomSky,
+                        p.pose(sky.attributes.sun_angle),
+                        color,
+                        layer.set,
+                        self.ranges.custom_cube,
+                    );
+                    draw.additive = p.blend == Blend::Add;
+                    draw
+                })
+            });
+        let layers: Vec<SkyDraw> = layers.collect();
+        draws.splice(at..at, layers);
+        draws
     }
 
     /// Iris's `HorizonRenderer`, which a shader pack's sky starts with: the
@@ -386,6 +505,7 @@ impl SkyPipeline {
 
         self.sampler.destroy(device);
         self.end_sky_sampler.destroy(device);
+        self.destroy_custom(device);
         std::mem::take(&mut self.sun).destroy(device);
         std::mem::take(&mut self.end_sky).destroy(device);
 
@@ -516,6 +636,7 @@ struct Ranges {
     sunrise: (u32, u32),
     dark_disc: (u32, u32),
     end_sky: (u32, u32),
+    custom_cube: (u32, u32),
     horizon: [(u32, u32); HORIZONS],
 }
 
@@ -538,6 +659,7 @@ fn build_all_geometry() -> (Vec<SkyVertex>, Ranges) {
         // Built at -16 and drawn 12 higher, so its fog distances are vanilla's.
         dark_disc: add(&|v| build_sky_disc(v, -16.0)),
         end_sky: add(&build_end_sky),
+        custom_cube: add(&super::custom_sky::build_cube),
         horizon: std::array::from_fn(|i| {
             add(&|v| build_horizon(v, i as u32 + HORIZON_MIN_DISTANCE))
         }),
