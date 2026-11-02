@@ -183,6 +183,7 @@ pub fn draw_status(
     let sw = gfx.renderer.screen_width() as f32;
     let sh = gfx.renderer.screen_height() as f32;
     let gs = core.menu.gui_scale(sw, sh);
+    gfx.renderer.set_gui_scale(gs);
     let fs = common::FONT_SIZE * gs;
     let cx = sw / 2.0;
     let cy = sh / 2.0;

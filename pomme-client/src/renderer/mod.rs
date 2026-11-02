@@ -277,6 +277,9 @@ pub struct Renderer {
     /// refreshes the OS cursor state each call (cursor position, clip,
     /// system metrics), so it runs only when hiding starts.
     cursor_hidden: bool,
+    /// The GUI scale the screens draw at ([`Self::set_gui_scale`]); item
+    /// icons render at 16 pixels times it.
+    gui_scale: Option<f32>,
     /// Item displays' model transforms, one resolver per `ItemDisplayContext`.
     item_display_resolvers: HashMap<u8, pipelines::item_display::DisplayResolver>,
     /// Bumped whenever the item meshes are dropped, so cached display
@@ -581,6 +584,7 @@ impl Renderer {
             item_entity_pipeline,
             block_display_tints: HashMap::new(),
             cursor_hidden: false,
+            gui_scale: None,
             item_display_resolvers: HashMap::new(),
             display_assets_generation: 0,
             held_item_pipeline,
@@ -1114,6 +1118,14 @@ impl Renderer {
 
         self.swapchain_dirty = false;
         Ok(())
+    }
+
+    /// The GUI scale this frame draws at (the player's setting, or auto),
+    /// so item icons render at the size they're shown: a cache at another
+    /// scale is resampled to fit, which drops texels unevenly, worst for a
+    /// 32x pack's.
+    pub fn set_gui_scale(&mut self, scale: f32) {
+        self.gui_scale = Some(scale);
     }
 
     pub fn screen_width(&self) -> u32 {
@@ -2127,11 +2139,14 @@ impl Renderer {
             }
         }
 
-        let target_slot_px = pipelines::gui_item_atlas::slot_px_for_screen(
-            self.swapchain.extent.width as f32,
-            self.swapchain.extent.height as f32,
-            self.font_options.uniform,
-        );
+        let target_slot_px = match self.gui_scale {
+            Some(scale) => (16.0 * scale).round() as u32,
+            None => pipelines::gui_item_atlas::slot_px_for_screen(
+                self.swapchain.extent.width as f32,
+                self.swapchain.extent.height as f32,
+                self.font_options.uniform,
+            ),
+        };
         if target_slot_px != self.gui_item_atlas.slot_px() {
             // Mid-cmd-recording wait_idle: this cmd buffer is unsubmitted so
             // holds no in-flight references, and `Device::submit` inside the

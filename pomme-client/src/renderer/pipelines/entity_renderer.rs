@@ -1097,7 +1097,27 @@ fn mob_definitions() -> Vec<MobDef> {
     const SHEEP_WOOL_UNDERCOAT_TEX: &[&[&str]] = tex_table!("sheep" => "sheep_wool_undercoat");
     const SHEEP_WOOL_TEX: &[&[&str]] = tex_table!("sheep" => "sheep_wool");
     const SHEEP_BABY_WOOL_TEX: &[&[&str]] = tex_table!("sheep" => "sheep_wool_baby");
-    const PLAYER_TEX: &[&[&str]] = tex_table!("player/wide" => "steve");
+    // Vanilla `DefaultPlayerSkin.DEFAULT_SKINS`, in its order.
+    const DEFAULT_SKIN_TEX: [&[&[&str]]; 18] = [
+        tex_table!("player/slim" => "alex"),
+        tex_table!("player/slim" => "ari"),
+        tex_table!("player/slim" => "efe"),
+        tex_table!("player/slim" => "kai"),
+        tex_table!("player/slim" => "makena"),
+        tex_table!("player/slim" => "noor"),
+        tex_table!("player/slim" => "steve"),
+        tex_table!("player/slim" => "sunny"),
+        tex_table!("player/slim" => "zuri"),
+        tex_table!("player/wide" => "alex"),
+        tex_table!("player/wide" => "ari"),
+        tex_table!("player/wide" => "efe"),
+        tex_table!("player/wide" => "kai"),
+        tex_table!("player/wide" => "makena"),
+        tex_table!("player/wide" => "noor"),
+        tex_table!("player/wide" => "steve"),
+        tex_table!("player/wide" => "sunny"),
+        tex_table!("player/wide" => "zuri"),
+    ];
     const ZOMBIE_TEX: &[&[&str]] = tex_table!("zombie" => "zombie");
     const ZOMBIE_BABY_TEX: &[&[&str]] = tex_table!("zombie" => "zombie_baby");
     const HUSK_TEX: &[&[&str]] = tex_table!("zombie" => "husk");
@@ -1608,12 +1628,15 @@ fn mob_definitions() -> Vec<MobDef> {
         MobDef {
             kind: EntityKind::Player,
             anim: AnimationType::Humanoid,
-            // Variant 0 = classic (wide) arms, 1 = slim; picked per player from
-            // the skin's model metadata (effective_variant_index).
-            adult: vec![
-                opaque(entity_model::bake_player_model(false), PLAYER_TEX, 64),
-                opaque(entity_model::bake_player_model(true), PLAYER_TEX, 64),
-            ],
+            // Vanilla's 18 default skins (`DefaultPlayerSkin`), slim then
+            // wide, for a player with no skin of its own; a fetched skin
+            // replaces the texture and picks the model by its metadata
+            // (effective_variant_index).
+            adult: DEFAULT_SKIN_TEX
+                .iter()
+                .enumerate()
+                .map(|(i, tex)| opaque(entity_model::bake_player_model(i < 9), tex, 64))
+                .collect(),
             baby: None,
             adult_overlays: vec![],
             baby_overlays: vec![],
@@ -2400,6 +2423,16 @@ fn mob_definitions() -> Vec<MobDef> {
 
 /// A mob drawn from vanilla's layer geometry (`layer`) with `tex`, and the
 /// generic head-and-walk animation.
+/// The player variant of vanilla's default slim and wide Steve skins.
+pub(crate) const SLIM_STEVE_SKIN: u32 = 6;
+pub(crate) const WIDE_STEVE_SKIN: u32 = 15;
+
+/// Vanilla `DefaultPlayerSkin.get(uuid)`: the player variant (one of 18
+/// default skins) a player without a skin of its own draws with.
+pub(crate) fn default_skin_variant(uuid: &uuid::Uuid) -> u32 {
+    crate::world::waypoints::java_uuid_hash(uuid).rem_euclid(18) as u32
+}
+
 fn exported(
     kind: EntityKind,
     layer: &[entity_model::ExportedPart],
@@ -2661,11 +2694,16 @@ impl EntityRenderer {
         self.player_skin(info).map_or(fallback, |skin| skin.set)
     }
 
-    /// Players pick their model variant (0 = wide, 1 = slim) from the fetched
-    /// skin's metadata rather than the caller-supplied index.
+    /// Players with a fetched skin pick the slim or wide model from its
+    /// metadata; the rest keep the caller's default-skin index.
     fn effective_variant_index(&self, info: &EntityRenderInfo) -> u32 {
-        self.player_skin(info)
-            .map_or(info.variant_index, |skin| skin.slim as u32)
+        self.player_skin(info).map_or(info.variant_index, |skin| {
+            if skin.slim {
+                SLIM_STEVE_SKIN
+            } else {
+                WIDE_STEVE_SKIN
+            }
+        })
     }
 
     /// Texture set and tint of each drawn equipment layer, in submit order.

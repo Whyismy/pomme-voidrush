@@ -106,6 +106,7 @@ fn draw_server_dialog(
     let sw = gfx.renderer.screen_width() as f32;
     let sh = gfx.renderer.screen_height() as f32;
     let gs = core.menu.gui_scale(sw, sh);
+    gfx.renderer.set_gui_scale(gs);
 
     // A configuration-phase dialog can carry object glyphs, which load into
     // the same atlas the in-game text uses.

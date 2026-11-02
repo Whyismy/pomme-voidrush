@@ -2952,6 +2952,7 @@ pub fn update_game(
     let sw = gfx.renderer.screen_width() as f32;
     let sh = gfx.renderer.screen_height() as f32;
     let gs = core.menu.gui_scale(sw, sh);
+    gfx.renderer.set_gui_scale(gs);
 
     let mut elements: Vec<MenuElement> = Vec::new();
 
@@ -4395,6 +4396,8 @@ pub fn update_game(
                 head_y_rot_deg: yaw,
                 body_y_rot_deg: yaw,
                 entity_kind: model,
+                // A player head without a skin draws vanilla's wide Steve.
+                variant_index: crate::renderer::pipelines::entity_renderer::WIDE_STEVE_SKIN,
                 player_uuid: skin,
                 head_only: true,
                 body_transform: Some(glam::Mat4::from_scale(glam::Vec3::splat(scale))),
@@ -4466,6 +4469,8 @@ pub fn update_game(
                 head_y_rot_deg: head_y,
                 body_y_rot_deg: body_y,
                 entity_kind: model,
+                // A player head without a skin draws vanilla's wide Steve.
+                variant_index: crate::renderer::pipelines::entity_renderer::WIDE_STEVE_SKIN,
                 player_uuid: skin,
                 head_only: true,
                 body_transform: Some(glam::Mat4::from_scale(glam::Vec3::splat(scale))),
@@ -4522,6 +4527,9 @@ pub fn update_game(
                 .min(1.0),
             entity_kind: EntityKind::Player,
             player_uuid: Some(core.user.uuid),
+            variant_index: crate::renderer::pipelines::entity_renderer::default_skin_variant(
+                &core.user.uuid,
+            ),
             outline_color: outline(game.player.glowing, true, &|| viewer.clone()),
             visibility: visibility(game.player.invisible, &|| viewer.clone()),
             pack_shadow: if spectating {
@@ -5971,6 +5979,13 @@ fn entity_extras(
             ..Default::default()
         },
         EntityKind::SulfurCube => sulfur_cube_extras(e, alpha),
+        // Without a skin of its own, one of vanilla's default skins.
+        EntityKind::Player | EntityKind::Mannequin => EntityExtras {
+            variant_index: crate::renderer::pipelines::entity_renderer::default_skin_variant(
+                &e.uuid,
+            ),
+            ..Default::default()
+        },
         // Arms (`ShowArms`) and no base plate, as the stand's model variant.
         EntityKind::ArmorStand => EntityExtras {
             variant_index: u32::from(e.armor_stand_flags & 0x04 != 0)
