@@ -1,0 +1,46 @@
+# Mobs drawn from vanilla's model layers with their own setupAnim: blaze
+# rods orbiting, ghast tentacles swaying, phantom and vex wings flapping,
+# piglin ears wobbling, hoglin head lowered. Two shots a second apart show
+# the time-driven parts moving.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/gamerule doMobSpawning false"
+
+[[step]]
+chat = "/summon minecraft:blaze -4.5 -60 6.5 {NoAI:1b,Silent:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:vex -2.5 -59 6.5 {NoAI:1b,Silent:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:piglin -0.5 -60 6.5 {NoAI:1b,Silent:1b,IsImmuneToZombification:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:hoglin 2.5 -60 6.5 {NoAI:1b,Silent:1b,IsImmuneToZombification:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:phantom 5.5 -58 6.5 {NoAI:1b,Silent:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:ghast 0.5 -54 18.5 {NoAI:1b,Silent:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/tp @s 0.5 -59 -2.5 0 -5"
+
+[[step]]
+wait_ms = 6000
+
+[[step]]
+screenshot = "mobs_a"
+
+[[step]]
+wait_ms = 1000
+
+[[step]]
+screenshot = "mobs_b"

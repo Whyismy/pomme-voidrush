@@ -13,6 +13,7 @@ pub(crate) mod exported_data;
 mod fox;
 mod goat;
 mod llama;
+pub(crate) mod mob_anims;
 mod panda;
 mod parrot;
 mod polar_bear;

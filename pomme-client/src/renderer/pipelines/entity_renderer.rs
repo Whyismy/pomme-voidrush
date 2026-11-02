@@ -3082,14 +3082,30 @@ impl EntityRenderer {
             AnimationType::ArmorStand => {
                 entity_model::compute_armor_stand_anim(model, &info.armor_stand_pose)
             }
-            AnimationType::Generic => entity_model::compute_generic_anim(
-                model,
-                info.head_x_rot_deg,
-                local_head_y,
-                info.walk_anim_pos,
-                info.walk_anim_speed,
-                info.aggressive,
-            ),
+            AnimationType::Generic => {
+                let mut anim = entity_model::compute_generic_anim(
+                    model,
+                    info.head_x_rot_deg,
+                    local_head_y,
+                    info.walk_anim_pos,
+                    info.walk_anim_speed,
+                    info.aggressive,
+                );
+                entity_model::mob_anims::apply(
+                    info.entity_kind,
+                    model,
+                    &mut anim,
+                    &entity_model::mob_anims::MobAnimInput {
+                        age_in_ticks: info.age_in_ticks,
+                        walk_pos: info.walk_anim_pos,
+                        walk_speed: info.walk_anim_speed,
+                        local_head_y_rot_deg: local_head_y,
+                        aggressive: info.aggressive,
+                        attack_time: info.attack_time,
+                    },
+                );
+                anim
+            }
         }
     }
 
