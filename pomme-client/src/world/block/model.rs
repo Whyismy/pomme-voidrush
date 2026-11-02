@@ -196,13 +196,52 @@ fn default_true() -> bool {
     true
 }
 
-#[derive(Deserialize, Clone)]
+/// Vanilla `BlockElementRotation`: one axis and an angle, or (since 26.1)
+/// Euler angles `x`, `y` and `z`, turned in that order.
+#[derive(Deserialize, Clone, Default)]
 struct ElementRotation {
     origin: [f32; 3],
-    axis: String,
-    angle: f32,
+    axis: Option<String>,
+    angle: Option<f32>,
+    x: Option<f32>,
+    y: Option<f32>,
+    z: Option<f32>,
     #[serde(default)]
     rescale: bool,
+}
+
+impl ElementRotation {
+    /// Vanilla `BlockElementRotation.transformation`, with
+    /// `CuboidRotation.computeRescale`'s scale on each basis vector: the
+    /// reciprocal of its largest absolute component once turned.
+    fn matrix(&self) -> glam::Mat3 {
+        let turn = match (self.axis.as_deref(), self.angle) {
+            (Some(axis), Some(angle)) => {
+                let angle = angle.to_radians();
+                match axis {
+                    "x" => Mat3::from_rotation_x(angle),
+                    "y" => Mat3::from_rotation_y(angle),
+                    "z" => Mat3::from_rotation_z(angle),
+                    _ => Mat3::IDENTITY,
+                }
+            }
+            _ => Mat3::from_euler(
+                glam::EulerRot::ZYX,
+                self.z.unwrap_or(0.0).to_radians(),
+                self.y.unwrap_or(0.0).to_radians(),
+                self.x.unwrap_or(0.0).to_radians(),
+            ),
+        };
+        if !self.rescale {
+            return turn;
+        }
+        let scale = |column: Vec3| 1.0 / column.abs().max_element();
+        Mat3::from_cols(
+            turn.x_axis * scale(turn.x_axis),
+            turn.y_axis * scale(turn.y_axis),
+            turn.z_axis * scale(turn.z_axis),
+        )
+    }
 }
 
 #[derive(Deserialize, Clone)]
@@ -2090,49 +2129,11 @@ fn apply_element_rotation(
     let Some(rot) = rotation else {
         return positions;
     };
-
-    let origin = [
-        rot.origin[0] / 16.0,
-        rot.origin[1] / 16.0,
-        rot.origin[2] / 16.0,
-    ];
-    let angle_rad = rot.angle.to_radians();
-    let cos = angle_rad.cos();
-    let sin = angle_rad.sin();
-
-    // Vanilla `CuboidRotation.computeRescale` uses the reciprocal of each
-    // transformed basis vector's largest absolute component. For a single-axis
-    // rotation, that leaves the rotation axis unchanged and gives both
-    // perpendicular axes the same compensating scale.
-    let scale = if rot.rescale {
-        1.0 / cos.abs().max(sin.abs())
-    } else {
-        1.0
-    };
-    let [sx, sy, sz] = match rot.axis.as_str() {
-        "x" => [1.0, scale, scale],
-        "y" => [scale, 1.0, scale],
-        "z" => [scale, scale, 1.0],
-        _ => [1.0; 3],
-    };
-
+    let origin = Vec3::from_array(rot.origin) / 16.0;
+    let matrix = rot.matrix();
     for pos in &mut positions {
-        let dx = pos[0] - origin[0];
-        let dy = pos[1] - origin[1];
-        let dz = pos[2] - origin[2];
-
-        let (nx, ny, nz) = match rot.axis.as_str() {
-            "x" => (dx, cos * dy - sin * dz, sin * dy + cos * dz),
-            "y" => (cos * dx + sin * dz, dy, -sin * dx + cos * dz),
-            "z" => (cos * dx - sin * dy, sin * dx + cos * dy, dz),
-            _ => (dx, dy, dz),
-        };
-
-        pos[0] = origin[0] + nx * sx;
-        pos[1] = origin[1] + ny * sy;
-        pos[2] = origin[2] + nz * sz;
+        *pos = (origin + matrix * (Vec3::from_array(*pos) - origin)).to_array();
     }
-
     positions
 }
 
@@ -2599,6 +2600,33 @@ mod tests {
     }
 
     #[test]
+    fn euler_rotations_turn_x_then_y_then_z() {
+        // 26.x's hanging signs at 22.5-degree steps rotate this way.
+        let euler: ElementRotation =
+            serde_json::from_str(r#"{"x": 0, "y": 45, "z": 0, "origin": [8, 0, 8]}"#).unwrap();
+        let single: ElementRotation =
+            serde_json::from_str(r#"{"axis": "y", "angle": 45, "origin": [8, 0, 8]}"#).unwrap();
+        let quad = [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 1.0],
+            [0.0, 1.0, 0.5],
+        ];
+        let (a, b) = (
+            apply_element_rotation(quad, &Some(euler)),
+            apply_element_rotation(quad, &Some(single)),
+        );
+        for (a, b) in a.iter().zip(b) {
+            assert!(Vec3::from_array(*a).abs_diff_eq(Vec3::from_array(b), 1e-6));
+        }
+        // x 90 then y 90: +y goes to +z, then to +x.
+        let both: ElementRotation =
+            serde_json::from_str(r#"{"x": 90, "y": 90, "origin": [0, 0, 0]}"#).unwrap();
+        let up = apply_element_rotation([[0.0, 1.0, 0.0]; 4], &Some(both))[0];
+        assert!(Vec3::from_array(up).abs_diff_eq(Vec3::X, 1e-6), "{up:?}");
+    }
+
+    #[test]
     fn element_rescale_preserves_rotation_axis() {
         let positions = [
             [0.0, 0.0, 0.0],
@@ -2609,9 +2637,10 @@ mod tests {
         for (axis, axis_index) in [("x", 0), ("y", 1), ("z", 2)] {
             let rotation = Some(ElementRotation {
                 origin: [8.0, 8.0, 8.0],
-                axis: axis.to_string(),
-                angle: 45.0,
+                axis: Some(axis.to_string()),
+                angle: Some(45.0),
                 rescale: true,
+                ..Default::default()
             });
             let rotated = apply_element_rotation(positions, &rotation);
             for (before, after) in positions.iter().zip(rotated) {
@@ -2624,9 +2653,10 @@ mod tests {
 
         let quarter_turn = Some(ElementRotation {
             origin: [8.0, 8.0, 8.0],
-            axis: "y".to_string(),
-            angle: 90.0,
+            axis: Some("y".to_string()),
+            angle: Some(90.0),
             rescale: true,
+            ..Default::default()
         });
         let rotated = apply_element_rotation([[0.75, 0.5, 0.5]; 4], &quarter_turn);
         assert!((rotated[0][0] - 0.5).abs() < 1.0e-6);
@@ -2635,9 +2665,10 @@ mod tests {
 
         let steep_turn = Some(ElementRotation {
             origin: [8.0, 8.0, 8.0],
-            axis: "y".to_string(),
-            angle: 67.5,
+            axis: Some("y".to_string()),
+            angle: Some(67.5),
             rescale: true,
+            ..Default::default()
         });
         let rotated = apply_element_rotation([[0.75, 0.5, 0.5]; 4], &steep_turn);
         let expected_x = 0.5 + 0.25 * 67.5_f32.to_radians().tan().recip();
