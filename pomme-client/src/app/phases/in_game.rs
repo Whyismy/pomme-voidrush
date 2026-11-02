@@ -673,6 +673,30 @@ impl GameState {
             })
     }
 
+    /// Vanilla `Entity.positionRider` for the local player: the vehicle's
+    /// passenger riding position (a display's own position, its box being
+    /// 0 x 0; otherwise the top of the vehicle's box) less the player's
+    /// vehicle attachment, `Player.DEFAULT_VEHICLE_ATTACHMENT`'s 0.6.
+    // TODO: per-kind passenger attachments (boats, minecarts, horses sit
+    // lower than the top of their box).
+    pub fn riding_seat(&self) -> Option<glam::DVec3> {
+        let vehicle = self.riding_vehicle_id?;
+        let seat = match self.display_store.displays.get(&vehicle) {
+            Some(display) => display.position,
+            None => display_seat(
+                vehicle,
+                &self.entity_store.living,
+                &self.entity_positions,
+                (
+                    self.player.entity_id,
+                    self.player.position,
+                    self.player.eye_height,
+                ),
+            )?,
+        };
+        Some(seat - glam::DVec3::new(0.0, 0.6, 0.0))
+    }
+
     /// The ridden vehicle when it is living; the living-store lookup is
     /// vanilla's `instanceof LivingEntity` gate.
     fn riding_vehicle(&self) -> Option<&crate::entity::LivingEntity> {
@@ -5457,6 +5481,13 @@ fn build_display_renders(
                 let Some(state) = display.block_state() else {
                     continue;
                 };
+                // Air draws nothing (servers seat riders on air displays).
+                if table
+                    .try_state(state)
+                    .is_some_and(|state| table.block_state_data(state).is_air())
+                {
+                    continue;
+                }
                 let Some((item_name, tints)) = renderer.ensure_block_display_mesh(table, state)
                 else {
                     continue;

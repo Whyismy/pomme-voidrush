@@ -3722,6 +3722,11 @@ impl AppCore {
             game.interaction.slow_due_to_using_item(),
             vehicle,
         );
+        // `Entity.rideTick`: a passenger moves with its vehicle, not itself.
+        if let Some(seat) = game.riding_seat() {
+            game.player.position = seat.into();
+            game.player.velocity = crate::entity::components::Velocity::new(0.0, 0.0, 0.0);
+        }
         let dx = game.player.position.x - game.player.prev_position.x;
         let dz = game.player.position.z - game.player.prev_position.z;
         crate::entity::update_walk_animation(

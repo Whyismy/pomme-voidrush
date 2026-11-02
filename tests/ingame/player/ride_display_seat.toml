@@ -1,0 +1,30 @@
+# Riding an air block display, as Void Rush's jump pads seat players: the
+# player sits 0.6 below the seat (Player.DEFAULT_VEHICLE_ATTACHMENT), follows
+# it when it moves, and nothing draws for the air block.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/summon minecraft:block_display 0.5 -55 5.5 {block_state:{Name:\"minecraft:air\"},teleport_duration:2,Tags:[\"seat\"]}"
+
+[[step]]
+chat = "/ride @s mount @e[type=block_display,tag=seat,limit=1]"
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+expect = { player = { position = [0.5, -55.6, 5.5] } }
+
+[[step]]
+chat = "/tp @e[type=block_display,tag=seat,limit=1] 4.5 -54 5.5"
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+expect = { player = { position = [4.5, -54.6, 5.5] } }
+
+[[step]]
+screenshot = "seat"
