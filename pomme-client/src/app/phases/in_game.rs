@@ -5485,18 +5485,20 @@ fn build_name_tags(
         let Some(player) = sources.tab_list.players.get(&uuid) else {
             continue;
         };
-        let spans = sources.scoreboard.player_name(&player.name, None);
-        let layout = Arc::new(renderer.layout_display_text(&spans, i32::MAX));
         let feet = *entity
             .prev_position
             .lerp(entity.position, f64::from(partial_tick));
         let height = if entity.is_crouching { 1.5 } else { 1.8 };
-        push(
-            feet + glam::DVec3::Y * (height + 0.5),
-            layout,
-            entity.is_crouching,
-            out,
-        );
+        let at = feet + glam::DVec3::Y * (height + 0.5);
+        let max = if entity.is_crouching { 32.0 } else { 64.0 };
+        if at.distance_squared(eye) > max * max {
+            continue;
+        }
+        let spans = sources.scoreboard.player_name(&player.name, None);
+        let layout = sources.names.player_layout(*id, spans, |spans| {
+            renderer.layout_display_text(spans, i32::MAX)
+        });
+        push(at, layout, entity.is_crouching, out);
     }
 
     // Entities showing their custom name.

@@ -57,6 +57,10 @@ impl Named {
 #[derive(Default)]
 pub struct NameStore {
     pub entities: HashMap<i32, Named>,
+    /// Other players' names as last laid out, kept while the styled name
+    /// stays the same: laying text out every frame for every player in
+    /// sight costs more than drawing it.
+    players: HashMap<i32, (Vec<TextSpan>, Arc<TextLayout>)>,
 }
 
 impl NameStore {
@@ -73,11 +77,31 @@ impl NameStore {
     pub fn remove(&mut self, ids: &[i32]) {
         for id in ids {
             self.entities.remove(id);
+            self.players.remove(id);
         }
     }
 
     pub fn clear(&mut self) {
         self.entities.clear();
+        self.players.clear();
+    }
+
+    /// Player `id`'s name tag laid out, by `layout` only when `spans` differ
+    /// from last time.
+    pub fn player_layout(
+        &mut self,
+        id: i32,
+        spans: Vec<TextSpan>,
+        layout: impl FnOnce(&[TextSpan]) -> TextLayout,
+    ) -> Arc<TextLayout> {
+        match self.players.get(&id) {
+            Some((old, cached)) if *old == spans => cached.clone(),
+            _ => {
+                let laid = Arc::new(layout(&spans));
+                self.players.insert(id, (spans, laid.clone()));
+                laid
+            }
+        }
     }
 
     pub fn set_name(&mut self, id: i32, name: Option<Vec<TextSpan>>) {
