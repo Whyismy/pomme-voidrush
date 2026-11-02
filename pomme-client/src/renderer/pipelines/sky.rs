@@ -238,32 +238,20 @@ impl SkyPipeline {
             "sky_uniform",
         );
 
-        let sun = util::load_asset_texture(
+        let sampler = rhi::backend::create_sampler(device, &rhi::SamplerDesc::LINEAR);
+        let Celestial {
+            sun,
+            sun_set,
+            moons,
+            moon_sets,
+        } = Celestial::load(
             device,
+            tex_layout,
+            sampler,
             jar_assets_dir,
             asset_index,
-            "minecraft/textures/environment/celestial/sun.png",
+            None,
         );
-        let sampler = rhi::backend::create_sampler(device, &rhi::SamplerDesc::LINEAR);
-        let sun_set = util::create_texture_group(device, tex_layout, sun.handle(), sampler);
-
-        let moon_phase_paths = [
-            "minecraft/textures/environment/celestial/moon/full_moon.png",
-            "minecraft/textures/environment/celestial/moon/waning_gibbous.png",
-            "minecraft/textures/environment/celestial/moon/third_quarter.png",
-            "minecraft/textures/environment/celestial/moon/waning_crescent.png",
-            "minecraft/textures/environment/celestial/moon/new_moon.png",
-            "minecraft/textures/environment/celestial/moon/waxing_crescent.png",
-            "minecraft/textures/environment/celestial/moon/first_quarter.png",
-            "minecraft/textures/environment/celestial/moon/waxing_gibbous.png",
-        ];
-        let mut moons = Vec::with_capacity(8);
-        let mut moon_sets = [rhi::backend::BindGroup::default(); 8];
-        for (i, &path) in moon_phase_paths.iter().enumerate() {
-            let moon = util::load_asset_texture(device, jar_assets_dir, asset_index, path);
-            moon_sets[i] = util::create_texture_group(device, tex_layout, moon.handle(), sampler);
-            moons.push(moon);
-        }
 
         let end_sky = util::load_asset_texture(
             device,
@@ -304,6 +292,34 @@ impl SkyPipeline {
             end_sky_sampler,
             custom: Vec::new(),
         }
+    }
+
+    /// Reloads the sun and moon from the active packs, replacing the last
+    /// ones.
+    pub fn load_celestial(
+        &mut self,
+        device: &rhi::backend::Device,
+        jar_assets_dir: &Path,
+        asset_index: &Option<AssetIndex>,
+        packs: &crate::resource_pack::ResourcePackManager,
+    ) {
+        let celestial = Celestial::load(
+            device,
+            self.tex_layout,
+            self.sampler,
+            jar_assets_dir,
+            asset_index,
+            Some(packs),
+        );
+        std::mem::replace(&mut self.sun, celestial.sun).destroy(device);
+        std::mem::replace(&mut self.sun_set, celestial.sun_set).destroy(device);
+        for moon in std::mem::replace(&mut self.moons, celestial.moons) {
+            moon.destroy(device);
+        }
+        util::destroy_bind_groups(
+            device,
+            std::mem::replace(&mut self.moon_sets, celestial.moon_sets),
+        );
     }
 
     /// Loads the OptiFine sky layers of the active packs
@@ -527,6 +543,112 @@ impl SkyPipeline {
 
 /// Vanilla's `rotateDegrees(YP, -90)` then `rotate(XP, angle)` for the sun,
 /// moon and stars, with Iris's `sunPathRotation` `tilt` about Z between.
+/// The moon phases in `MoonPhase` order, which is also their order across
+/// the 4 x 2 `moon_phases.png` grid packs before 26.1 ship.
+const MOON_PHASES: [&str; 8] = [
+    "full_moon",
+    "waning_gibbous",
+    "third_quarter",
+    "waning_crescent",
+    "new_moon",
+    "waxing_crescent",
+    "first_quarter",
+    "waxing_gibbous",
+];
+
+/// The sun and moon textures and their bind groups.
+struct Celestial {
+    sun: rhi::backend::Texture,
+    sun_set: rhi::backend::BindGroup,
+    moons: Vec<rhi::backend::Texture>,
+    moon_sets: [rhi::backend::BindGroup; 8],
+}
+
+impl Celestial {
+    fn load(
+        device: &rhi::backend::Device,
+        tex_layout: rhi::backend::BindGroupLayout,
+        sampler: rhi::backend::Sampler,
+        jar_assets_dir: &Path,
+        asset_index: &Option<AssetIndex>,
+        packs: Option<&crate::resource_pack::ResourcePackManager>,
+    ) -> Self {
+        let texture = |key: &str, legacy: (&str, Option<usize>)| {
+            let (pixels, w, h) = packs
+                .and_then(|packs| celestial_from_packs(packs, key, legacy))
+                .or_else(|| {
+                    util::load_png(&crate::assets::resolve_asset_path(
+                        jar_assets_dir,
+                        asset_index,
+                        key,
+                    ))
+                })
+                .unwrap_or_else(|| {
+                    tracing::warn!("Failed to load {key}, using fallback");
+                    (vec![255u8; 16 * 16 * 4], 16, 16)
+                });
+            util::create_sampled_texture(device, key, &pixels, w, h)
+        };
+        let sun = texture(
+            "minecraft/textures/environment/celestial/sun.png",
+            ("minecraft/textures/environment/sun.png", None),
+        );
+        let sun_set = util::create_texture_group(device, tex_layout, sun.handle(), sampler);
+        let mut moons = Vec::with_capacity(8);
+        let mut moon_sets = [rhi::backend::BindGroup::default(); 8];
+        for (i, phase) in MOON_PHASES.iter().enumerate() {
+            let moon = texture(
+                &format!("minecraft/textures/environment/celestial/moon/{phase}.png"),
+                ("minecraft/textures/environment/moon_phases.png", Some(i)),
+            );
+            moon_sets[i] = util::create_texture_group(device, tex_layout, moon.handle(), sampler);
+            moons.push(moon);
+        }
+        Self {
+            sun,
+            sun_set,
+            moons,
+            moon_sets,
+        }
+    }
+}
+
+/// The highest pack's sun or moon phase: its `key` texture, or the texture
+/// at the `legacy` path packs made before 26.1 use (cell `i` of the 4 x 2
+/// `moon_phases.png` grid for a moon phase).
+fn celestial_from_packs(
+    packs: &crate::resource_pack::ResourcePackManager,
+    key: &str,
+    (legacy, cell): (&str, Option<usize>),
+) -> Option<(Vec<u8>, u32, u32)> {
+    let dirs: Vec<&Path> = packs.active_pack_dirs().collect();
+    for dir in dirs.into_iter().rev() {
+        let assets = dir.join("assets");
+        if let Some(image) = util::load_png(&assets.join(key)) {
+            return Some(image);
+        }
+        if let Some(image) = util::load_png(&assets.join(legacy)) {
+            return Some(match cell {
+                Some(i) => grid_cell(image, i),
+                None => image,
+            });
+        }
+    }
+    None
+}
+
+/// Cell `i` (row by row) of a 4 x 2 grid image.
+fn grid_cell((pixels, w, h): (Vec<u8>, u32, u32), i: usize) -> (Vec<u8>, u32, u32) {
+    let (cw, ch) = ((w / 4) as usize, (h / 2) as usize);
+    let (x0, y0) = ((i % 4) * cw, (i / 4) * ch);
+    let mut out = Vec::with_capacity(cw * ch * 4);
+    for y in y0..y0 + ch {
+        let row = (y * w as usize + x0) * 4;
+        out.extend_from_slice(&pixels[row..row + cw * 4]);
+    }
+    (out, cw as u32, ch as u32)
+}
+
 pub fn celestial_pose(degrees: f32, tilt: f32) -> Mat4 {
     Mat4::from_rotation_y(-90f32.to_radians())
         * Mat4::from_rotation_z(tilt.to_radians())
@@ -885,6 +1007,23 @@ fn create_pipelines(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A pre-26.1 `moon_phases.png` cell: phase 5 (waxing crescent) is the
+    /// second cell of the bottom row.
+    #[test]
+    fn a_moon_phase_is_its_grid_cell() {
+        let (w, h) = (8u32, 4u32);
+        let pixels: Vec<u8> = (0..w * h)
+            .flat_map(|i| {
+                let (x, y) = (i % w, i / w);
+                [x as u8, y as u8, 0, 255]
+            })
+            .collect();
+        let (cell, cw, ch) = grid_cell((pixels, w, h), 5);
+        assert_eq!((cw, ch), (2, 2));
+        let corners: Vec<(u8, u8)> = cell.chunks(4).map(|p| (p[0], p[1])).collect();
+        assert_eq!(corners, [(2, 2), (3, 2), (2, 3), (3, 3)]);
+    }
 
     fn stages(sky: &SkyState, top_down: bool) -> Vec<SkyStage> {
         elements(sky, top_down, 0.0)
