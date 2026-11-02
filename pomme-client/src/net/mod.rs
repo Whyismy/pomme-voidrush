@@ -604,6 +604,8 @@ pub enum NetworkEvent {
     EntityCustomName {
         id: i32,
         name: Option<String>,
+        /// The name with its styles, for the name tag.
+        spans: Option<Vec<crate::ui::text::TextSpan>>,
     },
     EntitySwing {
         id: i32,

@@ -3,6 +3,7 @@ pub mod dimensions;
 pub mod display;
 pub mod glowing;
 pub mod light;
+pub mod name_tags;
 pub mod shadow;
 pub mod villager;
 

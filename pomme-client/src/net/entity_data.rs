@@ -175,17 +175,17 @@ fn send_data_value(
         }
         // Entity.DATA_CUSTOM_NAME; needed for jeb_ sheep detection.
         (2, Value::OptionalComponent(name)) => {
-            let name = match name {
+            let (name, spans) = match name {
                 Some(nbt) => match super::chat::read_component(nbt, &mut 0) {
-                    Ok(name) => Some(name.plain_text()),
+                    Ok(name) => (Some(name.plain_text()), super::chat::component_spans(nbt)),
                     Err(e) => {
                         tracing::debug!("Skipping unreadable custom name: {e}");
                         return;
                     }
                 },
-                None => None,
+                None => (None, None),
             };
-            NetworkEvent::EntityCustomName { id, name }
+            NetworkEvent::EntityCustomName { id, name, spans }
         }
         (18, Value::Variant(Variant::Cow, v)) => variant(EntityKind::Cow, *v),
         (18, Value::Variant(Variant::Chicken, v)) => variant(EntityKind::Chicken, *v),

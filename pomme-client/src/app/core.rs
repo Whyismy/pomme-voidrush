@@ -2595,6 +2595,7 @@ impl AppCore {
                         game.display_store
                             .spawn(id, kind, *position, y_rot_deg, x_rot_deg);
                     }
+                    game.name_store.spawn(id, entity_type);
                 }
                 NetworkEvent::EntityMoved {
                     id,
@@ -2737,6 +2738,7 @@ impl AppCore {
                     }
                     game.item_entity_store.remove(&ids);
                     game.display_store.remove(&ids);
+                    game.name_store.remove(&ids);
                     if game.controlled_vehicle_id.is_some_and(|v| ids.contains(&v)) {
                         game.controlled_vehicle_id = None;
                     }
@@ -2786,6 +2788,7 @@ impl AppCore {
                         }
                     }
                     game.display_store.apply_entity_data(id, index, value);
+                    game.name_store.apply_entity_data(id, index, value);
                     game.entity_store.apply_entity_data(id, index, value);
                 }
                 NetworkEvent::DisplayData { id, index, value } => {
@@ -2890,8 +2893,9 @@ impl AppCore {
                     game.entity_store
                         .set_villager_data(id, kind, profession, level);
                 }
-                NetworkEvent::EntityCustomName { id, name } => {
+                NetworkEvent::EntityCustomName { id, name, spans } => {
                     game.entity_store.set_custom_name(id, name);
+                    game.name_store.set_name(id, spans);
                 }
                 NetworkEvent::EntitySwing { id } => {
                     game.entity_store.start_swing(id);
@@ -3073,6 +3077,7 @@ impl AppCore {
                     game.entity_store = crate::entity::EntityStore::new();
                     game.item_entity_store = crate::entity::ItemEntityStore::new();
                     game.display_store.clear();
+                    game.name_store.clear();
                     game.entity_positions.clear();
                     game.silent_entities.clear();
                     game.action_bar = None;

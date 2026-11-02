@@ -1,0 +1,45 @@
+# Names over entities, drawn in the world: a marker armor stand hologram
+# (Void Rush's floating labels), a normal and a small invisible stand, a
+# named villager, and one hologram 70 blocks off that must not show.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/summon minecraft:armor_stand 0.5 -59 6.5 {Marker:1b,Invisible:1b,NoGravity:1b,CustomNameVisible:1b,CustomName:{text:\"Lvl 3 Station\",color:\"gold\",bold:true}}"
+
+[[step]]
+chat = "/summon minecraft:armor_stand 0.5 -59.3 6.5 {Marker:1b,Invisible:1b,NoGravity:1b,CustomNameVisible:1b,CustomName:{text:\"Right-click to upgrade\",color:\"gray\"}}"
+
+[[step]]
+chat = "/summon minecraft:armor_stand 3.5 -60 6.5 {Invisible:1b,CustomNameVisible:1b,CustomName:\"Normal stand\"}"
+
+[[step]]
+chat = "/summon minecraft:armor_stand 5.5 -60 6.5 {Small:1b,Invisible:1b,CustomNameVisible:1b,CustomName:\"Small stand\"}"
+
+[[step]]
+chat = "/summon minecraft:villager -2.5 -60 6.5 {NoAI:1b,CustomNameVisible:1b,CustomName:{text:\"Vendor\",color:\"green\"}}"
+
+[[step]]
+chat = "/summon minecraft:armor_stand 0.5 -59 76.5 {Marker:1b,Invisible:1b,NoGravity:1b,CustomNameVisible:1b,CustomName:\"Too far\"}"
+
+[[step]]
+chat = "/tp @s 1.5 -60 0.5 0 5"
+
+[[step]]
+wait_ms = 6000
+
+[[step]]
+screenshot = "names_near"
+
+[[step]]
+chat = "/tp @s 1.5 -60 -14.5 0 0"
+
+[[step]]
+wait_ms = 3000
+
+[[step]]
+screenshot = "names_far"

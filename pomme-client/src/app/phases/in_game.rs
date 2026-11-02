@@ -345,6 +345,8 @@ pub struct GameState {
     pub server_simulation_distance: u32,
     pub item_entity_store: ItemEntityStore,
     pub display_store: crate::entity::display::DisplayStore,
+    /// Entity names and whether they show (`entity::name_tags`).
+    pub name_store: crate::entity::name_tags::NameStore,
     pub particle_store: crate::particle::ParticleStore,
     pub level_runtime: crate::world::level::LevelRuntime,
     pub block_entity_anim: BlockEntityAnimStore,
@@ -517,6 +519,7 @@ impl GameState {
             server_simulation_distance: 0,
             item_entity_store: ItemEntityStore::new(),
             display_store: crate::entity::display::DisplayStore::default(),
+            name_store: crate::entity::name_tags::NameStore::default(),
             particle_store: {
                 let (grass, foliage, dry_foliage) = mesh_dispatcher.colormaps();
                 crate::particle::ParticleStore::new(
@@ -3122,23 +3125,6 @@ pub fn update_game(
         );
     }
 
-    if !benchmark_running && !game.hide_gui {
-        let renderer = &gfx.renderer;
-        crate::ui::player_tab::build_player_nameplates(
-            &mut elements,
-            crate::ui::player_tab::PlayerNameplates {
-                entity_store: &game.entity_store,
-                tab_list: &game.tab_list,
-                scoreboard: &game.scoreboard,
-                local_uuid: core.user.uuid,
-                partial_tick,
-                gs,
-                camera_pos: renderer.camera_render_position(),
-                project: &|position| renderer.project_world_to_screen(position),
-            },
-        );
-    }
-
     if let Some(switcher) = &mut game.game_mode_switcher {
         crate::ui::game_mode_switcher::build_game_mode_switcher(
             &mut elements,
@@ -4343,7 +4329,7 @@ pub fn update_game(
     };
 
     let display_start = Instant::now();
-    let (display_items, display_texts) = if benchmark_running {
+    let (display_items, mut world_texts) = if benchmark_running {
         (Vec::new(), Vec::new())
     } else {
         build_display_renders(
@@ -4354,9 +4340,29 @@ pub fn update_game(
             partial_tick,
         )
     };
+    if !benchmark_running && !game.hide_gui {
+        build_name_tags(
+            NameTagSources {
+                names: &mut game.name_store,
+                living: &game.entity_store,
+                positions: &game.entity_positions,
+                tab_list: &game.tab_list,
+                scoreboard: &game.scoreboard,
+                local_uuid: core.user.uuid,
+                local_entity: game.player.entity_id,
+            },
+            &world_light,
+            &mut gfx.renderer,
+            partial_tick,
+            &mut world_texts,
+        );
+    }
     crate::frame_log::add("displays", display_start.elapsed().as_secs_f32() * 1000.0);
     item_renders.extend(display_items);
-    gfx.renderer.set_world_texts(display_texts);
+    // Nothing writes depth, so overlapping texts layer back to front.
+    world_texts.sort_by(|a, b| b.0.total_cmp(&a.0));
+    gfx.renderer
+        .set_world_texts(world_texts.into_iter().map(|(_, text)| text).collect());
 
     let moving_block_renders =
         moving_block_renders(game, gfx.renderer.camera_render_position(), partial_tick);
@@ -5118,7 +5124,10 @@ fn build_display_renders(
     partial_tick: f32,
 ) -> (
     Vec<crate::renderer::pipelines::item_entity::ItemRenderInfo>,
-    Vec<crate::renderer::pipelines::menu_overlay::WorldTextRender>,
+    Vec<(
+        f64,
+        crate::renderer::pipelines::menu_overlay::WorldTextRender,
+    )>,
 ) {
     use crate::entity::display::{DisplayKind, TEXT_SEE_THROUGH, TEXT_SHADOW};
     use crate::renderer::pipelines::item_entity::ItemRenderInfo;
@@ -5295,9 +5304,169 @@ fn build_display_renders(
     }
     // Copies of one mesh draw as one instanced call only when consecutive.
     items.sort_unstable_by(|a, b| a.item_name.cmp(&b.item_name));
-    // Nothing writes depth, so overlapping texts layer back to front.
-    texts.sort_by(|a, b| b.0.total_cmp(&a.0));
-    (items, texts.into_iter().map(|(_, text)| text).collect())
+    (items, texts)
+}
+
+/// What [`build_name_tags`] reads.
+struct NameTagSources<'a> {
+    names: &'a mut crate::entity::name_tags::NameStore,
+    living: &'a crate::entity::EntityStore,
+    positions: &'a HashMap<i32, crate::entity::components::Position>,
+    tab_list: &'a crate::player::tab_list::TabList,
+    scoreboard: &'a crate::ui::hud::Scoreboard,
+    local_uuid: uuid::Uuid,
+    local_entity: i32,
+}
+
+/// Vanilla `EntityRenderer.submitNameTag` for every name that shows: other
+/// players' (team-formatted) and entities' visible custom names (hologram
+/// armor stands, named NPCs), 0.5 above the entity's box, facing the
+/// camera, within 64 blocks (32 for a sneaking player). A name draws twice:
+/// faded (0x80) over a quarter-black background through walls, then fully
+/// in the world; a sneaking player's only once, faded, on its background,
+/// without the see-through pass.
+// TODO: teams' nameTagVisibility, and "deadmau5"'s raised tag.
+fn build_name_tags(
+    sources: NameTagSources<'_>,
+    world_light: &WorldLight,
+    renderer: &mut Renderer,
+    partial_tick: f32,
+    out: &mut Vec<(
+        f64,
+        crate::renderer::pipelines::menu_overlay::WorldTextRender,
+    )>,
+) {
+    use crate::entity::display::TextAlign;
+    use crate::renderer::pipelines::menu_overlay::WorldTextRender;
+    const FADED: u32 = 0x80FF_FFFF;
+    const BACKGROUND: u32 = 0x4000_0000;
+
+    let eye = renderer.camera_render_position();
+    let anchor = renderer.camera_anchor();
+    let (camera_y, camera_x) = renderer.camera_look_deg();
+    let frustum = renderer.frustum_planes();
+    let facing = glam::Mat4::from_quat(glam::Quat::from_euler(
+        glam::EulerRot::YXZ,
+        (-(camera_y - 180.0)).to_radians(),
+        (-camera_x).to_radians(),
+        0.0,
+    ));
+    let push = |at: glam::DVec3,
+                layout: Arc<crate::entity::display::TextLayout>,
+                discrete: bool,
+                out: &mut Vec<(f64, WorldTextRender)>| {
+        let distance = at.distance_squared(eye);
+        let max = if discrete { 32.0 } else { 64.0 };
+        if distance > max * max || layout.lines.is_empty() {
+            return;
+        }
+        let rel = (at - eye).as_vec3();
+        let radius = (layout.width * 0.5 + 2.0) * 0.025;
+        if frustum
+            .iter()
+            .any(|p| p[0] * rel.x + p[1] * rel.y + p[2] * rel.z + p[3] < -radius)
+        {
+            return;
+        }
+        // The text pipeline puts a text's bottom on its anchor, 1 pixel right
+        // of centre (`TextDisplayRenderer`); a name tag hangs from it, centred.
+        let height = layout.lines.len() as f32 * 10.0 - 1.0;
+        let pose = glam::Mat4::from_translation((at - anchor).as_vec3())
+            * facing
+            * glam::Mat4::from_translation(glam::vec3(-0.025, -0.025 * height, 0.0));
+        use crate::renderer::chunk::block_lighter::LightSource;
+        let levels = world_light.levels(at.floor().as_ivec3().to_array());
+        let light =
+            crate::renderer::chunk::block_lighter::LightLevels::new(levels.sky(), levels.block());
+        // `LightCoordsUtil.lightCoordsWithEmission(light, 2)` for the full pass.
+        let lit = crate::renderer::chunk::block_lighter::LightLevels::new(
+            levels.sky().max(2),
+            levels.block().max(2),
+        );
+        out.push((
+            distance,
+            WorldTextRender {
+                layout: layout.clone(),
+                pose,
+                align: TextAlign::Center,
+                color: FADED,
+                background: BACKGROUND,
+                shadow: false,
+                see_through: !discrete,
+                light: light.lane(),
+            },
+        ));
+        if !discrete {
+            out.push((
+                distance,
+                WorldTextRender {
+                    layout,
+                    pose,
+                    align: TextAlign::Center,
+                    color: 0xFFFF_FFFF,
+                    background: 0,
+                    shadow: false,
+                    see_through: false,
+                    light: lit.lane(),
+                },
+            ));
+        }
+    };
+
+    // Other players (and NPC bots, which are players): their profile name
+    // from the player list, unlisted entries too, in their team's style.
+    for (id, entity) in &sources.living.living {
+        let Some(uuid) = entity.player_uuid else {
+            continue;
+        };
+        if uuid == sources.local_uuid || *id == sources.local_entity || entity.is_invisible {
+            continue;
+        }
+        let Some(player) = sources.tab_list.players.get(&uuid) else {
+            continue;
+        };
+        let spans = sources.scoreboard.player_name(&player.name, None);
+        let layout = Arc::new(renderer.layout_display_text(&spans, i32::MAX));
+        let feet = *entity
+            .prev_position
+            .lerp(entity.position, f64::from(partial_tick));
+        let height = if entity.is_crouching { 1.5 } else { 1.8 };
+        push(
+            feet + glam::DVec3::Y * (height + 0.5),
+            layout,
+            entity.is_crouching,
+            out,
+        );
+    }
+
+    // Entities showing their custom name.
+    for (id, named) in sources.names.shown() {
+        let feet = match sources.living.living.get(id) {
+            Some(entity) => {
+                if entity.player_uuid.is_some() {
+                    continue;
+                }
+                *entity
+                    .prev_position
+                    .lerp(entity.position, f64::from(partial_tick))
+            }
+            None => match sources.positions.get(id) {
+                Some(at) => **at,
+                None => continue,
+            },
+        };
+        let layout = match &named.layout {
+            Some(layout) => layout.clone(),
+            None => {
+                let Some(name) = &named.name else { continue };
+                let layout = Arc::new(renderer.layout_display_text(name, i32::MAX));
+                named.layout = Some(layout.clone());
+                layout
+            }
+        };
+        let at = feet + glam::DVec3::Y * (f64::from(named.name_height()) + 0.5);
+        push(at, layout, false, out);
+    }
 }
 
 /// Where a display riding `vehicle` sits: `Entity.getPassengerRidingPosition`
