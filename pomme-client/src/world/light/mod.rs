@@ -491,9 +491,14 @@ impl LevelLightEngine {
     ) {
         let (min_section_y, section_count) = (self.min_section_y, self.section_count);
         let block_start = std::time::Instant::now();
+        // Both passes run before the publish, as vanilla's `swapSectionMap`
+        // ends `runLightUpdates`: publishing between them would hand the
+        // meshers a world with a moved light's old glow gone and its new
+        // one not yet spread, which shows as a dark flicker.
         {
             let world = StoreWorld::new(store, block_state_table);
             self.block.begin_updates(&world);
+            self.block.finish_updates(&world);
         }
         Self::publish(
             &mut self.block.storage,
@@ -504,16 +509,13 @@ impl LevelLightEngine {
             section_count,
             out,
         );
-        {
-            let world = StoreWorld::new(store, block_state_table);
-            self.block.finish_updates(&world);
-        }
         crate::frame_log::add("light_block", block_start.elapsed().as_secs_f32() * 1000.0);
         let sky_start = std::time::Instant::now();
         if let Some(sky) = &mut self.sky {
             {
                 let world = StoreWorld::new(store, block_state_table);
                 sky.begin_updates(&world);
+                sky.finish_updates(&world);
             }
             Self::publish(
                 &mut sky.storage,
@@ -524,10 +526,6 @@ impl LevelLightEngine {
                 section_count,
                 out,
             );
-            {
-                let world = StoreWorld::new(store, block_state_table);
-                sky.finish_updates(&world);
-            }
         }
         crate::frame_log::add("light_sky", sky_start.elapsed().as_secs_f32() * 1000.0);
     }
@@ -587,6 +585,38 @@ mod tests {
 
     fn find_state(name: &str, props: &[(&str, &str)]) -> BlockState {
         BlockStateTable::native().find_state(name, props)
+    }
+
+    /// A light block moved a step in one update (how servers make a player
+    /// light) publishes its new glow together with the old one's removal:
+    /// the meshers never see the dark world in between.
+    #[test]
+    fn a_moved_light_publishes_whole() {
+        let table = BlockStateTable::native();
+        let mut store = ChunkStore::with_origin_chunk();
+        let height = (store.section_count() * 16) as u32;
+        let mut engine = LevelLightEngine::new(height, store.min_y(), false);
+        engine.on_chunk_loaded(&mut store, table, (0, 0));
+        engine.queue_task(LightTask::ApplyLight {
+            pos: (0, 0),
+            sky: Vec::new(),
+            block: Vec::new(),
+            enable: true,
+        });
+        let light = find_state("light", &[("level", "15")]);
+        let run = |store: &mut ChunkStore, engine: &mut LevelLightEngine| {
+            engine.poll_and_run(store, table, &mut LightDirty::default());
+        };
+        set_block_and_light(&store, &mut engine, table, 8, 70, 8, light);
+        run(&mut store, &mut engine);
+        assert_eq!(store.get_block_light(11, 70, 8), 12);
+
+        set_block_and_light(&store, &mut engine, table, 8, 70, 8, BlockState::AIR);
+        set_block_and_light(&store, &mut engine, table, 9, 70, 8, light);
+        run(&mut store, &mut engine);
+        assert_eq!(store.get_block_light(9, 70, 8), 15);
+        assert_eq!(store.get_block_light(11, 70, 8), 13);
+        assert_eq!(store.get_block_light(8, 70, 8), 14);
     }
 
     struct TestWorld {

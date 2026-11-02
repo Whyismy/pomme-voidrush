@@ -30,9 +30,9 @@ pub(crate) trait LightEngine {
     fn mark_new_inconsistencies(&mut self);
 
     /// First half of vanilla `runLightUpdates`: drain the check set, run the
-    /// decrease pass, and apply queued/removed sections. The caller publishes
-    /// changed sections (vanilla `swapSectionMap`), then runs
-    /// [`Self::finish_updates`].
+    /// decrease pass, and apply queued/removed sections. The caller then runs
+    /// [`Self::finish_updates`] and only after both publishes the changed
+    /// sections (vanilla `swapSectionMap`).
     fn begin_updates(&mut self, world: &impl LightBlockGetter) {
         let nodes: Vec<LightPos> = self.nodes_to_check().drain().collect();
         for pos in nodes {
