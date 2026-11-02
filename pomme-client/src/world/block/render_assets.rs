@@ -248,6 +248,17 @@ impl BlockRenderAssets {
     /// `item_model` component names, then that definition's variant for the
     /// stack's first custom-model-data string or its loaded charge (vanilla
     /// `CustomModelDataProperty` and `Charge` selects), if one is baked.
+    /// The model `key` draws in the GUI: its GUI variant where its
+    /// definition has one ([`model::gui_model_key`]), else itself.
+    pub fn gui_model_key(&self, key: &str) -> String {
+        let gui = model::gui_model_key(key);
+        if self.item_models.contains_key(&gui) || self.flat_item_texture_keys.contains_key(&gui) {
+            gui
+        } else {
+            key.to_owned()
+        }
+    }
+
     pub fn stack_model_key(&self, name: &str, stack: &ItemStackData) -> String {
         let has = |key: &str| {
             self.item_models.contains_key(key) || self.flat_item_texture_keys.contains_key(key)

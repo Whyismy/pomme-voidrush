@@ -1,0 +1,35 @@
+# A plain iron sword against Void Rush's elite sword (pack served as in
+# voidrush_pack) in two skeletons' hands, front-on and from the side.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/time set 18000"
+
+[[step]]
+chat = "/effect give @s minecraft:night_vision infinite 0 true"
+
+[[step]]
+chat = "/summon minecraft:skeleton 171.5 -60 4.5 {NoAI:1b,Silent:1b,Rotation:[180f,0f],equipment:{mainhand:{id:\"minecraft:iron_sword\"}}}"
+
+[[step]]
+chat = "/summon minecraft:skeleton 169.5 -60 4.5 {NoAI:1b,Silent:1b,Rotation:[180f,0f],equipment:{mainhand:{id:\"minecraft:iron_sword\",components:{\"minecraft:custom_model_data\":{strings:[\"elite_sword_4\"]}}}}}"
+
+[[step]]
+chat = "/tp @s 170.5 -60 1.0 0 10"
+
+[[step]]
+wait_ms = 4000
+
+[[step]]
+screenshot = "front"
+
+[[step]]
+chat = "/tp @s 165.5 -60 4.5 -90 10"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "side"

@@ -1078,6 +1078,11 @@ pub fn bake_item_models(
             continue;
         }
         bake(item_name, &parts);
+        if let Some(root) = json.get("model")
+            && has_gui_variant(root)
+        {
+            bake(&gui_model_key(item_name), &node_model_parts_in(root, true));
+        }
         for (charge, node) in charge_type_cases(&json) {
             let mut parts = Vec::new();
             collect_parts_from_node(node, None, &mut parts);
@@ -1086,7 +1091,11 @@ pub fn bake_item_models(
         for (when, node) in custom_model_data_cases(&json) {
             let parts = node_model_parts(node);
             if !parts.is_empty() {
-                bake(&custom_model_key(item_name, when), &parts);
+                let key = custom_model_key(item_name, when);
+                bake(&key, &parts);
+                if has_gui_variant(node) {
+                    bake(&gui_model_key(&key), &node_model_parts_in(node, true));
+                }
             }
         }
         // The bundle's selected-item model composes these around the
@@ -1453,8 +1462,13 @@ fn collect_model_parts(json: &serde_json::Value) -> Vec<ModelPart> {
 
 /// The parts a plain stack draws for item-model node `node`.
 fn node_model_parts(node: &serde_json::Value) -> Vec<ModelPart> {
+    node_model_parts_in(node, false)
+}
+
+/// [`node_model_parts`] in the GUI (`gui`) or anywhere else.
+fn node_model_parts_in(node: &serde_json::Value, gui: bool) -> Vec<ModelPart> {
     let mut parts = Vec::new();
-    let root = default_stack_branch(node);
+    let root = display_branch(node, gui);
     collect_parts_from_node(root, None, &mut parts);
     if !parts.is_empty() {
         return parts;
@@ -1521,7 +1535,42 @@ fn find_first_item_model_node(json: &serde_json::Value) -> Option<&serde_json::V
 /// and GUI icons (dropped items, third person, the bundle tooltip, chat
 /// hovers), and for trimmed armor, which also needs the
 /// `paletted_permutations` atlas source for its trim textures.
-fn default_stack_branch(mut node: &serde_json::Value) -> &serde_json::Value {
+fn default_stack_branch(node: &serde_json::Value) -> &serde_json::Value {
+    display_branch(node, false)
+}
+
+/// The key a model's GUI variant bakes under, where its definition draws
+/// something else in the GUI (a `display_context` select's `gui` case).
+pub fn gui_model_key(key: &str) -> String {
+    format!("{key}#gui")
+}
+
+/// [`default_stack_branch`], also through `display_context` selects: their
+/// `gui` case for the GUI (`gui`), their fallback everywhere else (held,
+/// worn, dropped, displayed), as Void Rush's weapons draw a flat icon in
+/// the inventory and a 3D model in the hand.
+fn display_branch(mut node: &serde_json::Value, gui: bool) -> &serde_json::Value {
+    loop {
+        node = component_default_branch(node);
+        if node_type(node) != Some("select") || node_property(node) != Some("display_context") {
+            return node;
+        }
+        let gui_case = gui
+            .then(|| {
+                select_cases(node)
+                    .into_iter()
+                    .find(|(when, _)| strip_mc_prefix(when) == "gui")
+                    .map(|(_, model)| model)
+            })
+            .flatten();
+        match gui_case.or_else(|| node.get("fallback")) {
+            Some(next) => node = next,
+            None => return node,
+        }
+    }
+}
+
+fn component_default_branch(mut node: &serde_json::Value) -> &serde_json::Value {
     const COMPONENT_PROPERTIES: [&str; 4] = [
         "trim_material",
         "charge_type",
@@ -1616,6 +1665,11 @@ fn select_cases(root: &serde_json::Value) -> Vec<(&str, &serde_json::Value)> {
 }
 
 /// A select or condition node's `property`, without the `minecraft:` prefix.
+/// Whether `node` draws a different model in the GUI than elsewhere.
+fn has_gui_variant(node: &serde_json::Value) -> bool {
+    !std::ptr::eq(display_branch(node, true), display_branch(node, false))
+}
+
 fn node_property(node: &serde_json::Value) -> Option<&str> {
     node.get("property")
         .and_then(serde_json::Value::as_str)
@@ -3379,6 +3433,68 @@ mod tests {
         let framed = custom_model_key("shield", "frame");
         assert_eq!(bounds(&framed).0, 13);
         assert_eq!(baked.display_transforms[&framed], display);
+    }
+
+    /// A `display_context` select (Void Rush's weapons): the 3D model bakes
+    /// for the world, the GUI case's flat icon under the GUI key.
+    #[test]
+    fn display_context_selects_bake_a_gui_variant() {
+        let root = test_temp_dir("display_context_variants");
+        let jar = root.join("jar");
+        let items = jar.join("minecraft/items");
+        let models = jar.join("minecraft/models/item");
+        for dir in [&items, &models] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        std::fs::write(
+            items.join("stick.json"),
+            r#"{"model":{"type":"minecraft:select","property":"minecraft:custom_model_data",
+                "cases":[{"when":"staff_3","model":{"type":"minecraft:select","property":"minecraft:display_context",
+                    "cases":[{"when":"gui","model":{"type":"minecraft:model","model":"minecraft:item/staff_icon"}}],
+                    "fallback":{"type":"minecraft:model","model":"minecraft:item/staff_3d"}}}],
+                "fallback":{"type":"minecraft:model","model":"minecraft:item/stick"}}}"#,
+        )
+        .unwrap();
+        let flat = |texture: &str| {
+            format!(
+                r#"{{"parent":"minecraft:item/generated","textures":{{"layer0":"{texture}"}}}}"#
+            )
+        };
+        std::fs::write(models.join("stick.json"), flat("minecraft:item/stick")).unwrap();
+        std::fs::write(
+            models.join("staff_icon.json"),
+            flat("minecraft:item/staff_icon"),
+        )
+        .unwrap();
+        std::fs::write(models.join("generated.json"), r#"{}"#).unwrap();
+        std::fs::write(
+            models.join("staff_3d.json"),
+            r##"{"textures":{"wood":"minecraft:block/oak_planks"},
+                "elements":[{"from":[7,0,7],"to":[9,16,9],"faces":{"north":{"uv":[0,0,2,16],"texture":"#wood"}}}]}"##,
+        )
+        .unwrap();
+
+        let baked = bake_item_models(&jar, &None, None);
+        let staff = custom_model_key("stick", "staff_3");
+        assert!(
+            baked.models.contains_key(&staff),
+            "the 3D staff for the world"
+        );
+        assert!(!baked.flat_texture_keys.contains_key(&staff));
+        assert_eq!(
+            baked
+                .flat_texture_keys
+                .get(&gui_model_key(&staff))
+                .map(|keys| keys[0].clone()),
+            Some(Some("item/staff_icon".to_string())),
+            "the flat icon for the GUI"
+        );
+        assert!(
+            !baked
+                .flat_texture_keys
+                .contains_key(&gui_model_key("stick")),
+            "no GUI variant without a display_context select"
+        );
     }
 
     /// A resource pack's `custom_model_data` select (Void Rush's layout): each

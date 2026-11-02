@@ -4570,6 +4570,9 @@ pub fn update_game(
                 .min(1.0),
             entity_kind: EntityKind::Player,
             player_uuid: Some(core.user.uuid),
+            is_holding_item: game.player.inventory.hotbar_slots()
+                [core.input.selected_slot() as usize]
+                .is_present(),
             variant_index: crate::renderer::pipelines::entity_renderer::default_skin_variant(
                 &core.user.uuid,
             ),
@@ -4693,7 +4696,13 @@ pub fn update_game(
     crate::frame_log::add("displays", display_start.elapsed().as_secs_f32() * 1000.0);
     item_renders.extend(display_items);
     if !benchmark_running {
-        build_held_items(game, &mut gfx.renderer, &entity_renders, &mut item_renders);
+        build_held_items(
+            game,
+            &mut gfx.renderer,
+            &entity_renders,
+            &mut item_renders,
+            core.input.selected_slot() as usize,
+        );
     }
     if !benchmark_running {
         build_falling_blocks(
@@ -5728,25 +5737,41 @@ fn build_held_items(
     renderer: &mut Renderer,
     entities: &[EntityRenderInfo],
     out: &mut Vec<crate::renderer::pipelines::item_entity::ItemRenderInfo>,
+    selected_slot: usize,
 ) {
     use azalea_inventory::components::EquipmentSlot;
 
     use crate::renderer::pipelines::item_entity::ItemRenderInfo;
+    let third_person = !renderer.is_first_person();
     for info in entities {
-        let Some(entity) = info
+        // The local player is the one player with no entity id; its hands
+        // are its selected hotbar slot and offhand, drawn on its model only
+        // in third person (first person draws the hand itself).
+        let hands: [Option<&azalea_inventory::ItemStackData>; 2] = match info
             .entity_id
             .and_then(|id| game.entity_store.living.get(&id))
-        else {
-            continue;
+        {
+            Some(entity) if holds_items(entity.entity_type) => {
+                [EquipmentSlot::Mainhand, EquipmentSlot::Offhand]
+                    .map(|slot| entity.equipment(slot).and_then(|stack| stack.as_present()))
+            }
+            None if info.entity_id.is_none()
+                && info.entity_kind == EntityKind::Player
+                && third_person =>
+            {
+                let inventory = &game.player.inventory;
+                [
+                    inventory
+                        .hotbar_slots()
+                        .get(selected_slot)
+                        .and_then(|stack| stack.as_present()),
+                    inventory.offhand().as_present(),
+                ]
+            }
+            _ => continue,
         };
-        if !holds_items(entity.entity_type) {
-            continue;
-        }
-        for (slot, right) in [
-            (EquipmentSlot::Mainhand, true),
-            (EquipmentSlot::Offhand, false),
-        ] {
-            let Some(stack) = entity.equipment(slot).and_then(|stack| stack.as_present()) else {
+        for (stack, right) in hands.into_iter().zip([true, false]) {
+            let Some(stack) = stack else {
                 continue;
             };
             let Some(arm) = renderer.entity_arm_pose(info, right) else {

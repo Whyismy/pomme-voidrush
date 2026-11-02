@@ -1,0 +1,48 @@
+# Baby zombies in armor (the baby model's own armor layers): one bare, one
+# in a helmet only and one in full iron, front-on and close, then from the
+# side.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/time set 18000"
+
+[[step]]
+chat = "/effect give @s minecraft:night_vision infinite 0 true"
+
+[[step]]
+chat = "/summon minecraft:zombie 158.5 -60 3.5 {NoAI:1b,Silent:1b,IsBaby:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:zombie 160.5 -60 3.5 {NoAI:1b,Silent:1b,IsBaby:1b,Rotation:[180f,0f],equipment:{head:{id:\"minecraft:iron_helmet\"}}}"
+
+[[step]]
+chat = "/summon minecraft:zombie 162.5 -60 3.5 {NoAI:1b,Silent:1b,IsBaby:1b,Rotation:[180f,0f],equipment:{head:{id:\"minecraft:iron_helmet\"},chest:{id:\"minecraft:iron_chestplate\"},legs:{id:\"minecraft:iron_leggings\"},feet:{id:\"minecraft:iron_boots\"}}}"
+
+[[step]]
+chat = "/tp @s 160.5 -60 0.5 0 20"
+
+[[step]]
+wait_ms = 4000
+
+[[step]]
+screenshot = "front"
+
+[[step]]
+chat = "/tp @s 156.5 -60 3.5 -90 20"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "side"
+
+[[step]]
+chat = "/tp @s 162.5 -60 1.5 0 20"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "full_close"

@@ -1,0 +1,55 @@
+# Void Rush's weapons in hands (pack served as in voidrush_pack): a zombie
+# mage's staff and a skeleton's sword are the pack's 3D models (their
+# display_context select's fallback, not the inventory icon); a baby zombie
+# wears full iron armor; and the player, holding a staff, from behind (F5).
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/time set 18000"
+
+[[step]]
+chat = "/effect give @s minecraft:night_vision infinite 0 true"
+
+[[step]]
+chat = "/summon minecraft:zombie 140.5 -60 4.5 {NoAI:1b,Silent:1b,Rotation:[180f,0f],equipment:{mainhand:{id:\"minecraft:stick\",components:{\"minecraft:custom_model_data\":{strings:[\"staff_3\"]}}}}}"
+
+[[step]]
+chat = "/summon minecraft:skeleton 143.5 -60 4.5 {NoAI:1b,Silent:1b,Rotation:[180f,0f],equipment:{mainhand:{id:\"minecraft:iron_sword\",components:{\"minecraft:custom_model_data\":{strings:[\"elite_sword_4\"]}}}}}"
+
+[[step]]
+chat = "/summon minecraft:zombie 137.5 -60 4.5 {NoAI:1b,Silent:1b,IsBaby:1b,Rotation:[180f,0f],equipment:{head:{id:\"minecraft:iron_helmet\"},chest:{id:\"minecraft:iron_chestplate\"},legs:{id:\"minecraft:iron_leggings\"},feet:{id:\"minecraft:iron_boots\"}}}"
+
+[[step]]
+chat = "/tp @s 140.5 -60 0.5 0 15"
+
+[[step]]
+chat = "/item replace entity @s weapon.mainhand with minecraft:stick[custom_model_data={strings:[\"staff_3\"]}]"
+
+[[step]]
+wait_ms = 4000
+
+[[step]]
+screenshot = "mobs"
+
+[[step]]
+chat = "/tp @s 134.5 -60 0.5 0 10"
+
+[[step]]
+press = { action = "key.togglePerspective" }
+
+[[step]]
+wait_ms = 11000
+
+[[step]]
+screenshot = "third_person"
+
+[[step]]
+press = { action = "key.togglePerspective" }
+
+[[step]]
+wait_ms = 1000
+
+[[step]]
+screenshot = "front_person"

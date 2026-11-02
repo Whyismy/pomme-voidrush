@@ -447,6 +447,8 @@ struct ArmorAssetDef {
     humanoid: Vec<ArmorLayerDef>,
     leggings: Vec<ArmorLayerDef>,
     llama_body: Vec<ArmorLayerDef>,
+    /// 26.1's `humanoid_baby`: one sheet for every slot of a baby's armor.
+    humanoid_baby: Vec<ArmorLayerDef>,
 }
 
 struct ArmorTextureLayer {
@@ -489,6 +491,7 @@ struct ArmorAsset {
     humanoid: Vec<ArmorTextureLayer>,
     leggings: Vec<ArmorTextureLayer>,
     llama_body: Vec<ArmorTextureLayer>,
+    humanoid_baby: Vec<ArmorTextureLayer>,
 }
 
 struct ArmorMesh {
@@ -776,12 +779,14 @@ fn load_armor_asset_defs(
             let humanoid = layers("humanoid");
             let leggings = layers("humanoid_leggings");
             let llama_body = layers("llama_body");
+            let humanoid_baby = layers("humanoid_baby");
             (!humanoid.is_empty() || !leggings.is_empty() || !llama_body.is_empty()).then_some((
                 id,
                 ArmorAssetDef {
                     humanoid,
                     leggings,
                     llama_body,
+                    humanoid_baby,
                 },
             ))
         })
@@ -798,7 +803,7 @@ pub(crate) struct PreparedArmorLayer {
 }
 
 /// Every equipment definition's layers, decoded ([`prepare_armor_assets`]).
-pub(crate) type PreparedArmor = Vec<(String, [Vec<PreparedArmorLayer>; 3])>;
+pub(crate) type PreparedArmor = Vec<(String, [Vec<PreparedArmorLayer>; 4])>;
 
 fn decode_armor_texture_layer(
     jar_assets_dir: &Path,
@@ -877,6 +882,7 @@ pub(crate) fn prepare_armor_assets(
                 decode(&def.humanoid),
                 decode(&def.leggings),
                 decode(&def.llama_body),
+                decode(&def.humanoid_baby),
             ],
         )
     })
@@ -890,7 +896,7 @@ fn upload_armor_assets(
 ) -> HashMap<String, ArmorAsset> {
     prepared
         .into_iter()
-        .map(|(id, [humanoid, leggings, llama_body])| {
+        .map(|(id, [humanoid, leggings, llama_body, humanoid_baby])| {
             let upload = |layers: Vec<PreparedArmorLayer>| -> Vec<ArmorTextureLayer> {
                 layers
                     .into_iter()
@@ -905,6 +911,7 @@ fn upload_armor_assets(
                     humanoid: upload(humanoid),
                     leggings: upload(leggings),
                     llama_body: upload(llama_body),
+                    humanoid_baby: upload(humanoid_baby),
                 },
             )
         })
@@ -995,6 +1002,7 @@ fn destroy_armor_assets(device: &rhi::backend::Device, assets: &mut HashMap<Stri
             .into_iter()
             .chain(asset.leggings)
             .chain(asset.llama_body)
+            .chain(asset.humanoid_baby)
     }) {
         layer.texture.destroy(device);
         layer.set.destroy(device);
@@ -2987,8 +2995,20 @@ impl EntityRenderer {
                 else {
                     continue;
                 };
-                let layers = self.armor_layers(armor, slot);
-                self.push_equipment_draws(vi, v, mesh, layers, instances, &mut records);
+                // Their armor sheet is the `humanoid_baby` layer, laid out
+                // for the baby armor model (assets before 26.1 have none).
+                let baby_sheet = v.info.is_baby
+                    && self
+                        .armor_assets
+                        .get(&*armor.asset_id)
+                        .is_some_and(|asset| !asset.humanoid_baby.is_empty());
+                if baby_sheet {
+                    let layers = self.equipment_layers(armor, |asset| &asset.humanoid_baby);
+                    self.push_equipment_draws(vi, v, mesh, layers, instances, &mut records);
+                } else {
+                    let layers = self.armor_layers(armor, slot);
+                    self.push_equipment_draws(vi, v, mesh, layers, instances, &mut records);
+                }
             }
         }
         records

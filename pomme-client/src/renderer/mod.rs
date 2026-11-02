@@ -2232,6 +2232,7 @@ impl Renderer {
                     if let Some(stack) = item_stack {
                         *item_name = self.render_assets.stack_model_key(item_name, stack);
                     }
+                    *item_name = self.render_assets.gui_model_key(item_name);
                     *item_tints = self.render_assets.item_tint_palette(
                         item_name,
                         item_stack.as_ref(),
