@@ -178,14 +178,18 @@ fn handle(
             },
         ),
         LifecyclePacket::SetTime { game_time, clocks } => {
-            let names = registry_holder
-                .extra
-                .get(&Identifier::new("minecraft:world_clock"));
+            let names = registry_holder.extra.get(&Identifier::new(WORLD_CLOCK));
             let clocks = clocks
                 .into_iter()
                 .filter_map(|(id, state)| {
-                    let (name, _) = names?.map.get_index(id as usize)?;
-                    Some((name.to_string(), state))
+                    let name = match names {
+                        Some(names) => names.map.get_index(id as usize)?.0.to_string(),
+                        // A server older than world clocks (26.1) sends the
+                        // level's day time, which the translation puts on id 0.
+                        None if id == 0 => OLD_DAY_CLOCK.to_owned(),
+                        None => return None,
+                    };
+                    Some((name, state))
                 })
                 .collect();
             send_ordered(
@@ -243,6 +247,11 @@ fn spawn_events(
     );
 }
 
+const WORLD_CLOCK: &str = "minecraft:world_clock";
+/// The clock a server older than world clocks keeps its day time on: every
+/// dimension follows it, as the level's `dayTime` did.
+const OLD_DAY_CLOCK: &str = "minecraft:overworld";
+
 /// Dimension info from a login/respawn registry entry. Fields that azalea does
 /// not model directly live in its flattened extras. Missing `has_skylight`
 /// defaults to true; missing `cardinal_light` defaults to vanilla's `default`.
@@ -281,7 +290,10 @@ fn dimension_info(
             .get("ambient_light")
             .and_then(|tag| tag.float())
             .unwrap_or(0.0),
-        default_clock: string("default_clock"),
+        default_clock: string("default_clock").or_else(|| {
+            (!registries.extra.contains_key(&Identifier::new(WORLD_CLOCK)))
+                .then(|| OLD_DAY_CLOCK.to_owned())
+        }),
         flat,
         environment: Box::new(super::environment_wire::environment(
             &dim._extra,
@@ -355,6 +367,32 @@ mod tests {
     }
 
     #[test]
+    fn set_time_from_a_server_without_world_clocks_drives_the_overworld_clock() {
+        use pomme_protocol::lifecycle::ClockState;
+
+        let state = ClockState {
+            total_ticks: 18000,
+            partial_tick: 0.0,
+            rate: 1.0,
+        };
+        let (event_tx, event_rx) = crossbeam_channel::unbounded();
+        let (out_tx, _out_rx) = tokio::sync::mpsc::unbounded_channel();
+        handle(
+            LifecyclePacket::SetTime {
+                game_time: 10,
+                clocks: vec![(0, state), (1, state)],
+            },
+            &RegistryHolder::default(),
+            &PacketSender::new(out_tx),
+            &event_tx,
+        );
+        let Ok(NetworkEvent::TimeUpdate { clocks, .. }) = event_rx.try_recv() else {
+            panic!("expected TimeUpdate");
+        };
+        assert_eq!(clocks, [(OLD_DAY_CLOCK.to_owned(), state)]);
+    }
+
+    #[test]
     fn dimension_info_reads_vanilla_extras() {
         let NetworkEvent::DimensionInfo(DimensionInfo {
             height,
@@ -411,6 +449,18 @@ mod tests {
         assert!(has_skylight);
         assert_eq!(cardinal_light, CardinalLightType::Default);
         assert_eq!(ambient_light, 0.0);
+        // A server with no world clocks keeps one day time for every dimension.
+        assert_eq!(default_clock.as_deref(), Some(OLD_DAY_CLOCK));
+
+        let mut registries = RegistryHolder::default();
+        registries
+            .extra
+            .insert(Identifier::new(WORLD_CLOCK), Default::default());
+        let NetworkEvent::DimensionInfo(DimensionInfo { default_clock, .. }) =
+            dimension_info(&dimension(&[]), "minecraft:the_nether", false, &registries)
+        else {
+            panic!("dimension_info returned the wrong event variant");
+        };
         assert_eq!(default_clock, None);
     }
 }
