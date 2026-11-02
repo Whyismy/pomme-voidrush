@@ -1,0 +1,50 @@
+# The ender dragon (EnderDragonRenderer), watched in spectator mode so the
+# camera holds still: one without AI (it never records a flight history, so
+# it faces its default way, wings mid-beat) from the front and the side at
+# its own height, then one flying under its own AI, its wings beating and
+# its neck and tail trailing its flight.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/gamemode spectator"
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/summon minecraft:ender_dragon 120.5 -45 40.5 {NoAI:1b}"
+
+[[step]]
+chat = "/tp @s 120.5 -44.6 15.5 0 0"
+
+[[step]]
+wait_ms = 3000
+
+[[step]]
+expect = { entity = "ender_dragon", at = [120.5, -45.0, 40.5] }
+
+[[step]]
+screenshot = "parked_front"
+
+[[step]]
+chat = "/tp @s 100.5 -44.6 38.5 -90 0"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "parked_side"
+
+[[step]]
+chat = "/kill @e[type=minecraft:ender_dragon]"
+
+[[step]]
+chat = "/summon minecraft:ender_dragon 120.5 -40 40.5"
+
+[[step]]
+wait_ms = 2500
+
+[[step]]
+screenshot = "flying"

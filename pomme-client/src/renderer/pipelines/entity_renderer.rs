@@ -221,6 +221,8 @@ pub struct EntityRenderInfo {
     pub body_transform: Option<glam::Mat4>,
     /// Vanilla `LivingEntityRenderState.scale`: the `scale` attribute.
     pub scale: f32,
+    /// An ender dragon's pose (`EnderDragonRenderState`).
+    pub dragon: Option<Box<entity_model::mob_anims::DragonPose>>,
     /// Interpolated entity age in ticks; drives the undead idle arm bob.
     pub age_in_ticks: f32,
     /// Arm-swing progress 0..1; drives the zombie attack swing.
@@ -315,6 +317,7 @@ impl Default for EntityRenderInfo {
             base_tint: WHITE_TINT,
             body_transform: None,
             scale: 1.0,
+            dragon: None,
             age_in_ticks: 0.0,
             attack_time: 0.0,
             skip_cull: false,
@@ -1063,6 +1066,8 @@ enum AnimationType {
     ArmorStand,
     /// `EndCrystalModel.setupAnim`: the glass cubes spin and bob.
     EndCrystal,
+    /// `EnderDragonModel.setupAnim`, from [`EntityRenderInfo::dragon`].
+    EnderDragon,
 }
 
 struct VariantDef {
@@ -1843,6 +1848,27 @@ fn mob_definitions() -> Vec<MobDef> {
                 model: entity_model::bake_spider_model(),
                 tex_variants: SPIDER_EYES_TEX,
                 tex_size: 64,
+                overlay_kind: OverlayKind::EyesTranslucent,
+                invisible_outline: false,
+            }],
+            baby_overlays: vec![],
+        },
+        // `EnderDragonRenderer`: vanilla's own layer and its glowing eyes.
+        // Not drawn, as Void Rush has neither: the death dissolve
+        // (`dragon_exploding`) with its light rays, and healing-crystal beams.
+        MobDef {
+            kind: EntityKind::EnderDragon,
+            anim: AnimationType::EnderDragon,
+            adult: vec![opaque(
+                entity_model::bake_exported(exported_data::ENDER_DRAGON),
+                tex_table!("enderdragon" => "dragon"),
+                256,
+            )],
+            baby: None,
+            adult_overlays: vec![VariantDef {
+                model: entity_model::bake_exported(exported_data::ENDER_DRAGON),
+                tex_variants: tex_table!("enderdragon" => "dragon_eyes"),
+                tex_size: 256,
                 overlay_kind: OverlayKind::EyesTranslucent,
                 invisible_outline: false,
             }],
@@ -3250,6 +3276,10 @@ impl EntityRenderer {
                 info.golem_offer_flower_ticks,
             ),
             AnimationType::Static => entity_model::PartAnim::default(),
+            AnimationType::EnderDragon => match &info.dragon {
+                Some(pose) => entity_model::mob_anims::ender_dragon(model, pose),
+                None => entity_model::PartAnim::default(),
+            },
             AnimationType::EndCrystal => {
                 entity_model::mob_anims::end_crystal(model, info.age_in_ticks)
             }

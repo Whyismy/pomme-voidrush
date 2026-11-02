@@ -1,6 +1,7 @@
 pub mod components;
 pub mod dimensions;
 pub mod display;
+pub mod dragon;
 pub mod end_crystal;
 pub mod falling_block;
 pub mod glowing;
@@ -875,6 +876,8 @@ pub struct LivingEntity {
     /// Playing `SnifferSoundInstance`s, stopped once digging ends.
     pub sniffer_dig_sounds: Vec<u64>,
     pub allay: AllayAnim,
+    /// `EnderDragon`'s flap and flight history.
+    pub dragon: dragon::DragonState,
     pub copper_golem: CopperGolemAnim,
     /// Sulfur cube fuse ticks left, -1 while unprimed (`SulfurCube.fuse`).
     pub sulfur_fuse: i32,
@@ -1161,6 +1164,7 @@ impl LivingEntity {
             jukebox: None,
             sniffer_dig_sounds: Vec::new(),
             allay: AllayAnim::default(),
+            dragon: Default::default(),
             copper_golem: CopperGolemAnim::default(),
             sulfur_fuse: -1,
             fox: FoxSim::default(),
@@ -1641,6 +1645,13 @@ impl LivingEntity {
                 let in_hand = self.equipment(EquipmentSlot::Mainhand).is_some();
                 self.allay.tick(in_hand);
             }
+            EntityKind::EnderDragon => self.dragon.tick(
+                self.position.y,
+                self.look_dir.y_rot_deg(),
+                self.velocity,
+                self.no_ai,
+                self.health <= 0.0,
+            ),
             // Vanilla's `tickCount` here is one past the age.
             EntityKind::CopperGolem if !self.no_ai => self.copper_golem.tick(self.age_in_ticks + 1),
             EntityKind::CopperGolem => self.copper_golem.head_spun = false,
@@ -2124,6 +2135,9 @@ impl EntityStore {
             // `SulfurCube.onSyncedDataUpdated` primes the fuse from MAX_FUSE.
             (EntityKind::SulfurCube, 19, Int(f)) => entity.sulfur_fuse = f,
             (EntityKind::Allay, 16, Bool(b)) => entity.allay.dancing = b,
+            (EntityKind::EnderDragon, dragon::PHASE_DATA, Int(phase)) => {
+                entity.dragon.phase = phase
+            }
             (EntityKind::CopperGolem, 16, Int(w)) => {
                 entity.copper_golem.weather = w.clamp(0, 3) as u32
             }
@@ -2622,6 +2636,7 @@ pub fn is_living_mob(kind: &EntityKind) -> bool {
                 | EntityKind::Creeper
                 | EntityKind::Spider
                 | EntityKind::CaveSpider
+                | EntityKind::EnderDragon
                 | EntityKind::Villager
                 | EntityKind::Enderman
                 | EntityKind::Slime

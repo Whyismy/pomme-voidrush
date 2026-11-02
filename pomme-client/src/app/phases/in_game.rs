@@ -4286,11 +4286,9 @@ pub fn update_game(
                             .x_rot_deg()
                             .lerp(e.look_dir.x_rot_deg(), partial_tick),
                     ),
-                    body_y_rot_deg: lerp_angle(
-                        e.prev_body_y_rot_deg,
-                        e.body_y_rot_deg,
-                        partial_tick,
-                    ),
+                    body_y_rot_deg: extras.body_y_rot_deg.unwrap_or_else(|| {
+                        lerp_angle(e.prev_body_y_rot_deg, e.body_y_rot_deg, partial_tick)
+                    }),
                     is_sleeping,
                     sleeping_direction: bed_orientation(game, e.sleeping_pos),
                     sleeping_eye_height: standing_eye_height(e.entity_type, e.is_baby),
@@ -4319,7 +4317,12 @@ pub fn update_game(
                     head_y_offset: extras.head_y_offset,
                     head_x_rot_deg_override: extras.head_x_rot_deg_override,
                     has_red_overlay: has_red_overlay(e.hurt_time, e.death_time),
-                    death_time: render_death_time(e.death_time, partial_tick),
+                    // The dragon dies hovering, not falling over.
+                    death_time: if e.entity_type == EntityKind::EnderDragon {
+                        0.0
+                    } else {
+                        render_death_time(e.death_time, partial_tick)
+                    },
                     aggressive: e.aggressive,
                     flap: extras.flap,
                     flap_speed: extras.flap_speed,
@@ -4363,6 +4366,7 @@ pub fn update_game(
                     golem_offer_flower_ticks: extras.golem_offer_flower_ticks,
                     body_transform: extras.body_transform,
                     scale: crate::entity::entity_scale(e),
+                    dragon: extras.dragon.clone(),
                     age_in_ticks: e.age_in_ticks as f32 + partial_tick,
                     attack_time: e.swing_progress(partial_tick),
                     skip_cull: false,
@@ -6142,6 +6146,53 @@ struct EntityExtras {
     turtle: crate::renderer::entity_model::TurtleAnims,
     golem_attack_ticks: f32,
     golem_offer_flower_ticks: u32,
+    /// Replaces the body yaw (`EnderDragonRenderer` turns by its flight
+    /// history instead).
+    body_y_rot_deg: Option<f32>,
+    dragon: Option<Box<crate::renderer::entity_model::mob_anims::DragonPose>>,
+}
+
+/// `EnderDragonRenderer.submit`'s pose before the model: turned to where it
+/// flew 7 ticks ago, pitched by how it climbed, pushed a block forward, and
+/// riding the model root's flap (`EnderDragonModel.setupAnim`'s `root`).
+fn dragon_extras(e: &crate::entity::LivingEntity, alpha: f32) -> EntityExtras {
+    use crate::renderer::entity_model::mob_anims::{DragonPose, dragon_root};
+    // A dragon that never recorded (no AI) reads an all-zero history, as
+    // vanilla's does, so it faces its default way.
+    let dragon = &e.dragon;
+    let flap = dragon.prev_flap_time.lerp(dragon.flap_time, alpha);
+    let samples = std::array::from_fn(|i| dragon.sample(i, alpha));
+    let (root_y, root_z, root_x_rot) = dragon_root(flap);
+    let climb = (samples[5].0 - samples[10].0) as f32;
+    // The root's pose in pomme's part frame (the y-down bake conjugated,
+    // the X flip and the 1.501 rebase outside it), so it sits between the
+    // rebase and every top-level part as vanilla's root does.
+    let rebase = glam::Vec3::new(0.0, 1.501, 0.0);
+    let flip = glam::Mat4::from_scale(glam::Vec3::new(-1.0, 1.0, 1.0));
+    let root = glam::Mat4::from_translation(glam::Vec3::new(0.0, -root_y, root_z) / 16.0)
+        * glam::Mat4::from_rotation_x(-root_x_rot);
+    let body_transform = glam::Mat4::from_rotation_x((climb * 10.0).to_radians())
+        * glam::Mat4::from_translation(glam::Vec3::new(0.0, 0.0, 1.0))
+        * flip
+        * glam::Mat4::from_translation(rebase)
+        * root
+        * glam::Mat4::from_translation(-rebase)
+        * flip;
+    EntityExtras {
+        overlay_tints: SLOT0_TINTS,
+        body_transform: Some(body_transform),
+        // `rotY(-yRot)`, which the entity matrix's `180 - bodyRot` gives.
+        body_y_rot_deg: Some(180.0 + samples[7].1),
+        dragon: Some(Box::new(DragonPose {
+            flap,
+            samples,
+            sitting: dragon.is_sitting(),
+            landing_or_taking_off: dragon.is_landing_or_taking_off(),
+            // TODO: vanilla measures to the exit portal's top block.
+            distance_to_egg: (e.position.x * e.position.x + e.position.z * e.position.z).sqrt(),
+        })),
+        ..Default::default()
+    }
 }
 
 /// Only the first overlay slot visible, untinted.
@@ -6267,6 +6318,7 @@ fn entity_extras(
                 ..Default::default()
             }
         }
+        EntityKind::EnderDragon => dragon_extras(e, alpha),
         EntityKind::Allay => EntityExtras {
             allay: crate::renderer::entity_model::AllayAnims {
                 dancing: e.allay.dancing,

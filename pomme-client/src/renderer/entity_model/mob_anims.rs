@@ -271,6 +271,175 @@ pub fn end_crystal(model: &BakedEntityModel, age_in_ticks: f32) -> PartAnim {
     anim
 }
 
+/// What `EnderDragonModel.setupAnim` reads (vanilla `EnderDragonRenderState`).
+#[derive(Clone, Debug)]
+pub struct DragonPose {
+    /// `flapTime` between ticks; a full flap is 1.
+    pub flap: f32,
+    /// The flight history's `(y, yRot)` 0..=24 ticks back, between ticks.
+    pub samples: [(f64, f32); 25],
+    pub sitting: bool,
+    pub landing_or_taking_off: bool,
+    pub distance_to_egg: f64,
+}
+
+impl DragonPose {
+    /// `EnderDragonRenderState.getHeadPartYOffset`.
+    fn head_part_y_offset(&self, part: usize, start: (f64, f32), current: (f64, f32)) -> f32 {
+        let offset = if self.landing_or_taking_off {
+            part as f64 / (self.distance_to_egg / 4.0).max(1.0)
+        } else if self.sitting {
+            part as f64
+        } else if part == 6 {
+            0.0
+        } else {
+            current.0 - start.0
+        };
+        offset as f32
+    }
+}
+
+/// `EnderDragonModel.setupAnim`'s root: the whole body rides each flap, as
+/// (y, z) in model pixels and an x rotation.
+pub fn dragon_root(flap: f32) -> (f32, f32, f32) {
+    let f1 = dragon_flap_offset(flap);
+    ((f1 - 2.0) * 16.0, -48.0, (f1 * 2.0).to_radians())
+}
+
+fn dragon_flap_offset(flap: f32) -> f32 {
+    let f = flap * std::f32::consts::TAU;
+    let f1 = (f - 1.0).sin() + 1.0;
+    (f1 * f1 + f1 * 2.0) * 0.05
+}
+
+/// `EnderDragonModel.setupAnim` below the root: the jaw and wings beat with
+/// the flap, the five neck parts and twelve tail parts bend along where the
+/// dragon flew over the last ticks, and the legs tuck.
+pub fn ender_dragon(model: &BakedEntityModel, pose: &DragonPose) -> PartAnim {
+    let mut anim = PartAnim::default();
+    let part = |name: &str| find_part(&model.parts, name);
+    let wrap = crate::entity::dragon::wrap_degrees;
+    let rad = |degrees: f32| degrees.to_radians();
+    let f = pose.flap * std::f32::consts::TAU;
+    let f1 = dragon_flap_offset(pose.flap);
+    let sample = |i: usize| pose.samples[i];
+    let set = |anim: &mut PartAnim, name: &str, rotation: Vec3, position: Option<Vec3>| {
+        let Some(i) = part(name) else {
+            return;
+        };
+        anim.rotation.push((i, rotation));
+        if let Some(position) = position {
+            anim.translation.push((i, position - model.parts[i].offset));
+        }
+    };
+
+    set(
+        &mut anim,
+        "jaw",
+        Vec3::new((f.sin() + 1.0) * 0.2, 0.0, 0.0),
+        None,
+    );
+
+    // The neck: each part a tick further back, chained 10 pixels apart.
+    let Some(neck0) = part("neck0") else {
+        return anim;
+    };
+    let mut at = model.parts[neck0].offset;
+    let start = sample(6);
+    let f6 = wrap(sample(5).1 - sample(10).1);
+    let f7 = wrap(sample(5).1 + f6 / 2.0);
+    for i in 0..5 {
+        let current = sample(5 - i);
+        let wobble = (i as f32 * 0.45 + f).cos() * 0.15;
+        let rotation = Vec3::new(
+            wobble + pose.head_part_y_offset(i, start, current) * rad(1.5) * 5.0,
+            rad(wrap(current.1 - start.1)) * 1.5,
+            -rad(wrap(current.1 - f7)) * 1.5,
+        );
+        set(&mut anim, &format!("neck{i}"), rotation, Some(at));
+        at.x -= rotation.y.sin() * rotation.x.cos() * 10.0;
+        at.y += rotation.x.sin() * 10.0;
+        at.z -= rotation.y.cos() * rotation.x.cos() * 10.0;
+    }
+    let now = sample(0);
+    set(
+        &mut anim,
+        "head",
+        Vec3::new(
+            rad(wrap(pose.head_part_y_offset(6, start, now))) * 1.5 * 5.0,
+            rad(wrap(now.1 - start.1)),
+            -rad(wrap(now.1 - f7)),
+        ),
+        Some(at),
+    );
+    set(&mut anim, "body", Vec3::new(0.0, 0.0, -f6 * rad(1.5)), None);
+
+    // The wings beat; the right mirrors the left.
+    let wing = Vec3::new(0.125 - f.cos() * 0.2, -0.25, -(f.sin() + 0.125) * 0.8);
+    let wing_tip = (f + 2.0).sin() * 0.75 + 0.375;
+    set(&mut anim, "left_wing", wing, None);
+    set(
+        &mut anim,
+        "left_wing_tip",
+        Vec3::new(0.0, 0.0, wing_tip),
+        None,
+    );
+    set(
+        &mut anim,
+        "right_wing",
+        Vec3::new(wing.x, -wing.y, -wing.z),
+        None,
+    );
+    set(
+        &mut anim,
+        "right_wing_tip",
+        Vec3::new(0.0, 0.0, -wing_tip),
+        None,
+    );
+
+    // `poseLimbs`.
+    let tuck = f1 * 0.1;
+    for side in ["left", "right"] {
+        for (name, x) in [
+            ("hind_leg", 1.0 + tuck),
+            ("hind_leg_tip", 0.5 + tuck),
+            ("hind_foot", 0.75 + tuck),
+            ("front_leg", 1.3 + tuck),
+            ("front_leg_tip", -0.5 - tuck),
+            ("front_foot", 0.75 + tuck),
+        ] {
+            set(
+                &mut anim,
+                &format!("{side}_{name}"),
+                Vec3::new(x, 0.0, 0.0),
+                None,
+            );
+        }
+    }
+
+    // The tail trails twelve more ticks back.
+    let Some(tail0) = part("tail0") else {
+        return anim;
+    };
+    let mut at = model.parts[tail0].offset;
+    let start = sample(11);
+    let mut sway = 0.0;
+    for j in 0..12 {
+        let current = sample(12 + j);
+        sway += (j as f32 * 0.45 + f).sin() * 0.05;
+        let rotation = Vec3::new(
+            sway + (current.0 - start.0) as f32 * rad(1.5) * 5.0,
+            rad(wrap(current.1 - start.1) * 1.5 + 180.0),
+            rad(wrap(current.1 - f7)) * 1.5,
+        );
+        set(&mut anim, &format!("tail{j}"), rotation, Some(at));
+        at.y += rotation.x.sin() * 10.0;
+        at.z -= rotation.y.cos() * rotation.x.cos() * 10.0;
+        at.x -= rotation.y.sin() * rotation.x.cos() * 10.0;
+    }
+    anim
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
