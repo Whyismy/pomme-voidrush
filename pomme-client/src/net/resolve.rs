@@ -87,13 +87,22 @@ fn nat64_embedded_ipv4(addr: Ipv6Addr) -> Option<Ipv4Addr> {
         .then(|| Ipv4Addr::new(o[12], o[13], o[14], o[15]))
 }
 
+/// A protocol number no version uses, for asking a server its own version: a
+/// version translator (ViaVersion) answers a status request with the
+/// client's protocol whenever it can translate it, and with the server's
+/// when it can't.
+const UNKNOWN_PROTOCOL: i32 = 99_999;
+
 /// Fetch `server`'s status response, returning the still-open connection for
 /// a follow-up latency ping. Shared by the server-list ping and join-time
-/// wire-version negotiation.
+/// wire-version negotiation. It handshakes as an unknown version, so a
+/// server behind a version translator reports its own version, which a join
+/// then speaks (a 1.21.11 server behind ViaVersion is joined as 1.21.11, not
+/// through Via's translation to the launched version).
 pub async fn request_status(
     server: &ServerAddr,
 ) -> Result<(ClientboundStatusResponse, Conn), String> {
-    let mut conn = connect(server, ClientIntention::Status)
+    let mut conn = connect_as(server, ClientIntention::Status, UNKNOWN_PROTOCOL)
         .await
         .map_err(|e| e.to_string())?;
     conn.write_packet(ServerboundStatusRequest {})
@@ -116,8 +125,25 @@ pub async fn send_intention(
     port: u16,
     intention: ClientIntention,
 ) -> std::io::Result<()> {
+    send_intention_as(
+        conn,
+        host,
+        port,
+        intention,
+        crate::version::session_protocol(),
+    )
+    .await
+}
+
+async fn send_intention_as(
+    conn: &mut Conn,
+    host: &str,
+    port: u16,
+    intention: ClientIntention,
+    protocol: i32,
+) -> std::io::Result<()> {
     conn.write_packet(ServerboundIntention {
-        protocol_version: crate::version::session_protocol(),
+        protocol_version: protocol,
         hostname: host.to_owned(),
         port,
         intention,
@@ -141,6 +167,15 @@ pub async fn connect(
     server: &ServerAddr,
     intention: ClientIntention,
 ) -> Result<Conn, ConnectError> {
+    connect_as(server, intention, crate::version::session_protocol()).await
+}
+
+/// [`connect`], handshaking as `protocol`.
+async fn connect_as(
+    server: &ServerAddr,
+    intention: ClientIntention,
+    protocol: i32,
+) -> Result<Conn, ConnectError> {
     let candidates = resolve_candidates(server)
         .await
         .map_err(ConnectError::Resolve)?;
@@ -152,7 +187,7 @@ pub async fn connect(
                 let _ = stream.set_nodelay(true);
                 tracing::info!("Connecting to {} (resolved: {addr})...", server.host);
                 let mut conn = Conn::from_tcp(stream);
-                send_intention(&mut conn, &server.host, server.port, intention)
+                send_intention_as(&mut conn, &server.host, server.port, intention, protocol)
                     .await
                     .map_err(ConnectError::Io)?;
                 return Ok(conn);

@@ -334,7 +334,7 @@ async fn negotiate_wire_version(
     Ok(wire)
 }
 
-/// The server's protocol from a status request. A probe that fails would
+/// The server's own protocol from a status request. A probe that fails would
 /// send the join through the launched version instead, which a server
 /// behind a version translator still accepts, with its quirks; so a slow
 /// first answer (the client busy loading its assets, a tunnel waking up)
