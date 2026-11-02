@@ -13,7 +13,8 @@ use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
 
 use self::decoder::{StreamDecoder, decode_all};
 use self::openal::{Buffer, Context, Source, SourceState};
-use self::sounds::{SoundVariant, SoundsIndex};
+use self::sounds::SoundVariant;
+pub(crate) use self::sounds::SoundsIndex;
 use crate::assets::AssetIndex;
 use crate::entity::components::Position;
 use crate::resource_pack::ResourcePackManager;
@@ -343,7 +344,34 @@ impl AudioEngine {
     /// Rebuilds the sound-event registry against the current resource-pack
     /// stack and clears native sources/buffers that may reference old assets.
     pub fn reload_assets(&mut self, packs: &ResourcePackManager) {
-        self.sounds = SoundsIndex::load(&self.jar_assets_dir, &self.asset_index, packs);
+        self.apply_sounds(SoundsIndex::load(
+            &self.jar_assets_dir,
+            &self.asset_index,
+            packs,
+        ));
+    }
+
+    /// Starts reading the packs' sound events on a worker thread, for
+    /// [`Self::apply_sounds`] once the rest of a pack reload is ready.
+    pub fn begin_sounds_reload(
+        &self,
+        packs: &ResourcePackManager,
+    ) -> Option<std::thread::JoinHandle<SoundsIndex>> {
+        let (jar_assets_dir, asset_index, packs) = (
+            self.jar_assets_dir.clone(),
+            self.asset_index.clone(),
+            packs.clone(),
+        );
+        std::thread::Builder::new()
+            .name("sounds-reload".into())
+            .spawn(move || SoundsIndex::load(&jar_assets_dir, &asset_index, &packs))
+            .inspect_err(|error| tracing::error!("Couldn't start the sounds reload: {error}"))
+            .ok()
+    }
+
+    /// Swaps in a pack stack's sound events and drops the playing sounds.
+    pub fn apply_sounds(&mut self, sounds: SoundsIndex) {
+        self.sounds = sounds;
         self.forget_active_sounds();
         self.send(AudioCommand::ReloadAssets);
     }

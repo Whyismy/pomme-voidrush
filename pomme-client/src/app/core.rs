@@ -967,6 +967,11 @@ pub struct AppCore {
     pub resource_packs: ResourcePackManager,
     pub(crate) block_definitions: Rc<BlockDefinitions>,
     pub pending_pack_download: Option<PendingPackDownload>,
+    /// Server packs applied whose assets are still preparing off the render
+    /// thread; each is acknowledged once they're swapped in.
+    pending_pack_acks: Vec<uuid::Uuid>,
+    /// The sound events a live pack reload reads alongside its assets.
+    pending_sounds: Option<std::thread::JoinHandle<crate::audio::SoundsIndex>>,
     pub asset_index: Option<AssetIndex>,
     pub audio: crate::audio::AudioEngine,
     pub tick_accumulator: f32,
@@ -1136,6 +1141,8 @@ impl AppCore {
             resource_packs,
             block_definitions: Rc::new(BlockDefinitions::new()),
             pending_pack_download: None,
+            pending_pack_acks: Vec::new(),
+            pending_sounds: None,
             asset_index,
             audio,
             tick_accumulator: 0.0,
@@ -1702,13 +1709,40 @@ impl AppCore {
         renderer.remove_player_entity_skin(uuid);
     }
 
-    fn reload_live_resource_assets(&mut self, game: &mut GameState, renderer: &mut Renderer) {
-        // The shared atlas bakes UVs into chunk vertices, so a live pack swap
-        // must retire chunk geometry before repacking the atlas. Recreate the
-        // CPU mesher and particle atlas state from the same freshly-reloaded
-        // registry/UV map, then let the normal rescan rebuild loaded columns.
+    /// Starts rebuilding the assets for a pack change in game: they prepare
+    /// on a worker thread while the world keeps running on the old ones, and
+    /// [`Self::finish_live_resource_reload`] swaps them in.
+    fn begin_live_resource_reload(&mut self, renderer: &mut Renderer) {
+        self.menu.active_packs = self.resource_packs.active_pack_info();
+        renderer.begin_asset_reload(&self.resource_packs, self.menu.font_options());
+        self.pending_sounds = self.audio.begin_sounds_reload(&self.resource_packs);
+        self.menu.reload_assets = false;
+        self.menu.reload_fonts = false;
+    }
+
+    /// Once the renderer has swapped in a live reload's assets: the rest of
+    /// [`Self::reload_pack_assets`], then the world rebuilt on them.
+    fn finish_live_resource_reload(&mut self, game: &mut GameState, renderer: &mut Renderer) {
+        let start = std::time::Instant::now();
+        // The shared atlas bakes UVs into chunk vertices, so the old chunk
+        // geometry goes with the old atlas. Recreate the CPU mesher and
+        // particle atlas state from the new registry and UV map, then let the
+        // normal rescan rebuild loaded columns.
         renderer.clear_chunk_meshes();
-        self.reload_pack_assets(renderer);
+        match self
+            .pending_sounds
+            .take()
+            .map(std::thread::JoinHandle::join)
+        {
+            Some(Ok(sounds)) => self.audio.apply_sounds(sounds),
+            // Started without its sounds, or their reading panicked.
+            _ => self.audio.reload_assets(&self.resource_packs),
+        }
+        let audio = start.elapsed();
+        // A pack swap changes what the sprites look like, so they reload.
+        self.inline_objects
+            .retain(|_, entry| matches!(entry.content, InlineObjectContent::Head { .. }));
+        self.game_dynamic_atlas_keys.clear();
         game.block_registry
             .replace_render_assets(renderer.shared_render_assets());
 
@@ -1728,6 +1762,10 @@ impl AppCore {
         );
 
         game.rebuild_meshes();
+        tracing::info!(
+            "Pack swap finished in {:.0?} (audio {audio:.0?})",
+            start.elapsed()
+        );
     }
 
     fn clear_server_ui(&mut self, game: &mut GameState, renderer: &mut Renderer) {
@@ -3208,7 +3246,7 @@ impl AppCore {
                         None => self.resource_packs.clear_server_packs(),
                     };
                     if removed {
-                        self.reload_live_resource_assets(game, renderer);
+                        self.begin_live_resource_reload(renderer);
                     }
                 }
                 NetworkEvent::Reconfiguring => {
@@ -3236,6 +3274,8 @@ impl AppCore {
                 }
                 NetworkEvent::Disconnected { reason } => {
                     tracing::warn!("Disconnected: {reason}");
+                    // Nothing to acknowledge to a server that's gone.
+                    self.pending_pack_acks.clear();
                     disconnect_reason = Some(reason);
                     self.clear_server_ui(game, renderer);
                 }
@@ -3272,7 +3312,7 @@ impl AppCore {
             let result = pending.handle.join();
 
             use azalea_protocol::packets::game::s_resource_pack;
-            let action = match result {
+            let action: Option<s_resource_pack::Action> = match result {
                 Err(_) => {
                     tracing::error!("Resource pack {} thread panicked", pending.id);
                     if pending.required {
@@ -3281,36 +3321,54 @@ impl AppCore {
                                 .into(),
                         );
                     }
-                    s_resource_pack::Action::FailedDownload
+                    Some(s_resource_pack::Action::FailedDownload)
                 }
                 Ok(Err(e)) => {
                     tracing::error!("Resource pack {} failed: {e}", pending.id);
                     if pending.required {
                         disconnect_reason = Some(format!("Required resource pack failed: {e}"));
                     }
-                    s_resource_pack::Action::FailedDownload
+                    Some(s_resource_pack::Action::FailedDownload)
                 }
                 Ok(Ok(_path)) => {
                     self.resource_packs
                         .apply_server_pack(pending.id, &pending.hash);
                     // Vanilla acknowledges SuccessfullyLoaded only after the
-                    // resources have been applied. Rebuild the live renderer
-                    // (including shared-atlas chunk geometry) before replying.
-                    self.reload_live_resource_assets(game, renderer);
-                    tracing::info!("Resource pack {} loaded successfully", pending.id);
-                    s_resource_pack::Action::SuccessfullyLoaded
+                    // resources have been applied: the assets prepare off the
+                    // render thread and the reply waits for their swap.
+                    self.begin_live_resource_reload(renderer);
+                    self.pending_pack_acks.push(pending.id);
+                    None
                 }
             };
 
-            connection
-                .packet_tx
-                .send(ServerboundGamePacket::ResourcePack(
-                    s_resource_pack::ServerboundResourcePack {
-                        id: pending.id,
-                        action,
-                    },
-                ));
+            if let Some(action) = action {
+                connection
+                    .packet_tx
+                    .send(ServerboundGamePacket::ResourcePack(
+                        s_resource_pack::ServerboundResourcePack {
+                            id: pending.id,
+                            action,
+                        },
+                    ));
+            }
             self.menu.active_packs = self.resource_packs.active_pack_info();
+        }
+
+        if renderer.finish_asset_reload() {
+            self.finish_live_resource_reload(game, renderer);
+            use azalea_protocol::packets::game::s_resource_pack;
+            for id in self.pending_pack_acks.drain(..) {
+                tracing::info!("Resource pack {id} loaded successfully");
+                connection
+                    .packet_tx
+                    .send(ServerboundGamePacket::ResourcePack(
+                        s_resource_pack::ServerboundResourcePack {
+                            id,
+                            action: s_resource_pack::Action::SuccessfullyLoaded,
+                        },
+                    ));
+            }
         }
 
         let player_chunk = game.player_chunk();

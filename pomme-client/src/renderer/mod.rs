@@ -294,6 +294,9 @@ pub struct Renderer {
     /// Force Unicode Font also evens the Auto GUI scale the item atlas is sized
     /// for.
     font_options: FontOptions,
+    /// A pack reload preparing its assets on a worker thread
+    /// ([`Self::begin_asset_reload`]).
+    pending_reload: Option<std::thread::JoinHandle<PreparedAssets>>,
 
     atlas: TextureAtlas,
     entity_renderer: EntityRenderer,
@@ -608,6 +611,7 @@ impl Renderer {
             gui_item_pipeline,
             gui_item_atlas,
             font_options,
+            pending_reload: None,
             chunk_buffers,
             frames,
             screenshot: screenshot::ScreenshotCapture::new(game_dir.to_path_buf()),
@@ -1591,11 +1595,78 @@ impl Renderer {
         )
     }
 
+    /// Rebuilds every asset a pack can override, all at once on this thread.
     pub fn reload_assets(
         &mut self,
         packs: &crate::resource_pack::ResourcePackManager,
         font_options: FontOptions,
     ) {
+        // Whatever was preparing is for an older stack.
+        self.pending_reload = None;
+        let prepared = prepare_assets(
+            packs,
+            &self.jar_assets_dir,
+            &self.asset_index,
+            font_options,
+            self.menu_pipeline.font_layer_limit(),
+        );
+        self.apply_assets(prepared);
+    }
+
+    /// Starts rebuilding every asset a pack can override on a worker thread,
+    /// so the game keeps running on the old ones meanwhile; poll
+    /// [`Self::finish_asset_reload`] each frame for the swap. A reload begun
+    /// while another prepares replaces it.
+    pub fn begin_asset_reload(
+        &mut self,
+        packs: &crate::resource_pack::ResourcePackManager,
+        font_options: FontOptions,
+    ) {
+        let packs = packs.clone();
+        let jar_assets_dir = self.jar_assets_dir.clone();
+        let asset_index = self.asset_index.clone();
+        let layer_limit = self.menu_pipeline.font_layer_limit();
+        self.pending_reload = std::thread::Builder::new()
+            .name("asset-reload".into())
+            .spawn(move || {
+                prepare_assets(
+                    &packs,
+                    &jar_assets_dir,
+                    &asset_index,
+                    font_options,
+                    layer_limit,
+                )
+            })
+            .inspect_err(|error| tracing::error!("Couldn't start the asset reload: {error}"))
+            .ok();
+    }
+
+    /// Swaps in the assets [`Self::begin_asset_reload`] prepared once they're
+    /// ready: `true` when it did (or the preparation failed, keeping the old
+    /// ones), `false` while it's still working or none was started.
+    pub fn finish_asset_reload(&mut self) -> bool {
+        if !self
+            .pending_reload
+            .as_ref()
+            .is_some_and(|h| h.is_finished())
+        {
+            return false;
+        }
+        match self
+            .pending_reload
+            .take()
+            .map(std::thread::JoinHandle::join)
+        {
+            Some(Ok(prepared)) => self.apply_assets(prepared),
+            Some(Err(_)) => tracing::error!("The asset reload panicked; keeping the old assets"),
+            None => {}
+        }
+        true
+    }
+
+    /// The render-thread half of a reload: uploads what [`prepare_assets`]
+    /// built and points every pipeline at it.
+    fn apply_assets(&mut self, prepared: PreparedAssets) {
         self.ctx.device.wait_idle();
         let start = std::time::Instant::now();
         let mut lap = start;
@@ -1604,40 +1675,31 @@ impl Renderer {
             laps.push(format!("{name} {:.0?}", lap.elapsed()));
             lap = std::time::Instant::now();
         };
+        let PreparedAssets {
+            render_assets,
+            atlas,
+            custom_sky,
+            celestial,
+            armor,
+            fonts,
+            font_options,
+            item_meshes,
+            prepare_laps,
+        } = prepared;
 
-        self.render_assets = Arc::new(BlockRenderAssets::load(
-            &self.jar_assets_dir,
-            &self.asset_index,
-            None,
-            Some(packs),
-        ));
-
-        lap_done("models");
+        self.render_assets = Arc::new(render_assets);
         self.item_entity_pipeline.clear_meshes(&self.ctx.device);
         self.block_display_tints.clear();
         self.display_assets_generation += 1;
         self.atlas.destroy(&self.ctx.device);
-        let (texture_names, generated_item_textures) =
-            chunk::atlas::atlas_texture_names(&self.render_assets);
-        self.atlas = TextureAtlas::build(
-            &self.ctx.device,
-            &self.jar_assets_dir,
-            &self.asset_index,
-            &texture_names,
-            &generated_item_textures,
-            Some(packs),
-        )
-        .expect("failed to rebuild atlas");
+        self.atlas =
+            TextureAtlas::upload(&self.ctx.device, atlas).expect("failed to rebuild atlas");
         lap_done("atlas");
         // OptiFine skies come with packs too.
-        self.sky_pipeline.load_custom_sky(&self.ctx.device, packs);
-        self.sky_pipeline.load_celestial(
-            &self.ctx.device,
-            &self.jar_assets_dir,
-            &self.asset_index,
-            packs,
-        );
-
+        self.sky_pipeline
+            .apply_custom_sky(&self.ctx.device, custom_sky);
+        self.sky_pipeline
+            .apply_celestial(&self.ctx.device, celestial);
         lap_done("sky");
         self.chunk_pipeline
             .rebind_atlas(&self.ctx.device, &self.atlas);
@@ -1655,33 +1717,40 @@ impl Renderer {
         {
             pack.destroy(&self.ctx.device);
         }
-        self.entity_renderer.reload_armor_assets(
-            &self.ctx.device,
-            &self.jar_assets_dir,
-            &self.asset_index,
-            packs,
-        );
-
+        self.entity_renderer
+            .apply_armor_assets(&self.ctx.device, armor);
         lap_done("armor");
-        self.reload_fonts(packs, font_options);
+        self.font_options = font_options;
+        match fonts {
+            Ok(fonts) => {
+                if let Err(error) = self
+                    .menu_pipeline
+                    .apply_minecraft_fonts(&self.ctx.device, fonts)
+                {
+                    tracing::warn!(
+                        "Keeping previous Minecraft fonts after reload failure: {error}"
+                    );
+                }
+            }
+            Err(error) => {
+                tracing::warn!("Keeping previous Minecraft fonts after reload failure: {error}")
+            }
+        }
         lap_done("fonts");
-
-        warm_item_meshes(
-            &self.ctx.device,
-            &mut self.item_entity_pipeline,
-            &self.atlas.uv_map,
-            &self.render_assets,
-        );
-
+        for mesh in item_meshes {
+            self.item_entity_pipeline
+                .insert_prepared(&self.ctx.device, mesh);
+        }
         // GUI item slots cache fully rendered pixels. Releasing their keys is
         // enough: reused slots are marked stale and cleared before rebaking.
         self.gui_item_atlas.invalidate_all();
         lap_done("item meshes");
 
         tracing::info!(
-            "Assets reloaded in {:.2?} ({})",
+            "Assets swapped in {:.2?} ({}), prepared in {}",
             start.elapsed(),
-            laps.join(", ")
+            laps.join(", "),
+            prepare_laps,
         );
     }
 
@@ -2739,6 +2808,100 @@ fn warm_item_meshes(
             );
         }
     }
+}
+
+/// Everything a pack reload builds without the GPU ([`prepare_assets`]).
+struct PreparedAssets {
+    render_assets: BlockRenderAssets,
+    atlas: chunk::atlas::PreparedAtlas,
+    custom_sky: Vec<pipelines::sky::PreparedSkyLayer>,
+    celestial: pipelines::sky::PreparedCelestial,
+    armor: pipelines::entity_renderer::PreparedArmor,
+    fonts: Result<(crate::ui::font::GlyphMap, crate::ui::font::GlyphAtlasPixels), String>,
+    font_options: FontOptions,
+    item_meshes: Vec<pipelines::item_entity::PreparedItemMesh>,
+    /// How long each part took, for the log.
+    prepare_laps: String,
+}
+
+/// A pack stack's assets, decoded, baked and packed with no GPU work, so it
+/// can run off the render thread: the block and item models, then the
+/// atlas and the item meshes cut from it, with the sky, equipment and fonts
+/// alongside.
+fn prepare_assets(
+    packs: &crate::resource_pack::ResourcePackManager,
+    jar_assets_dir: &Path,
+    asset_index: &Option<AssetIndex>,
+    font_options: FontOptions,
+    font_layer_limit: u32,
+) -> PreparedAssets {
+    let start = std::time::Instant::now();
+    std::thread::scope(|scope| {
+        let custom_sky = scope.spawn(|| pipelines::sky::prepare_custom_sky(packs));
+        let celestial =
+            scope.spawn(|| pipelines::sky::prepare_celestial(jar_assets_dir, asset_index, packs));
+        let armor = scope.spawn(|| {
+            pipelines::entity_renderer::prepare_armor_assets(jar_assets_dir, asset_index, packs)
+        });
+        let fonts = scope.spawn(|| {
+            crate::ui::font::GlyphMap::load(
+                FontSources {
+                    jar_assets_dir,
+                    asset_index,
+                    packs,
+                    options: font_options,
+                },
+                font_layer_limit,
+            )
+        });
+        let render_assets = BlockRenderAssets::load(jar_assets_dir, asset_index, None, Some(packs));
+        let models = start.elapsed();
+        let (texture_names, generated_item_textures) =
+            chunk::atlas::atlas_texture_names(&render_assets);
+        let atlas = TextureAtlas::prepare(
+            jar_assets_dir,
+            asset_index,
+            &texture_names,
+            &generated_item_textures,
+            Some(packs),
+        );
+        let atlas_done = start.elapsed();
+        let item_meshes = render_assets
+            .item_names()
+            .filter_map(|name| match render_assets.get_item_model(name) {
+                Some(model) => {
+                    pipelines::item_entity::PreparedItemMesh::model(name, model, &atlas.uv_map)
+                }
+                None => pipelines::item_entity::PreparedItemMesh::flat(
+                    name,
+                    &render_assets.flat_item_layers(name),
+                    &atlas.uv_map,
+                ),
+            })
+            .collect();
+        let prepared = PreparedAssets {
+            custom_sky: custom_sky.join().expect("preparing the sky panicked"),
+            celestial: celestial
+                .join()
+                .expect("preparing the sun and moon panicked"),
+            armor: armor.join().expect("preparing the equipment panicked"),
+            fonts: fonts.join().expect("preparing the fonts panicked"),
+            render_assets,
+            atlas,
+            font_options,
+            item_meshes,
+            prepare_laps: String::new(),
+        };
+        PreparedAssets {
+            prepare_laps: format!(
+                "{:.2?} (models {models:.0?}, atlas {:.0?}, item meshes {:.0?})",
+                start.elapsed(),
+                atlas_done - models,
+                start.elapsed() - atlas_done,
+            ),
+            ..prepared
+        }
+    })
 }
 
 /// Decoded skin ready for upload: always a 64x64 RGBA sheet (legacy 64x32

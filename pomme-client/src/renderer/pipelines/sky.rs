@@ -343,23 +343,13 @@ impl SkyPipeline {
         }
     }
 
-    /// Reloads the sun and moon from the active packs, replacing the last
-    /// ones.
-    pub fn load_celestial(
+    /// Swaps in a sun and moons [`Celestial::prepare`] decoded.
+    pub(crate) fn apply_celestial(
         &mut self,
         device: &rhi::backend::Device,
-        jar_assets_dir: &Path,
-        asset_index: &Option<AssetIndex>,
-        packs: &crate::resource_pack::ResourcePackManager,
+        prepared: PreparedCelestial,
     ) {
-        let celestial = Celestial::load(
-            device,
-            self.tex_layout,
-            self.sampler,
-            jar_assets_dir,
-            asset_index,
-            Some(packs),
-        );
+        let celestial = Celestial::upload(device, self.tex_layout, self.sampler, prepared);
         std::mem::replace(&mut self.sun, celestial.sun).destroy(device);
         std::mem::replace(&mut self.sun_set, celestial.sun_set).destroy(device);
         for moon in std::mem::replace(&mut self.moons, celestial.moons) {
@@ -371,44 +361,23 @@ impl SkyPipeline {
         );
     }
 
-    /// Loads the OptiFine sky layers of the active packs
-    /// (`optifine/sky/world0` for the overworld, `world1` for the End,
-    /// `sky0.properties` upwards), replacing those of the last packs.
-    pub fn load_custom_sky(
+    /// Swaps in OptiFine sky layers [`prepare_custom_sky`] decoded.
+    pub(crate) fn apply_custom_sky(
         &mut self,
         device: &rhi::backend::Device,
-        packs: &crate::resource_pack::ResourcePackManager,
+        layers: Vec<PreparedSkyLayer>,
     ) {
         self.destroy_custom(device);
-        let mut found = Vec::new();
-        for (world, skybox) in [(0, Skybox::Overworld), (1, Skybox::End)] {
-            let dir = format!("minecraft/optifine/sky/world{world}");
-            for i in 0..100 {
-                let Some(path) = packs.resolve_asset(&format!("{dir}/sky{i}.properties")) else {
-                    continue;
-                };
-                let Some(props) = std::fs::read_to_string(&path)
-                    .ok()
-                    .and_then(|text| super::custom_sky::LayerProps::parse(&text, &dir))
-                else {
-                    tracing::warn!("Skipping OptiFine sky layer {}", path.display());
-                    continue;
-                };
-                found.push((i, skybox, props));
-            }
-        }
-        // Sky layers are large images; decode them together.
-        let images = util::par_map(&found, |(_, _, props)| {
-            packs
-                .resolve_asset(&props.source)
-                .and_then(|p| util::load_png(&p))
-        });
-        for ((i, skybox, props), image) in found.into_iter().zip(images) {
-            let Some((pixels, w, h)) = image else {
-                tracing::warn!("OptiFine sky layer {i}: no texture {}", props.source);
-                continue;
-            };
-            let texture = util::create_sampled_texture(device, "optifine_sky", &pixels, w, h);
+        for PreparedSkyLayer {
+            skybox,
+            props,
+            pixels,
+            width,
+            height,
+        } in layers
+        {
+            let texture =
+                util::create_sampled_texture(device, "optifine_sky", &pixels, width, height);
             let set =
                 util::create_texture_group(device, self.tex_layout, texture.handle(), self.sampler);
             self.custom.push(CustomLayer {
@@ -422,7 +391,65 @@ impl SkyPipeline {
             tracing::info!("Loaded {} OptiFine sky layers", self.custom.len());
         }
     }
+}
 
+/// An OptiFine sky layer, decoded and ready to upload.
+pub(crate) struct PreparedSkyLayer {
+    skybox: Skybox,
+    props: super::custom_sky::LayerProps,
+    pixels: Vec<u8>,
+    width: u32,
+    height: u32,
+}
+
+/// The packs' OptiFine sky layers (`optifine/sky/world0` and `world1`),
+/// read and decoded with no GPU work.
+pub(crate) fn prepare_custom_sky(
+    packs: &crate::resource_pack::ResourcePackManager,
+) -> Vec<PreparedSkyLayer> {
+    let mut found = Vec::new();
+    for (world, skybox) in [(0, Skybox::Overworld), (1, Skybox::End)] {
+        let dir = format!("minecraft/optifine/sky/world{world}");
+        for i in 0..100 {
+            let Some(path) = packs.resolve_asset(&format!("{dir}/sky{i}.properties")) else {
+                continue;
+            };
+            let Some(props) = std::fs::read_to_string(&path)
+                .ok()
+                .and_then(|text| super::custom_sky::LayerProps::parse(&text, &dir))
+            else {
+                tracing::warn!("Skipping OptiFine sky layer {}", path.display());
+                continue;
+            };
+            found.push((i, skybox, props));
+        }
+    }
+    // Sky layers are large images; decode them together.
+    let images = util::par_map(&found, |(_, _, props)| {
+        packs
+            .resolve_asset(&props.source)
+            .and_then(|p| util::load_png(&p))
+    });
+    found
+        .into_iter()
+        .zip(images)
+        .filter_map(|((i, skybox, props), image)| {
+            let Some((pixels, width, height)) = image else {
+                tracing::warn!("OptiFine sky layer {i}: no texture {}", props.source);
+                return None;
+            };
+            Some(PreparedSkyLayer {
+                skybox,
+                props,
+                pixels,
+                width,
+                height,
+            })
+        })
+        .collect()
+}
+
+impl SkyPipeline {
     fn destroy_custom(&mut self, device: &rhi::backend::Device) {
         for layer in self.custom.drain(..) {
             layer.set.destroy(device);
@@ -616,6 +643,25 @@ struct Celestial {
     moon_sets: [rhi::backend::BindGroup; 8],
 }
 
+/// [`Celestial::prepare`] for a pack reload off the render thread.
+pub(crate) fn prepare_celestial(
+    jar_assets_dir: &Path,
+    asset_index: &Option<AssetIndex>,
+    packs: &crate::resource_pack::ResourcePackManager,
+) -> PreparedCelestial {
+    Celestial::prepare(jar_assets_dir, asset_index, Some(packs))
+}
+
+/// The sun and the eight moon phases, decoded and ready to upload, each with
+/// its texture key.
+pub(crate) struct PreparedCelestial {
+    sun: KeyedImage,
+    moons: Vec<KeyedImage>,
+}
+
+/// A decoded image (RGBA pixels, width, height) and its texture key.
+type KeyedImage = (String, (Vec<u8>, u32, u32));
+
 impl Celestial {
     fn load(
         device: &rhi::backend::Device,
@@ -625,8 +671,21 @@ impl Celestial {
         asset_index: &Option<AssetIndex>,
         packs: Option<&crate::resource_pack::ResourcePackManager>,
     ) -> Self {
-        let texture = |key: &str, legacy: (&str, Option<usize>)| {
-            let (pixels, w, h) = packs
+        Self::upload(
+            device,
+            tex_layout,
+            sampler,
+            Self::prepare(jar_assets_dir, asset_index, packs),
+        )
+    }
+
+    pub(crate) fn prepare(
+        jar_assets_dir: &Path,
+        asset_index: &Option<AssetIndex>,
+        packs: Option<&crate::resource_pack::ResourcePackManager>,
+    ) -> PreparedCelestial {
+        let image = |key: &str, legacy: (&str, Option<usize>)| {
+            let image = packs
                 .and_then(|packs| celestial_from_packs(packs, key, legacy))
                 .or_else(|| {
                     util::load_png(&crate::assets::resolve_asset_path(
@@ -639,20 +698,41 @@ impl Celestial {
                     tracing::warn!("Failed to load {key}, using fallback");
                     (vec![255u8; 16 * 16 * 4], 16, 16)
                 });
-            util::create_sampled_texture(device, key, &pixels, w, h)
+            (key.to_owned(), image)
         };
-        let sun = texture(
-            "minecraft/textures/environment/celestial/sun.png",
-            ("minecraft/textures/environment/sun.png", None),
-        );
+        PreparedCelestial {
+            sun: image(
+                "minecraft/textures/environment/celestial/sun.png",
+                ("minecraft/textures/environment/sun.png", None),
+            ),
+            moons: MOON_PHASES
+                .iter()
+                .enumerate()
+                .map(|(i, phase)| {
+                    image(
+                        &format!("minecraft/textures/environment/celestial/moon/{phase}.png"),
+                        ("minecraft/textures/environment/moon_phases.png", Some(i)),
+                    )
+                })
+                .collect(),
+        }
+    }
+
+    fn upload(
+        device: &rhi::backend::Device,
+        tex_layout: rhi::backend::BindGroupLayout,
+        sampler: rhi::backend::Sampler,
+        prepared: PreparedCelestial,
+    ) -> Self {
+        let texture = |(key, (pixels, w, h)): KeyedImage| {
+            util::create_sampled_texture(device, &key, &pixels, w, h)
+        };
+        let sun = texture(prepared.sun);
         let sun_set = util::create_texture_group(device, tex_layout, sun.handle(), sampler);
         let mut moons = Vec::with_capacity(8);
         let mut moon_sets = [rhi::backend::BindGroup::default(); 8];
-        for (i, phase) in MOON_PHASES.iter().enumerate() {
-            let moon = texture(
-                &format!("minecraft/textures/environment/celestial/moon/{phase}.png"),
-                ("minecraft/textures/environment/moon_phases.png", Some(i)),
-            );
+        for (i, moon) in prepared.moons.into_iter().enumerate().take(8) {
+            let moon = texture(moon);
             moon_sets[i] = util::create_texture_group(device, tex_layout, moon.handle(), sampler);
             moons.push(moon);
         }

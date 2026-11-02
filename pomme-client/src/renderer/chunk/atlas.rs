@@ -677,6 +677,16 @@ pub(crate) fn atlas_texture_names(
 }
 
 /// [`TextureAtlas::build_cpu`]'s output: everything the GPU upload consumes.
+/// [`TextureAtlas::prepare`]'s output: the atlas ready to upload.
+pub(crate) struct PreparedAtlas {
+    pub uv_map: AtlasUVMap,
+    atlas_size: u32,
+    mip_level: u32,
+    /// Every mip level's pixels, level 0 first.
+    staging_pixels: Vec<u8>,
+    animated: Vec<AnimatedSprite>,
+}
+
 pub(crate) struct AtlasCpu {
     pub uv_map: AtlasUVMap,
     atlas_pixels: Vec<u8>,
@@ -697,6 +707,28 @@ impl TextureAtlas {
         generated_item_textures: &HashSet<&str>,
         packs: Option<&crate::resource_pack::ResourcePackManager>,
     ) -> Result<Self, String> {
+        Self::upload(
+            device,
+            Self::prepare(
+                jar_assets_dir,
+                asset_index,
+                texture_names,
+                generated_item_textures,
+                packs,
+            ),
+        )
+    }
+
+    /// Everything [`Self::build`] does short of the GPU: the sprites packed,
+    /// every mip level drawn and the animated sprites cut out, so a pack
+    /// reload can make it off the render thread.
+    pub(crate) fn prepare(
+        jar_assets_dir: &Path,
+        asset_index: &Option<AssetIndex>,
+        texture_names: &HashSet<&str>,
+        generated_item_textures: &HashSet<&str>,
+        packs: Option<&crate::resource_pack::ResourcePackManager>,
+    ) -> PreparedAtlas {
         let AtlasCpu {
             uv_map,
             atlas_pixels,
@@ -712,14 +744,6 @@ impl TextureAtlas {
             generated_item_textures,
             packs,
         );
-
-        let sprite_rects = rhi::backend::Buffer::try_with_data(
-            device,
-            "atlas_sprite_rects",
-            bytemuck::cast_slice(&uv_map.rects),
-            rhi::BufferUsages::STORAGE,
-        )?;
-
         let staging_pixels = build_mip_chain(
             atlas_pixels,
             atlas_size,
@@ -728,6 +752,59 @@ impl TextureAtlas {
             &placements,
             missing,
         );
+
+        let animated: Vec<AnimatedSprite> = sources
+            .into_iter()
+            .filter_map(|source| {
+                let (x, y) = (*placements.get(source.name.as_str())?)?;
+                let pad = source.padding(mip_level);
+                let mut animation = source.animation?;
+                // Vanilla redraws the padded cell (`animate_sprite.vsh`).
+                for levels in &mut animation.pixels {
+                    for (level, pixels) in levels.iter_mut().enumerate() {
+                        *pixels =
+                            padded_rgba(pixels, source.w >> level, source.h >> level, pad >> level);
+                    }
+                }
+                Some(AnimatedSprite {
+                    x: x - pad,
+                    y: y - pad,
+                    width: source.w + 2 * pad,
+                    height: source.h + 2 * pad,
+                    animation,
+                    frame: 0,
+                    sub_frame: 0,
+                    dirty: false,
+                })
+            })
+            .collect();
+        PreparedAtlas {
+            uv_map,
+            atlas_size,
+            mip_level,
+            staging_pixels,
+            animated,
+        }
+    }
+
+    /// The GPU half of [`Self::build`].
+    pub(crate) fn upload(
+        device: &rhi::backend::Device,
+        prepared: PreparedAtlas,
+    ) -> Result<Self, String> {
+        let PreparedAtlas {
+            uv_map,
+            atlas_size,
+            mip_level,
+            staging_pixels,
+            animated,
+        } = prepared;
+        let sprite_rects = rhi::backend::Buffer::try_with_data(
+            device,
+            "atlas_sprite_rects",
+            bytemuck::cast_slice(&uv_map.rects),
+            rhi::BufferUsages::STORAGE,
+        )?;
 
         let mip_levels = mip_level + 1;
         let texture = rhi::backend::Texture::try_new(
@@ -761,31 +838,6 @@ impl TextureAtlas {
             &rhi::SamplerDesc::NEAREST.with_mips(mip_levels),
         )?;
 
-        let animated: Vec<AnimatedSprite> = sources
-            .into_iter()
-            .filter_map(|source| {
-                let (x, y) = (*placements.get(source.name.as_str())?)?;
-                let pad = source.padding(mip_level);
-                let mut animation = source.animation?;
-                // Vanilla redraws the padded cell (`animate_sprite.vsh`).
-                for levels in &mut animation.pixels {
-                    for (level, pixels) in levels.iter_mut().enumerate() {
-                        *pixels =
-                            padded_rgba(pixels, source.w >> level, source.h >> level, pad >> level);
-                    }
-                }
-                Some(AnimatedSprite {
-                    x: x - pad,
-                    y: y - pad,
-                    width: source.w + 2 * pad,
-                    height: source.h + 2 * pad,
-                    animation,
-                    frame: 0,
-                    sub_frame: 0,
-                    dirty: false,
-                })
-            })
-            .collect();
         let staging_bytes: usize = animated
             .iter()
             .flat_map(|sprite| &sprite.animation.pixels[0])

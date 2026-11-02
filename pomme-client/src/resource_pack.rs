@@ -24,6 +24,7 @@ pub enum PackSource {
     Local,
 }
 
+#[derive(Clone)]
 struct ActivePack {
     id: String,
     source: PackSource,
@@ -31,6 +32,8 @@ struct ActivePack {
     info: PackInfo,
 }
 
+/// Cloned to rebuild a pack stack's assets off the render thread.
+#[derive(Clone)]
 pub struct ResourcePackManager {
     packs_dir: PathBuf,
     server_cache_dir: PathBuf,

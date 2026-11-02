@@ -524,14 +524,24 @@ impl ItemEntityPipeline {
         if self.meshes.contains_key(name) {
             return;
         }
-        let vertices = build_item_mesh(model, uv_map);
-        if !vertices.is_empty() {
-            let translucent = model
-                .quads
-                .iter()
-                .any(|quad| uv_map.region(quad.texture).translucent);
-            self.insert_mesh(device, name, &vertices, true, translucent);
+        if let Some(mesh) = PreparedItemMesh::model(name, model, uv_map) {
+            self.insert_prepared(device, mesh);
         }
+    }
+
+    /// Adds meshes built off the render thread ([`PreparedItemMesh`]).
+    pub(crate) fn insert_prepared(
+        &mut self,
+        device: &rhi::backend::Device,
+        mesh: PreparedItemMesh,
+    ) {
+        self.insert_mesh(
+            device,
+            &mesh.name,
+            &mesh.vertices,
+            mesh.is_3d_model,
+            mesh.translucent,
+        );
     }
 
     /// A plain textured cube (a block with no baked model), centred like the
@@ -591,28 +601,8 @@ impl ItemEntityPipeline {
         if self.meshes.contains_key(name) {
             return;
         }
-
-        let mut vertices = Vec::new();
-        let mut translucent = false;
-        for (layer, texture_key) in layers.iter().enumerate() {
-            let Some(texture_key) = texture_key.as_deref() else {
-                continue;
-            };
-            if !uv_map.has_region(texture_key) {
-                continue;
-            }
-            let region = uv_map.get_region(texture_key);
-            translucent |= region.translucent;
-            // layerN is tintindex N; the shader leaves ones past the palette untinted.
-            let tint_index = Some(layer as u32);
-            let mut layer_vertices = uv_map
-                .sprite_alpha_mask(texture_key)
-                .map(|mask| build_extruded_item_mask(mask, region, tint_index))
-                .unwrap_or_else(|| build_flat_quad(region, tint_index));
-            vertices.append(&mut layer_vertices);
-        }
-        if !vertices.is_empty() {
-            self.insert_mesh(device, name, &vertices, false, translucent);
+        if let Some(mesh) = PreparedItemMesh::flat(name, layers, uv_map) {
+            self.insert_prepared(device, mesh);
         }
     }
 
@@ -1102,6 +1092,64 @@ fn create_pipeline_impl(
             )
         },
     )
+}
+
+/// An item mesh's vertices, built without the GPU so a pack reload can make
+/// them all off the render thread.
+pub(crate) struct PreparedItemMesh {
+    name: String,
+    vertices: Vec<ItemVertex>,
+    is_3d_model: bool,
+    translucent: bool,
+}
+
+impl PreparedItemMesh {
+    /// A baked model's mesh; `None` when it has no faces.
+    pub(crate) fn model(name: &str, model: &BakedModel, uv_map: &AtlasUVMap) -> Option<Self> {
+        let vertices = build_item_mesh(model, uv_map);
+        if vertices.is_empty() {
+            return None;
+        }
+        let translucent = model
+            .quads
+            .iter()
+            .any(|quad| uv_map.region(quad.texture).translucent);
+        Some(Self {
+            name: name.to_owned(),
+            vertices,
+            is_3d_model: true,
+            translucent,
+        })
+    }
+
+    /// A generated item's extruded layers; `None` when none has a sprite.
+    pub(crate) fn flat(name: &str, layers: &[Option<String>], uv_map: &AtlasUVMap) -> Option<Self> {
+        let mut vertices = Vec::new();
+        let mut translucent = false;
+        for (layer, texture_key) in layers.iter().enumerate() {
+            let Some(texture_key) = texture_key.as_deref() else {
+                continue;
+            };
+            if !uv_map.has_region(texture_key) {
+                continue;
+            }
+            let region = uv_map.get_region(texture_key);
+            translucent |= region.translucent;
+            // layerN is tintindex N; the shader leaves ones past the palette untinted.
+            let tint_index = Some(layer as u32);
+            let mut layer_vertices = uv_map
+                .sprite_alpha_mask(texture_key)
+                .map(|mask| build_extruded_item_mask(mask, region, tint_index))
+                .unwrap_or_else(|| build_flat_quad(region, tint_index));
+            vertices.append(&mut layer_vertices);
+        }
+        (!vertices.is_empty()).then(|| Self {
+            name: name.to_owned(),
+            vertices,
+            is_3d_model: false,
+            translucent,
+        })
+    }
 }
 
 #[cfg(test)]

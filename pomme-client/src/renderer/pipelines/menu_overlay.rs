@@ -1680,7 +1680,22 @@ impl MenuOverlayPipeline {
         device: &rhi::backend::Device,
         font_sources: FontSources<'_>,
     ) -> Result<(), String> {
-        let (glyph_map, pixels) = GlyphMap::load(font_sources, self.font_layer_limit)?;
+        let fonts = GlyphMap::load(font_sources, self.font_layer_limit)?;
+        self.apply_minecraft_fonts(device, fonts)
+    }
+
+    /// How many glyph-atlas layers the device allows (for [`GlyphMap::load`]
+    /// off the render thread).
+    pub fn font_layer_limit(&self) -> u32 {
+        self.font_layer_limit
+    }
+
+    /// Swaps in fonts [`GlyphMap::load`] built.
+    pub fn apply_minecraft_fonts(
+        &mut self,
+        device: &rhi::backend::Device,
+        (glyph_map, pixels): (GlyphMap, GlyphAtlasPixels),
+    ) -> Result<(), String> {
         let (gray, color) = create_font_textures(device, Some(&pixels))?;
         self.tex_slots[3] = gray.slot();
         self.tex_slots[8] = color.slot();

@@ -789,15 +789,23 @@ fn load_armor_asset_defs(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn build_armor_texture_layer(
-    device: &rhi::backend::Device,
-    texture_layout: rhi::backend::BindGroupLayout,
-    texture_sampler: rhi::backend::Sampler,
+/// An equipment layer's texture, decoded and ready to upload.
+pub(crate) struct PreparedArmorLayer {
+    pixels: Vec<u8>,
+    width: u32,
+    height: u32,
+    dye: ArmorDye,
+}
+
+/// Every equipment definition's layers, decoded ([`prepare_armor_assets`]).
+pub(crate) type PreparedArmor = Vec<(String, [Vec<PreparedArmorLayer>; 3])>;
+
+fn decode_armor_texture_layer(
     jar_assets_dir: &Path,
     asset_index: &Option<AssetIndex>,
     packs: Option<&ResourcePackManager>,
     def: ArmorLayerDef,
-) -> ArmorTextureLayer {
+) -> PreparedArmorLayer {
     let path = resolve_asset_path_with_packs(jar_assets_dir, asset_index, &def.texture_key, packs);
     let (pixels, width, height) = util::load_png(&path).unwrap_or_else(|| {
         tracing::warn!(
@@ -806,15 +814,101 @@ fn build_armor_texture_layer(
         );
         fallback_texture(64)
     });
-    let texture = util::create_sampled_texture(device, "armor_texture", &pixels, width, height);
+    PreparedArmorLayer {
+        pixels,
+        width,
+        height,
+        dye: def.dye,
+    }
+}
 
+fn upload_armor_texture_layer(
+    device: &rhi::backend::Device,
+    texture_layout: rhi::backend::BindGroupLayout,
+    texture_sampler: rhi::backend::Sampler,
+    layer: PreparedArmorLayer,
+) -> ArmorTextureLayer {
+    let texture = util::create_sampled_texture(
+        device,
+        "armor_texture",
+        &layer.pixels,
+        layer.width,
+        layer.height,
+    );
     let set = util::create_texture_group(device, texture_layout, texture.handle(), texture_sampler);
-
     ArmorTextureLayer {
         texture,
         set,
-        dye: def.dye,
+        dye: layer.dye,
     }
+}
+
+/// Reads every equipment definition with humanoid or llama layers and
+/// decodes its textures, with no GPU work.
+pub(crate) fn prepare_armor_assets(
+    jar_assets_dir: &Path,
+    asset_index: &Option<AssetIndex>,
+    packs: &ResourcePackManager,
+) -> PreparedArmor {
+    let packs = Some(packs);
+    let defs: Vec<_> = load_armor_asset_defs(jar_assets_dir, packs)
+        .into_iter()
+        .collect();
+    util::par_map(&defs, |(id, def)| {
+        let decode = |layers: &Vec<ArmorLayerDef>| -> Vec<PreparedArmorLayer> {
+            layers
+                .iter()
+                .map(|layer| {
+                    decode_armor_texture_layer(
+                        jar_assets_dir,
+                        asset_index,
+                        packs,
+                        ArmorLayerDef {
+                            texture_key: layer.texture_key.clone(),
+                            dye: layer.dye,
+                        },
+                    )
+                })
+                .collect()
+        };
+        (
+            id.clone(),
+            [
+                decode(&def.humanoid),
+                decode(&def.leggings),
+                decode(&def.llama_body),
+            ],
+        )
+    })
+}
+
+fn upload_armor_assets(
+    device: &rhi::backend::Device,
+    texture_layout: rhi::backend::BindGroupLayout,
+    texture_sampler: rhi::backend::Sampler,
+    prepared: PreparedArmor,
+) -> HashMap<String, ArmorAsset> {
+    prepared
+        .into_iter()
+        .map(|(id, [humanoid, leggings, llama_body])| {
+            let upload = |layers: Vec<PreparedArmorLayer>| -> Vec<ArmorTextureLayer> {
+                layers
+                    .into_iter()
+                    .map(|layer| {
+                        upload_armor_texture_layer(device, texture_layout, texture_sampler, layer)
+                    })
+                    .collect()
+            };
+            (
+                id,
+                ArmorAsset {
+                    humanoid: upload(humanoid),
+                    leggings: upload(leggings),
+                    llama_body: upload(llama_body),
+                },
+            )
+        })
+        .collect()
 }
 
 /// Loads every equipment definition with humanoid or llama layers and
@@ -827,31 +921,12 @@ fn load_armor_assets(
     asset_index: &Option<AssetIndex>,
     packs: &ResourcePackManager,
 ) -> HashMap<String, ArmorAsset> {
-    let packs = Some(packs);
-    let defs = load_armor_asset_defs(jar_assets_dir, packs);
-    defs.into_iter()
-        .map(|(id, def)| {
-            let build = |layer| {
-                build_armor_texture_layer(
-                    device,
-                    texture_layout,
-                    texture_sampler,
-                    jar_assets_dir,
-                    asset_index,
-                    packs,
-                    layer,
-                )
-            };
-            (
-                id,
-                ArmorAsset {
-                    humanoid: def.humanoid.into_iter().map(build).collect(),
-                    leggings: def.leggings.into_iter().map(build).collect(),
-                    llama_body: def.llama_body.into_iter().map(build).collect(),
-                },
-            )
-        })
-        .collect()
+    upload_armor_assets(
+        device,
+        texture_layout,
+        texture_sampler,
+        prepare_armor_assets(jar_assets_dir, asset_index, packs),
+    )
 }
 
 fn build_armor_mesh(device: &rhi::backend::Device, model: BakedEntityModel) -> ArmorMesh {
@@ -2745,22 +2820,15 @@ impl EntityRenderer {
         }
     }
 
-    pub fn reload_armor_assets(
+    /// Swaps in the equipment textures [`prepare_armor_assets`] decoded.
+    pub(crate) fn apply_armor_assets(
         &mut self,
         device: &rhi::backend::Device,
-        jar_assets_dir: &Path,
-        asset_index: &Option<AssetIndex>,
-        packs: &ResourcePackManager,
+        prepared: PreparedArmor,
     ) {
         destroy_armor_assets(device, &mut self.armor_assets);
-        self.armor_assets = load_armor_assets(
-            device,
-            self.texture_layout,
-            self.texture_sampler,
-            jar_assets_dir,
-            asset_index,
-            packs,
-        );
+        self.armor_assets =
+            upload_armor_assets(device, self.texture_layout, self.texture_sampler, prepared);
     }
 
     pub fn update_camera(&mut self, frame: usize, uniform: &CameraUniform) {
