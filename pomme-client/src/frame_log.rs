@@ -11,7 +11,7 @@
 //! seconds into the first world joined, likewise.
 //!
 //! Each window also keeps the phases of its slow frames (over
-//! [`SLOW_FRAME_SECS`]) apart, to show what a frame-time spike was spent on.
+//! [`slow_frame_secs`]) apart, to show what a frame-time spike was spent on.
 
 use std::io::Write as _;
 use std::sync::Mutex;
@@ -41,8 +41,19 @@ impl Window {
     }
 }
 
-/// A frame slower than 150 FPS counts as slow.
-const SLOW_FRAME_SECS: f32 = 1.0 / 150.0;
+/// A frame slower than 150 FPS counts as slow, unless `POMME_BENCH_SLOW_FPS`
+/// names another rate (to split out the frames behind the 1% lows).
+fn slow_frame_secs() -> f32 {
+    static SECS: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    *SECS.get_or_init(|| {
+        let fps = std::env::var("POMME_BENCH_SLOW_FPS")
+            .ok()
+            .and_then(|fps| fps.parse::<f32>().ok())
+            .filter(|fps| *fps > 0.0)
+            .unwrap_or(150.0);
+        1.0 / fps
+    })
+}
 
 static WINDOW: Mutex<Option<Window>> = Mutex::new(None);
 
@@ -181,7 +192,7 @@ pub fn record(frame_secs: f32) {
         && let Some(window) = window.as_mut()
     {
         window.frame_secs.push(frame_secs);
-        let slow = frame_secs > SLOW_FRAME_SECS;
+        let slow = frame_secs > slow_frame_secs();
         window.slow_frames += usize::from(slow);
         for (phase, ms) in std::mem::take(&mut window.frame) {
             *window.phases.entry(phase).or_default() += f64::from(ms);
