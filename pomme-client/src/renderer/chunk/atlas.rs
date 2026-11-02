@@ -281,19 +281,24 @@ impl AnimatedSprite {
         let next = &self.animation.pixels[frames[(self.frame + 1) % frames.len()].0][level];
         // Vanilla packs the progress into the vertex index as an int of
         // thousandths.
-        let progress = ((self.sub_frame as f32 / time as f32) * 1000.0) as i32 as f32 / 1000.0;
-        mix_rgba8(current, next, progress, scratch);
+        let progress = ((self.sub_frame as f32 / time as f32) * 1000.0) as u32;
+        mix_rgba8(current, next, progress.min(1000), scratch);
         scratch
     }
 }
 
-/// `animate_sprite_interpolate.fsh`: `mix` on the atlas's RGBA8 values.
-fn mix_rgba8(current: &[u8], next: &[u8], progress: f32, out: &mut Vec<u8>) {
+/// `animate_sprite_interpolate.fsh`: `mix` on the atlas's RGBA8 values,
+/// `thousandths` of the way to `next`, rounded to nearest as the unorm
+/// store does. In integers: this runs over every interpolated sprite's
+/// pixels and mip levels each tick.
+fn mix_rgba8(current: &[u8], next: &[u8], thousandths: u32, out: &mut Vec<u8>) {
+    let keep = 1000 - thousandths;
     out.clear();
-    out.extend(current.iter().zip(next).map(|(&a, &b)| {
-        let mixed = f32::from(a) / 255.0 * (1.0 - progress) + f32::from(b) / 255.0 * progress;
-        (mixed * 255.0).round() as u8
-    }));
+    out.extend(
+        current.iter().zip(next).map(|(&a, &b)| {
+            ((u32::from(a) * keep + u32::from(b) * thousandths + 500) / 1000) as u8
+        }),
+    );
 }
 
 struct MipSource {
@@ -1565,6 +1570,25 @@ fn sprite_transparency(data: &[u8]) -> (bool, bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn integer_mix_matches_the_shaders_float_mix() {
+        for k in [0, 1, 250, 333, 499, 500, 777, 999, 1000] {
+            for a in (0..=255u8).step_by(3) {
+                for b in (0..=255u8).step_by(7) {
+                    let mut out = Vec::new();
+                    mix_rgba8(&[a], &[b], k, &mut out);
+                    let t = k as f32 / 1000.0;
+                    let float = ((f32::from(a) / 255.0 * (1.0 - t) + f32::from(b) / 255.0 * t)
+                        * 255.0)
+                        .round() as u8;
+                    // Only an exact half can round the other way in floats.
+                    let tie = (u32::from(a) * (1000 - k) + u32::from(b) * k) % 1000 == 500;
+                    assert!(out[0] == float || tie && out[0].abs_diff(float) == 1);
+                }
+            }
+        }
+    }
     use crate::test_util::test_temp_dir;
 
     #[test]
