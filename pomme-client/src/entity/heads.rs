@@ -89,8 +89,10 @@ pub fn block_profile(nbt: &simdnbt::owned::NbtCompound) -> Option<Profile> {
 /// up) and its yaw (a floor head's 16 rotation steps, or the wall facing).
 pub fn placed_skull(rotation: Option<&str>, facing: Option<&str>) -> Option<(glam::DVec3, f32)> {
     if let Some(rotation) = rotation {
+        // Pomme's yaw is vanilla's plus 180 (a wall head facing north, at
+        // vanilla's 0 like floor rotation 0, is 180 here).
         let steps: f32 = rotation.parse().ok()?;
-        return Some((glam::DVec3::new(0.5, 0.0, 0.5), steps * 22.5));
+        return Some((glam::DVec3::new(0.5, 0.0, 0.5), steps * 22.5 + 180.0));
     }
     let (dx, dz, yaw) = match facing? {
         "south" => (0.0, 1.0, 0.0),
@@ -184,7 +186,7 @@ mod tests {
 
         assert_eq!(
             placed_skull(Some("4"), None),
-            Some((glam::DVec3::new(0.5, 0.0, 0.5), 90.0))
+            Some((glam::DVec3::new(0.5, 0.0, 0.5), 270.0))
         );
         // A head on a wall facing north hangs against the wall to its south.
         assert_eq!(
