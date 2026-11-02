@@ -273,6 +273,10 @@ pub struct Renderer {
     /// Each block display mesh's tint palette, by mesh key; dropped with
     /// the item meshes.
     block_display_tints: HashMap<(usize, u32), BlockDisplayMesh>,
+    /// Whether the last frame hid the cursor: winit's `set_cursor_visible`
+    /// refreshes the OS cursor state each call (cursor position, clip,
+    /// system metrics), so it runs only when hiding starts.
+    cursor_hidden: bool,
     /// Item displays' model transforms, one resolver per `ItemDisplayContext`.
     item_display_resolvers: HashMap<u8, pipelines::item_display::DisplayResolver>,
     /// Bumped whenever the item meshes are dropped, so cached display
@@ -576,6 +580,7 @@ impl Renderer {
             chunk_border_pipeline,
             item_entity_pipeline,
             block_display_tints: HashMap::new(),
+            cursor_hidden: false,
             item_display_resolvers: HashMap::new(),
             display_assets_generation: 0,
             held_item_pipeline,
@@ -2009,9 +2014,10 @@ impl Renderer {
             self.cloud_pipeline.update_camera(frame, &uniform);
         }
 
-        if hide_cursor {
+        if hide_cursor && !self.cursor_hidden {
             window.set_cursor_visible(false);
         }
+        self.cursor_hidden = hide_cursor;
 
         let encoder = self.frames.begin(&self.ctx.device)?;
         self.atlas.record_animation_upload(&encoder, frame);
