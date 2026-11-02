@@ -1,0 +1,128 @@
+# Server particles: each type pomme draws, kept spawning by a repeating
+# command block, in a 6 x 5 grid (left to right, bottom row first, in the
+# order of tests/ingame/entities/particles.txt) against a black wall. Needs
+# enable-command-block=true in POMME_INGAME_SERVER_PROPERTIES.
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+chat = "/time set 18000"
+
+[[step]]
+chat = "/gamerule command_block_output false"
+
+[[step]]
+chat = "/gamerule advance_time false"
+
+[[step]]
+chat = "/fill -1 -61 10 17 -45 10 minecraft:black_concrete"
+
+[[step]]
+chat = "/tp @s 8 -53 -8 0 0"
+
+[[step]]
+chat = "/setblock 0 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:dust{color:[1.0,0.2,0.2],scale:1.5} 1.5 -59.0 6.5 0.4 0.4 0.4 0 8 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 1 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:dust_color_transition{from_color:[1.0,0.5,0.0],to_color:[0.2,0.2,1.0],scale:1.5} 4.3 -59.0 6.5 0.4 0.4 0.4 0 8 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 2 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:portal 7.1 -59.0 6.5 0.3 0.3 0.3 0.5 6 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 3 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:reverse_portal 9.9 -59.0 6.5 0.2 0.2 0.2 0.02 4 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 4 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:enchant 12.7 -59.0 6.5 0.4 0.4 0.4 1 6 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 5 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:end_rod 15.5 -59.0 6.5 0.3 0.3 0.3 0.02 2 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 6 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:block{block_state:\\\"minecraft:redstone_block\\\"} 1.5 -56.2 6.5 0.3 0.3 0.3 0 4 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 7 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:block_crumble{block_state:\\\"minecraft:emerald_block\\\"} 4.3 -56.2 6.5 0.3 0.3 0.3 0 4 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 8 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:falling_dust{block_state:\\\"minecraft:red_sand\\\"} 7.1 -56.2 6.5 0.4 0 0.4 0 2 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 9 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:crit 9.9 -56.2 6.5 0.3 0.3 0.3 0.2 4 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 10 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:enchanted_hit 12.7 -56.2 6.5 0.3 0.3 0.3 0.2 4 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 11 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:flame 15.5 -56.2 6.5 0.2 0.2 0.2 0.01 3 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 12 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:soul_fire_flame 1.5 -53.4 6.5 0.2 0.2 0.2 0.01 3 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 13 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:small_flame 4.3 -53.4 6.5 0.2 0.2 0.2 0.01 3 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 14 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:smoke 7.1 -53.4 6.5 0.2 0.2 0.2 0.01 3 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 15 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:large_smoke 9.9 -53.4 6.5 0.2 0.2 0.2 0.01 2 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 16 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:cloud 12.7 -53.4 6.5 0.3 0.3 0.3 0.02 2 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 17 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:explosion 15.5 -53.4 6.5 0.2 0.2 0.2 0 1 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 18 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:happy_villager 1.5 -50.6 6.5 0.4 0.4 0.4 0 3 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 19 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:witch 4.3 -50.6 6.5 0.3 0.3 0.3 0 3 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 20 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:soul 7.1 -50.6 6.5 0.2 0.2 0.2 0.01 2 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 21 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:electric_spark 9.9 -50.6 6.5 0.3 0.3 0.3 0.05 4 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 22 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:lava 12.7 -50.6 6.5 0.2 0.2 0.2 0 1 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 23 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:sweep_attack 15.5 -50.6 6.5 0.3 0.3 0.3 0 1 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 24 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:totem_of_undying 1.5 -47.8 6.5 0.3 0.3 0.3 0.1 4 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 25 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:heart 4.3 -47.8 6.5 0.4 0.4 0.4 0 1 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 26 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:item{item:\\\"minecraft:diamond\\\"} 7.1 -47.8 6.5 0.3 0.3 0.3 0.05 3 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 27 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:campfire_cosy_smoke 9.9 -47.8 6.5 0.1 0.1 0.1 0.01 1 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 28 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:dripping_obsidian_tear 12.7 -47.8 6.5 0.4 0 0.4 0 1 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 29 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:falling_obsidian_tear 15.5 -47.8 6.5 0.4 0 0.4 0 1 force\",auto:1b}"
+
+# Long enough for the chat lines to fade from the shot.
+[[step]]
+wait_ms = 10500
+
+[[step]]
+look_at = [8.5, -53.5, 6.5]
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "particles"
+
+[[step]]
+chat = "/fill 0 -63 20 29 -63 20 minecraft:dirt"
