@@ -350,6 +350,8 @@ pub struct GameState {
     pub falling_blocks: crate::entity::falling_block::FallingBlockStore,
     pub interactions: crate::entity::interaction::InteractionStore,
     pub particle_store: crate::particle::ParticleStore,
+    /// `WeatherEffectRenderer.rainSoundTime`: ticks since the last rain sound.
+    pub rain_sound_time: i32,
     pub level_runtime: crate::world::level::LevelRuntime,
     pub block_entity_anim: BlockEntityAnimStore,
     pub benchmark: Option<Benchmark>,
@@ -524,6 +526,7 @@ impl GameState {
             name_store: crate::entity::name_tags::NameStore::default(),
             falling_blocks: Default::default(),
             interactions: Default::default(),
+            rain_sound_time: 0,
             particle_store: {
                 let (grass, foliage, dry_foliage) = mesh_dispatcher.colormaps();
                 crate::particle::ParticleStore::new(
@@ -2380,6 +2383,87 @@ fn render_death_time(death_time: u32, partial_tick: f32) -> f32 {
 /// Vanilla `Hud.tick`: the held-item tooltip timer resets to 40 when the
 /// selected item's type or hover name changes, clears when the slot empties,
 /// and otherwise counts down.
+/// Vanilla `WeatherEffectRenderer.tickRainParticles`: up to 100 splashes a
+/// tick (scaled by the rain level squared) on the surface within 10 blocks
+/// of the camera where it rains, smoke where it falls on lava, magma or a
+/// lit campfire, and every few ticks the rain sound from the last of them.
+fn tick_rain_particles(core: &AppCore, game: &mut GameState, camera: glam::DVec3) {
+    use crate::renderer::pipelines::weather::{Precip, precipitation_for};
+    let rain = game.sky_state.rain();
+    if rain <= 0.0 {
+        return;
+    }
+    let table = game.block_registry.block_state_table();
+    let [cx, cy, cz] = [camera.x, camera.y, camera.z].map(|c| c.floor() as i32);
+    let min_y = game.chunk_store.min_y();
+    let mut last = None;
+    for _ in 0..(100.0 * rain * rain) as i32 {
+        let x = cx + fastrand::i32(0..21) - 10;
+        let z = cz + fastrand::i32(0..21) - 10;
+        let surface = game.chunk_store.motion_blocking_height(x, z);
+        if surface <= min_y || (surface - cy).abs() > 10 {
+            continue;
+        }
+        let climate = game
+            .biome_climate
+            .get(&game.chunk_store.biome_id(x, surface, z))
+            .copied()
+            .unwrap_or_default();
+        if precipitation_for(&climate, surface) != Precip::Rain {
+            continue;
+        }
+        let y = surface - 1;
+        last = Some((x, y, z));
+        let (fx, fz) = (fastrand::f64(), fastrand::f64());
+        let data = table.block_state_data(game.chunk_store.get_block_state(x, y, z));
+        let shape_top = match crate::physics::block_shape::collision_shape(
+            data,
+            y,
+            &crate::physics::block_shape::CollisionContext::EMPTY,
+        ) {
+            None => 1.0,
+            Some(boxes) => boxes
+                .iter()
+                .filter(|b| (b[0]..=b[3]).contains(&fx) && (b[2]..=b[5]).contains(&fz))
+                .map(|b| b[4])
+                .fold(0.0, f64::max),
+        };
+        let fluid = data.fluid();
+        let top = shape_top.max(f64::from(fluid.height()));
+        let lit_campfire =
+            data.id().ends_with("campfire") && data.properties().get("lit") == Some("true");
+        let smoke = fluid.kind == crate::world::block::FluidKind::Lava
+            || data.id() == "magma_block"
+            || lit_campfire;
+        let at = glam::DVec3::new(f64::from(x) + fx, f64::from(y) + top, f64::from(z) + fz);
+        game.particle_store.add_rain_splash(at, smoke);
+    }
+    let Some((x, y, z)) = last else {
+        return;
+    };
+    let ticks = game.rain_sound_time;
+    game.rain_sound_time += 1;
+    if fastrand::i32(0..3) >= ticks {
+        return;
+    }
+    game.rain_sound_time = 0;
+    // Under cover: the muffled sound from above.
+    let (event, volume, pitch) =
+        if y > cy + 1 && game.chunk_store.motion_blocking_height(cx, cz) > cy {
+            ("weather.rain.above", 0.1, 0.5)
+        } else {
+            ("weather.rain", 0.2, 1.0)
+        };
+    core.audio.play_world_sound(
+        &crate::audio::SoundRef::event(event),
+        crate::audio::SoundCategory::Weather as u8,
+        Position::new(f64::from(x) + 0.5, f64::from(y) + 0.5, f64::from(z) + 0.5),
+        volume,
+        pitch,
+        fastrand::u64(..),
+    );
+}
+
 fn tick_tool_highlight(core: &AppCore, game: &mut GameState) {
     use azalea_inventory::ItemStack;
     let selected = game
@@ -2567,6 +2651,9 @@ pub fn update_game(
                 &game.chunk_store,
                 *game.player.position,
             );
+        }
+        if !game.deterministic {
+            tick_rain_particles(core, game, gfx.renderer.camera_render_position());
         }
         game.particle_store
             .tick(&game.chunk_store, game.block_registry.block_state_table());

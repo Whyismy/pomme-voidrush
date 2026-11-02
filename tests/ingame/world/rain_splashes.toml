@@ -1,0 +1,26 @@
+# Rain splashes (WeatherEffectRenderer.tickRainParticles): drops hopping on
+# the ground and on a slab, smoke on a lit campfire.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/weather rain"
+
+[[step]]
+chat = "/fill 1 -61 3 3 -61 5 minecraft:smooth_stone_slab"
+
+[[step]]
+chat = "/setblock -2 -60 4 minecraft:campfire"
+
+[[step]]
+chat = "/tp @s 0.5 -59 0.5 0 50"
+
+[[step]]
+wait_ms = 6000
+
+[[step]]
+screenshot = "rain"

@@ -94,6 +94,9 @@ enum Extra {
     CampfireSmoke,
     /// `DripParticle.DripHangParticle`: becomes the falling drip on expiry.
     DripHang,
+    /// `WaterDropParticle`: gone on landing half the time, or once it sinks
+    /// into a block's shape or a fluid.
+    WaterDrop,
 }
 
 pub struct Particle {
@@ -247,6 +250,46 @@ impl Particle {
         p.color = randomize_color(color, shade);
         p.color_to = to.map(|to| randomize_color(to, shade));
         p
+    }
+
+    /// `WaterDropParticle` (`rain`): a small hop up, then falling at 0.06 a
+    /// tick.
+    fn water_drop(pos: DVec3) -> Self {
+        let mut p = Self::thrown(pos, DVec3::ZERO);
+        p.vel.x *= f64::from(0.3f32);
+        p.vel.y = fastrand::f64() * f64::from(0.2f32) + f64::from(0.1f32);
+        p.vel.z *= f64::from(0.3f32);
+        // Its own tick subtracts `gravity` itself, not 0.04 times it.
+        p.gravity = f64::from(0.06f32) / 0.04;
+        p.lifetime = (8.0 / (fastrand::f64() * 0.8 + 0.2)) as i32;
+        p.extra = Extra::WaterDrop;
+        p
+    }
+
+    /// `WaterDropParticle.tick`'s ends: a landed drop goes half the time, and
+    /// one below the top of its block's collision shape or fluid goes too.
+    fn water_drop_gone(&self, chunks: &ChunkStore, block_state_table: BlockStateTable) -> bool {
+        if self.on_ground && fastrand::bool() {
+            return true;
+        }
+        let [bx, by, bz] = [self.pos.x, self.pos.y, self.pos.z].map(|c| c.floor() as i32);
+        let data = block_state_table.block_state_data(chunks.get_block_state(bx, by, bz));
+        let (fx, fz) = (self.pos.x - f64::from(bx), self.pos.z - f64::from(bz));
+        // `VoxelShape.max(Y, x, z)`: the top of the boxes over that point.
+        let shape_top = match crate::physics::block_shape::collision_shape(
+            data,
+            by,
+            &CollisionContext::EMPTY,
+        ) {
+            None => 1.0,
+            Some(boxes) => boxes
+                .iter()
+                .filter(|b| (b[0]..=b[3]).contains(&fx) && (b[2]..=b[5]).contains(&fz))
+                .map(|b| b[4])
+                .fold(0.0, f64::max),
+        };
+        let top = shape_top.max(f64::from(data.fluid().height()));
+        top > 0.0 && self.pos.y < f64::from(by) + top
     }
 
     /// `PortalParticle`: drawn in from `pos + vel` to `pos` over its life.
@@ -685,7 +728,10 @@ impl Particle {
                     self.alpha -= 0.015;
                 }
             }
-            Extra::None | Extra::DripHang => {}
+            Extra::None | Extra::DripHang | Extra::WaterDrop => {}
+        }
+        if self.extra == Extra::WaterDrop && self.water_drop_gone(chunks, block_state_table) {
+            return false;
         }
         self.sprite_from_age(sets);
         if self.light != Light::Bright {
@@ -768,6 +814,8 @@ enum SpriteSet {
     BigSmoke,
     DripHang,
     DripFall,
+    /// `rain`: one random `splash_*`.
+    Rain,
 }
 
 /// The sprites of each set, as atlas texture keys.
@@ -920,6 +968,15 @@ const SPRITE_SETS: &[(SpriteSet, &[&str])] = &[
     ),
     (SpriteSet::DripHang, &["particle/drip_hang"]),
     (SpriteSet::DripFall, &["particle/drip_fall"]),
+    (
+        SpriteSet::Rain,
+        &[
+            "particle/splash_0",
+            "particle/splash_1",
+            "particle/splash_2",
+            "particle/splash_3",
+        ],
+    ),
 ];
 
 /// Frame order from `assets/minecraft/particles/end_rod.json`: frame 0 is
@@ -1146,6 +1203,24 @@ impl ParticleStore {
     /// Vanilla `ClientLevel.addDestroyBlockEffect`: a grid of terrain
     /// particles across each box of the block's shape (4x4x4 for a full
     /// cube).
+    /// What `WeatherEffectRenderer.tickRainParticles` adds where rain lands:
+    /// a `rain` splash, or `smoke` on lava, magma and lit campfires.
+    pub fn add_rain_splash(&mut self, pos: DVec3, smoke: bool) {
+        let particle = if smoke {
+            let mut p = Particle::smoke(pos, DVec3::ZERO, 1.0);
+            p.sprite_from_age(&self.sets);
+            p
+        } else {
+            let mut p = Particle::water_drop(pos);
+            let frames = self.sets.get(SpriteSet::Rain);
+            if !frames.is_empty() {
+                p.set_sprite(&frames[fastrand::usize(..frames.len())]);
+            }
+            p
+        };
+        self.push(particle);
+    }
+
     pub fn add_destroy_block_effect(
         &mut self,
         pos: BlockPos,
