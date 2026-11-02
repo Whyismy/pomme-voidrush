@@ -1,6 +1,7 @@
 pub mod components;
 pub mod dimensions;
 pub mod display;
+pub mod end_crystal;
 pub mod falling_block;
 pub mod glowing;
 pub mod heads;

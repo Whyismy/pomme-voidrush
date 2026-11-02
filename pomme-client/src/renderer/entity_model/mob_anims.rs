@@ -238,6 +238,39 @@ fn ravager(p: &mut Parts, input: &MobAnimInput) {
     }
 }
 
+/// `EndCrystalModel.setupAnim`: the outer glass bobs (`getY`), and the
+/// glass and core spin 3 degrees a tick, tilted 60 degrees about the
+/// (1, 0, 1) diagonal.
+pub fn end_crystal(model: &BakedEntityModel, age_in_ticks: f32) -> PartAnim {
+    let mut anim = PartAnim::default();
+    let spin = glam::Quat::from_rotation_y((age_in_ticks * 3.0).to_radians());
+    let tilt = glam::Quat::from_axis_angle(
+        Vec3::new(1.0, 0.0, 1.0).normalize(),
+        std::f32::consts::FRAC_PI_3,
+    );
+    let euler = |q: glam::Quat| {
+        let (z, y, x) = q.to_euler(glam::EulerRot::ZYX);
+        Vec3::new(x, y, z)
+    };
+    // `EndCrystalRenderer.getY`, in model pixels.
+    let f = (age_in_ticks * 0.2).sin() / 2.0 + 0.5;
+    let bob = ((f * f + f) * 0.4 - 1.4) * 16.0;
+    if let Some(i) = find_part(&model.parts, "outer_glass") {
+        anim.rotation.push((i, euler(spin * tilt)));
+        // Pomme's crystal frame stands the base on the feet, which puts
+        // the glass's 24-pixel pivot a block (8 pixels at twice the size)
+        // higher than vanilla draws it.
+        anim.translation
+            .push((i, Vec3::new(0.0, bob / 2.0 - 8.0, 0.0)));
+    }
+    for name in ["inner_glass", "cube"] {
+        if let Some(i) = find_part(&model.parts, name) {
+            anim.rotation.push((i, euler(tilt * spin)));
+        }
+    }
+    anim
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

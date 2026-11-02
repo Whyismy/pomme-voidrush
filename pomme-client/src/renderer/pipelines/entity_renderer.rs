@@ -1058,6 +1058,8 @@ enum AnimationType {
     Generic,
     /// `ArmorStandModel.setupAnim`: each part at its synced pose.
     ArmorStand,
+    /// `EndCrystalModel.setupAnim`: the glass cubes spin and bob.
+    EndCrystal,
 }
 
 struct VariantDef {
@@ -2408,6 +2410,24 @@ fn mob_definitions() -> Vec<MobDef> {
         // unless `NoBasePlate`; the variant is those two flags. A small
         // stand draws the small layer.
         // TODO: the six synced poses (head, body, arms, legs).
+        // `EndCrystalRenderer`: variant 1 hides the base (`showsBottom`).
+        MobDef {
+            kind: EntityKind::EndCrystal,
+            anim: AnimationType::EndCrystal,
+            adult: [&[][..], &["base"][..]]
+                .into_iter()
+                .map(|hidden| {
+                    opaque(
+                        entity_model::bake_exported_hiding(exported_data::END_CRYSTAL, hidden),
+                        tex_table!("end_crystal" => "end_crystal"),
+                        64,
+                    )
+                })
+                .collect(),
+            baby: None,
+            adult_overlays: vec![],
+            baby_overlays: vec![],
+        },
         MobDef {
             kind: EntityKind::ArmorStand,
             anim: AnimationType::ArmorStand,
@@ -2474,6 +2494,15 @@ const DEFAULT_SKINS: [(&str, bool); 18] = [
     ("minecraft/textures/entity/player/wide/sunny.png", false),
     ("minecraft/textures/entity/player/wide/zuri.png", false),
 ];
+
+/// `EndCrystalRenderer`'s pose before the model, from pomme's living-model
+/// frame (y flipped, rebased 1.501 up): a non-living renderer draws the
+/// model unflipped and at twice the size, the base's 4 pixels standing on
+/// the crystal's feet.
+pub(crate) fn end_crystal_transform() -> glam::Mat4 {
+    glam::Mat4::from_translation(glam::Vec3::new(0.0, 2.0 * 1.501, 0.0))
+        * glam::Mat4::from_scale(glam::Vec3::new(-2.0, -2.0, 2.0))
+}
 
 /// The default skin of vanilla's wide Steve, as a player `variant_index`.
 pub(crate) const WIDE_STEVE_SKIN: u32 = 15;
@@ -3197,6 +3226,9 @@ impl EntityRenderer {
                 info.golem_offer_flower_ticks,
             ),
             AnimationType::Static => entity_model::PartAnim::default(),
+            AnimationType::EndCrystal => {
+                entity_model::mob_anims::end_crystal(model, info.age_in_ticks)
+            }
             AnimationType::ArmorStand => {
                 entity_model::compute_armor_stand_anim(model, &info.armor_stand_pose)
             }

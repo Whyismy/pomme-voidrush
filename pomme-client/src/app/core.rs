@@ -2615,6 +2615,9 @@ impl AppCore {
                     if entity_type == azalea_registry::builtin::EntityKind::Interaction {
                         game.interactions.spawn(id, position);
                     }
+                    if entity_type == azalea_registry::builtin::EntityKind::EndCrystal {
+                        game.end_crystals.spawn(id, position);
+                    }
                     game.silent_entities.remove(&id);
                     if crate::entity::is_living_mob(&entity_type) {
                         game.entity_store.spawn_living(
@@ -2656,6 +2659,7 @@ impl AppCore {
                     game.falling_blocks
                         .move_delta(id, dvec3(dx, dy, dz), on_ground);
                     game.interactions.move_delta(id, dvec3(dx, dy, dz));
+                    game.end_crystals.move_delta(id, dvec3(dx, dy, dz));
                     game.display_store.move_delta(id, dvec3(dx, dy, dz), None);
                     if let Some(pos) = game.entity_positions.get_mut(&id) {
                         *pos += dvec3(dx, dy, dz);
@@ -2732,6 +2736,7 @@ impl AppCore {
                         .teleport(id, position, velocity, on_ground);
                     game.falling_blocks.teleport(id, position, velocity);
                     game.interactions.teleport(id, position);
+                    game.end_crystals.teleport(id, position);
                     game.display_store
                         .teleport(id, *position, y_rot_deg, x_rot_deg);
                     game.entity_positions.insert(id, position);
@@ -2812,6 +2817,7 @@ impl AppCore {
                     game.item_entity_store.remove(&ids);
                     game.falling_blocks.remove(&ids);
                     game.interactions.remove(&ids);
+                    game.end_crystals.remove(&ids);
                     game.display_store.remove(&ids);
                     game.name_store.remove(&ids);
                     if game.controlled_vehicle_id.is_some_and(|v| ids.contains(&v)) {
@@ -2867,6 +2873,7 @@ impl AppCore {
                     }
                     game.display_store.apply_entity_data(id, index, value);
                     game.interactions.apply_entity_data(id, index, value);
+                    game.end_crystals.apply_entity_data(id, index, value);
                     game.name_store.apply_entity_data(id, index, value);
                     if index == 5
                         && let crate::entity::MetaValue::Bool(no_gravity) = value
@@ -3172,6 +3179,7 @@ impl AppCore {
                     game.item_entity_store = crate::entity::ItemEntityStore::new();
                     game.falling_blocks.clear();
                     game.interactions.clear();
+                    game.end_crystals.clear();
                     game.display_store.clear();
                     game.name_store.clear();
                     game.entity_positions.clear();

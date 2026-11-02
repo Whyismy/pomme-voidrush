@@ -349,6 +349,7 @@ pub struct GameState {
     pub name_store: crate::entity::name_tags::NameStore,
     pub falling_blocks: crate::entity::falling_block::FallingBlockStore,
     pub interactions: crate::entity::interaction::InteractionStore,
+    pub end_crystals: crate::entity::end_crystal::EndCrystalStore,
     pub particle_store: crate::particle::ParticleStore,
     /// `WeatherEffectRenderer.rainSoundTime`: ticks since the last rain sound.
     pub rain_sound_time: i32,
@@ -526,6 +527,7 @@ impl GameState {
             name_store: crate::entity::name_tags::NameStore::default(),
             falling_blocks: Default::default(),
             interactions: Default::default(),
+            end_crystals: Default::default(),
             rain_sound_time: 0,
             particle_store: {
                 let (grass, foliage, dry_foliage) = mesh_dispatcher.colormaps();
@@ -2681,6 +2683,7 @@ pub fn update_game(
         }
         game.particle_store
             .tick(&game.chunk_store, game.block_registry.block_state_table());
+        game.end_crystals.tick();
         game.block_entity_anim.tick();
         crate::app::core::tick_moving_pistons(game);
         game.title.tick();
@@ -4482,6 +4485,26 @@ pub fn update_game(
                     false,
                     0,
                 ),
+                ..Default::default()
+            });
+        }
+    }
+
+    // End crystals (`EndCrystalRenderer`), from vanilla's own model layer.
+    if !benchmark_running {
+        for crystal in game.end_crystals.crystals.values() {
+            let feet = crystal
+                .prev_position
+                .lerp(crystal.position, partial_tick as f64);
+            entity_renders.push(EntityRenderInfo {
+                position: feet,
+                entity_kind: EntityKind::EndCrystal,
+                age_in_ticks: crystal.age as f32 + partial_tick,
+                variant_index: u32::from(!crystal.shows_bottom),
+                body_transform: Some(
+                    crate::renderer::pipelines::entity_renderer::end_crystal_transform(),
+                ),
+                light: entity_light(&world_light, EntityKind::EndCrystal, feet, false, 0),
                 ..Default::default()
             });
         }
