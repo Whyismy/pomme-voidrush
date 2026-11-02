@@ -7,6 +7,9 @@
 //! windows of `seconds` each, back to back, from `start` seconds after the
 //! first frame, for a live client nothing can type into.
 //!
+//! `POMME_AUTO_SCREENSHOTS=<seconds>,...` takes an F2 screenshot that many
+//! seconds into the first world joined, likewise.
+//!
 //! Each window also keeps the phases of its slow frames (over
 //! [`SLOW_FRAME_SECS`]) apart, to show what a frame-time spike was spent on.
 
@@ -55,6 +58,37 @@ struct Auto {
 }
 
 static AUTO: Mutex<Option<Auto>> = Mutex::new(None);
+
+/// `POMME_AUTO_SCREENSHOTS`'s times still to come, soonest last, and when
+/// the first in-game frame asked.
+static SHOTS: Mutex<Option<(Vec<f32>, std::time::Instant)>> = Mutex::new(None);
+static SHOTS_READ: std::sync::Once = std::sync::Once::new();
+
+/// Whether a scheduled screenshot is due; each is due once.
+pub fn screenshot_due() -> bool {
+    SHOTS_READ.call_once(|| {
+        let times = std::env::var("POMME_AUTO_SCREENSHOTS").ok().map(|spec| {
+            let mut times: Vec<f32> = spec
+                .split(',')
+                .filter_map(|t| t.trim().parse().ok())
+                .collect();
+            times.sort_by(|a, b| b.total_cmp(a));
+            times
+        });
+        *SHOTS.lock().unwrap_or_else(|e| e.into_inner()) =
+            times.map(|times| (times, std::time::Instant::now()));
+    });
+    let mut shots = SHOTS.lock().unwrap_or_else(|e| e.into_inner());
+    let Some((times, start)) = shots.as_mut() else {
+        return false;
+    };
+    let elapsed = start.elapsed().as_secs_f32();
+    if times.last().is_some_and(|&t| t <= elapsed) {
+        times.pop();
+        return true;
+    }
+    false
+}
 static AUTO_READ: std::sync::Once = std::sync::Once::new();
 
 fn read_auto() -> Option<Auto> {

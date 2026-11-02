@@ -187,6 +187,18 @@ fn send_data_value(
             };
             NetworkEvent::EntityCustomName { id, name, spans }
         }
+        // Mannequin.DATA_PROFILE, the only profile-valued entity data.
+        (_, Value::Profile(profile)) => NetworkEvent::MannequinProfile {
+            id,
+            profile: profile.clone(),
+        },
+        // Mannequin.DATA_DESCRIPTION, the only optional text past the name.
+        (19, Value::OptionalComponent(description)) => NetworkEvent::MannequinDescription {
+            id,
+            spans: description
+                .as_ref()
+                .map(|nbt| super::chat::component_spans(nbt).unwrap_or_default()),
+        },
         (18, Value::Variant(Variant::Cow, v)) => variant(EntityKind::Cow, *v),
         (18, Value::Variant(Variant::Chicken, v)) => variant(EntityKind::Chicken, *v),
         // Cat / wolf variants: 20 / 23 on 26.x, one lower on 1.21.9-1.21.11

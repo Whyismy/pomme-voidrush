@@ -245,6 +245,12 @@ impl Scoreboard {
             .unwrap_or_else(|| self.line(name, None))
     }
 
+    /// Vanilla `Entity.getDisplayName` for a non-player: `name` in the team
+    /// style of `member`, the entity's scoreboard name (its UUID).
+    pub fn entity_name(&self, member: &str, name: &[TextSpan]) -> Vec<TextSpan> {
+        self.line(member, Some(name))
+    }
+
     fn team_of(&self, member: &str) -> Option<(&str, &ScoreboardTeam)> {
         self.teams
             .iter()

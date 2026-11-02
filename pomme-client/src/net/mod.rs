@@ -427,6 +427,16 @@ pub enum NetworkEvent {
     ServerSimulationDistance {
         distance: u32,
     },
+    /// A mannequin's `ResolvableProfile`: whose skin it wears.
+    MannequinProfile {
+        id: i32,
+        profile: Box<pomme_protocol::entity_data::Profile>,
+    },
+    /// A mannequin's description, the line under its name; `None` hides it.
+    MannequinDescription {
+        id: i32,
+        spans: Option<Vec<crate::ui::text::TextSpan>>,
+    },
     EntitySpawned {
         id: i32,
         uuid: uuid::Uuid,

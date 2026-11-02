@@ -8,6 +8,8 @@ mod axolotl;
 mod bee;
 mod copper_golem_anim;
 mod dolphin;
+mod exported;
+pub(crate) mod exported_data;
 mod fox;
 mod goat;
 mod llama;
@@ -20,6 +22,7 @@ pub use armadillo::*;
 pub use axolotl::*;
 pub use bee::*;
 pub use dolphin::*;
+pub(crate) use exported::{ExportedPart, bake_exported};
 pub use fox::*;
 pub use goat::*;
 pub use llama::*;
@@ -4133,6 +4136,60 @@ fn vanilla_rot(x: f32, y: f32, z: f32) -> Vec3 {
 /// speed`.
 fn walk_swing(walk_pos: f32, walk_speed: f32, phase: f32) -> f32 {
     (walk_pos * 0.6662 + phase).cos() * 1.4 * walk_speed
+}
+
+/// Head look and walking for models baked from vanilla's own layers
+/// ([`bake_exported`]) that have no hand-ported `setupAnim` yet, by vanilla
+/// part names: the head turns, biped legs and arms swing like
+/// `HumanoidModel`'s, quadruped legs like `QuadrupedModel`'s, each on top
+/// of the part's resting pose. An illager (a model with crossed `arms`)
+/// shows them unless aggressive, and its separate arms only then, like
+/// `IllagerModel`.
+pub fn compute_generic_anim(
+    model: &BakedEntityModel,
+    head_x_rot_deg: f32,
+    local_head_y_rot_deg: f32,
+    walk_pos: f32,
+    walk_speed: f32,
+    aggressive: bool,
+) -> PartAnim {
+    use std::f32::consts::PI;
+    let mut anim = PartAnim::default();
+    let crossed_arms = find_part(&model.parts, "arms").is_some();
+    let arm = |phase: f32| (walk_pos * 0.6662 + phase).cos() * walk_speed;
+    for (i, part) in model.parts.iter().enumerate() {
+        let swing = match part.name.as_str() {
+            "head" => {
+                anim.rotation
+                    .push((i, head_rotation(head_x_rot_deg, local_head_y_rot_deg)));
+                continue;
+            }
+            "right_leg" | "right_hind_leg" | "left_front_leg" => {
+                walk_swing(walk_pos, walk_speed, 0.0)
+            }
+            "left_leg" | "left_hind_leg" | "right_front_leg" => {
+                walk_swing(walk_pos, walk_speed, PI)
+            }
+            "right_arm" => arm(PI),
+            "left_arm" => arm(0.0),
+            _ => continue,
+        };
+        anim.rotation
+            .push((i, part.default_rotation + Vec3::new(swing, 0.0, 0.0)));
+    }
+    if crossed_arms {
+        let hidden: &[&str] = if aggressive {
+            &["arms"]
+        } else {
+            &["right_arm", "left_arm"]
+        };
+        for name in hidden {
+            if let Some(i) = find_part(&model.parts, name) {
+                anim.scale.push((i, Vec3::ZERO));
+            }
+        }
+    }
+    anim
 }
 
 /// Vanilla head look, `Ry(yaw)·Rx(pitch)`.

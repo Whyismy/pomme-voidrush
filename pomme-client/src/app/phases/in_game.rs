@@ -2647,6 +2647,9 @@ pub fn update_game(
     // TODO: vanilla makes the filename a clickable open-file link; pomme chat
     // has no click handling yet.
     use crate::ui::text::TextSpan;
+    if crate::frame_log::screenshot_due() {
+        gfx.renderer.request_screenshot();
+    }
     for result in gfx.renderer.take_screenshot_messages() {
         let spans = match result {
             Ok(name) => {
@@ -4155,8 +4158,18 @@ pub fn update_game(
                     is_crouching: e.is_crouching,
                     walk_anim_pos: e.walk_pos(partial_tick),
                     walk_anim_speed: e.walk_speed(partial_tick),
-                    entity_kind: e.entity_type,
-                    player_uuid: e.player_uuid,
+                    // Vanilla `MannequinRenderer` is an `AvatarRenderer`: the
+                    // player model, wearing the skin kept under its own id.
+                    entity_kind: if e.entity_type == EntityKind::Mannequin {
+                        EntityKind::Player
+                    } else {
+                        e.entity_type
+                    },
+                    player_uuid: if e.entity_type == EntityKind::Mannequin {
+                        Some(e.uuid)
+                    } else {
+                        e.player_uuid
+                    },
                     armor: e.armor.clone(),
                     variant_index: extras.variant_index,
                     overlay_tints: extras.overlay_tints,
@@ -5517,17 +5530,26 @@ fn build_name_tags(
                 None => continue,
             },
         };
-        let layout = match &named.layout {
-            Some(layout) => layout.clone(),
-            None => {
-                let Some(name) = &named.name else { continue };
-                let layout = Arc::new(renderer.layout_display_text(name, i32::MAX));
-                named.layout = Some(layout.clone());
-                layout
-            }
-        };
         let at = feet + glam::DVec3::Y * (f64::from(named.name_height()) + 0.5);
-        push(at, layout, false, out);
+        if at.distance_squared(eye) > 64.0 * 64.0 {
+            continue;
+        }
+        let Some(name) = &named.name else { continue };
+        let spans = match named.uuid {
+            Some(uuid) => sources.scoreboard.entity_name(&uuid.to_string(), name),
+            None => name.clone(),
+        };
+        let layout = named.layout(spans, |spans| renderer.layout_display_text(spans, i32::MAX));
+        // A mannequin's description takes the name's place, and the name
+        // moves up a line (`AvatarRenderer`'s below-name text, 9 * 1.15
+        // pixels at 0.025 a pixel).
+        match named.description_layout(|spans| renderer.layout_display_text(spans, i32::MAX)) {
+            Some(description) => {
+                push(at, description, false, out);
+                push(at + glam::DVec3::Y * 0.25875, layout, false, out);
+            }
+            None => push(at, layout, false, out),
+        }
     }
 }
 
@@ -5682,6 +5704,25 @@ fn entity_extras(
             ..Default::default()
         },
         EntityKind::SulfurCube => sulfur_cube_extras(e, alpha),
+        // `MagmaCubeRenderer.scale`: a slime's size and squish.
+        EntityKind::MagmaCube => EntityExtras {
+            body_transform: Some(cube_body_transform(e, alpha, true)),
+            ..Default::default()
+        },
+        // The renderers' fixed `scale`: `WitherSkeletonRenderer`,
+        // `GhastRenderer`, `ElderGuardianRenderer`.
+        EntityKind::WitherSkeleton | EntityKind::Ghast | EntityKind::ElderGuardian => {
+            EntityExtras {
+                body_transform: Some(glam::Mat4::from_scale(glam::Vec3::splat(
+                    match e.entity_type {
+                        EntityKind::WitherSkeleton => 1.2,
+                        EntityKind::Ghast => 4.5,
+                        _ => 2.35,
+                    },
+                ))),
+                ..Default::default()
+            }
+        }
         EntityKind::Allay => EntityExtras {
             allay: crate::renderer::entity_model::AllayAnims {
                 dancing: e.allay.dancing,

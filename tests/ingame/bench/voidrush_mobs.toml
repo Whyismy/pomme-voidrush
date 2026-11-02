@@ -1,0 +1,114 @@
+# Mobs pomme draws from vanilla's own layer geometry, in two rows facing
+# the camera without AI, and mannequins: one wearing a named player's skin
+# with a description, one with the default (empty) profile.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/gamerule doMobSpawning false"
+
+[[step]]
+chat = "/gamemode spectator"
+
+[[step]]
+chat = "/summon minecraft:wither_skeleton -16.5 -60 4.5 {NoAI:1b,Silent:1b,NoGravity:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:piglin -13.5 -60 4.5 {NoAI:1b,Silent:1b,NoGravity:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:piglin_brute -10.5 -60 4.5 {NoAI:1b,Silent:1b,NoGravity:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:zombified_piglin -7.5 -60 4.5 {NoAI:1b,Silent:1b,NoGravity:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:vindicator -4.5 -60 4.5 {NoAI:1b,Silent:1b,NoGravity:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:pillager -1.5 -60 4.5 {NoAI:1b,Silent:1b,NoGravity:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:evoker 1.5 -60 4.5 {NoAI:1b,Silent:1b,NoGravity:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:vex 4.5 -60 4.5 {NoAI:1b,Silent:1b,NoGravity:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:blaze 7.5 -60 4.5 {NoAI:1b,Silent:1b,NoGravity:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:magma_cube 10.5 -60 4.5 {NoAI:1b,Silent:1b,NoGravity:1b,PersistenceRequired:1b,Rotation:[180f,0f],Size:1}"
+
+[[step]]
+chat = "/summon minecraft:frog 13.5 -60 4.5 {NoAI:1b,Silent:1b,NoGravity:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:creaking 16.5 -60 4.5 {NoAI:1b,Silent:1b,NoGravity:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:mannequin 21.5 -60 4.5 {NoAI:1b,Silent:1b,NoGravity:1b,PersistenceRequired:1b,Rotation:[180f,0f],profile:{name:\"Notch\"},description:\"Hit me\",CustomName:\"Mannequin\",CustomNameVisible:1b}"
+
+[[step]]
+chat = "/summon minecraft:mannequin 24.5 -60 4.5 {NoAI:1b,Silent:1b,NoGravity:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:ravager -18.5 -60 14.5 {NoAI:1b,Silent:1b,NoGravity:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:hoglin -14.0 -60 14.5 {NoAI:1b,Silent:1b,NoGravity:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:zoglin -9.5 -60 14.5 {NoAI:1b,Silent:1b,NoGravity:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:strider -5.0 -60 14.5 {NoAI:1b,Silent:1b,NoGravity:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:phantom -0.5 -60 14.5 {NoAI:1b,Silent:1b,NoGravity:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:guardian 4.0 -60 14.5 {NoAI:1b,Silent:1b,NoGravity:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:shulker 8.5 -60 14.5 {NoAI:1b,Silent:1b,NoGravity:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:breeze 13.0 -60 14.5 {NoAI:1b,Silent:1b,NoGravity:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:warden 17.5 -60 14.5 {NoAI:1b,Silent:1b,NoGravity:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:camel 22.0 -60 14.5 {NoAI:1b,Silent:1b,NoGravity:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/tp @s 2.5 -58 -9.5 0 8"
+
+[[step]]
+wait_ms = 6000
+
+[[step]]
+screenshot = "mobs_near"
+
+[[step]]
+chat = "/tp @s 2.5 -55 -4.5 0 20"
+
+[[step]]
+wait_ms = 3000
+
+[[step]]
+screenshot = "mobs_far"
+
+[[step]]
+chat = "/tp @s 23 -58.5 1.5 0 5"
+
+[[step]]
+wait_ms = 4000
+
+[[step]]
+screenshot = "mannequins"

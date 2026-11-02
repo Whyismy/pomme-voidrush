@@ -5871,6 +5871,15 @@ fn entity_data_matches_azalea() {
             (Value::Component(nbt), EntityDataValue::FormattedText(az)) => {
                 assert_eq!(plain(nbt), az.to_string());
             }
+            (Value::Profile(ours), EntityDataValue::ResolvableProfile(az)) => {
+                use azalea_inventory::components::PartialOrFullProfile;
+                let (name, id) = match &*az.unpack {
+                    PartialOrFullProfile::Partial(p) => (p.name.clone(), p.id),
+                    PartialOrFullProfile::Full(p) => (Some(p.name.clone()), Some(p.uuid)),
+                };
+                assert_eq!(ours.name, name);
+                assert_eq!(ours.id.map(uuid::Uuid::from_u128), id);
+            }
             (ours, theirs) => assert_eq!(
                 Some(ours),
                 super::entity_data::from_azalea(theirs)

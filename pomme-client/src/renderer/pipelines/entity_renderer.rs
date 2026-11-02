@@ -994,6 +994,9 @@ enum AnimationType {
     Golem,
     /// No part animation (slime — size/squish live in the body transform).
     Static,
+    /// [`entity_model::compute_generic_anim`], for models baked from
+    /// vanilla's layers without a hand-ported animation.
+    Generic,
 }
 
 struct VariantDef {
@@ -1016,6 +1019,7 @@ struct MobDef {
 }
 
 fn mob_definitions() -> Vec<MobDef> {
+    use entity_model::exported_data;
     // One single-fallback texture entry per name under an entity texture dir.
     macro_rules! tex_table {
         ($dir:expr => $($name:literal),+ $(,)?) => {
@@ -2206,7 +2210,170 @@ fn mob_definitions() -> Vec<MobDef> {
             )],
             baby_overlays: vec![],
         },
+        MobDef {
+            kind: EntityKind::WitherSkeleton,
+            anim: AnimationType::Skeleton,
+            adult: vec![opaque(
+                entity_model::bake_skeleton_model(),
+                tex_table!("skeleton" => "wither_skeleton"),
+                64,
+            )],
+            baby: None,
+            adult_overlays: vec![],
+            baby_overlays: vec![],
+        },
+        // Mobs without a hand-ported model: vanilla's own layer geometry,
+        // with head look and walking.
+        exported(
+            EntityKind::Piglin,
+            exported_data::PIGLIN,
+            tex_table!("piglin" => "piglin"),
+        ),
+        exported(
+            EntityKind::PiglinBrute,
+            exported_data::PIGLIN_BRUTE,
+            tex_table!("piglin" => "piglin_brute"),
+        ),
+        MobDef {
+            anim: AnimationType::Zombie,
+            ..exported(
+                EntityKind::ZombifiedPiglin,
+                exported_data::ZOMBIFIED_PIGLIN,
+                tex_table!("piglin" => "zombified_piglin"),
+            )
+        },
+        exported(
+            EntityKind::Vindicator,
+            exported_data::VINDICATOR,
+            tex_table!("illager" => "vindicator"),
+        ),
+        exported(
+            EntityKind::Pillager,
+            exported_data::PILLAGER,
+            tex_table!("illager" => "pillager"),
+        ),
+        exported(
+            EntityKind::Evoker,
+            exported_data::EVOKER,
+            tex_table!("illager" => "evoker"),
+        ),
+        exported(
+            EntityKind::Illusioner,
+            exported_data::ILLUSIONER,
+            tex_table!("illager" => "illusioner"),
+        ),
+        exported(
+            EntityKind::Vex,
+            exported_data::VEX,
+            tex_table!("illager" => "vex"),
+        ),
+        exported(
+            EntityKind::Ravager,
+            exported_data::RAVAGER,
+            tex_table!("illager" => "ravager"),
+        ),
+        exported(
+            EntityKind::Blaze,
+            exported_data::BLAZE,
+            tex_table!("blaze" => "blaze"),
+        ),
+        exported(
+            EntityKind::Hoglin,
+            exported_data::HOGLIN,
+            tex_table!("hoglin" => "hoglin"),
+        ),
+        exported(
+            EntityKind::Zoglin,
+            exported_data::ZOGLIN,
+            tex_table!("hoglin" => "zoglin"),
+        ),
+        exported(
+            EntityKind::Strider,
+            exported_data::STRIDER,
+            tex_table!("strider" => "strider"),
+        ),
+        exported(
+            EntityKind::Phantom,
+            exported_data::PHANTOM,
+            tex_table!("phantom" => "phantom"),
+        ),
+        exported(
+            EntityKind::Ghast,
+            exported_data::GHAST,
+            tex_table!("ghast" => "ghast"),
+        ),
+        exported(
+            EntityKind::Frog,
+            exported_data::FROG,
+            tex_table!("frog" => "frog_temperate"),
+        ),
+        exported(
+            EntityKind::Guardian,
+            exported_data::GUARDIAN,
+            tex_table!("guardian" => "guardian"),
+        ),
+        exported(
+            EntityKind::ElderGuardian,
+            exported_data::ELDER_GUARDIAN,
+            tex_table!("guardian" => "guardian_elder"),
+        ),
+        exported(
+            EntityKind::Shulker,
+            exported_data::SHULKER,
+            tex_table!("shulker" => "shulker"),
+        ),
+        exported(
+            EntityKind::Warden,
+            exported_data::WARDEN,
+            tex_table!("warden" => "warden"),
+        ),
+        exported(
+            EntityKind::Breeze,
+            exported_data::BREEZE,
+            tex_table!("breeze" => "breeze"),
+        ),
+        exported(
+            EntityKind::Creaking,
+            exported_data::CREAKING,
+            tex_table!("creaking" => "creaking"),
+        ),
+        exported(
+            EntityKind::Camel,
+            exported_data::CAMEL,
+            tex_table!("camel" => "camel"),
+        ),
+        MobDef {
+            anim: AnimationType::Static,
+            ..exported(
+                EntityKind::MagmaCube,
+                exported_data::MAGMA_CUBE,
+                tex_table!("slime" => "magmacube"),
+            )
+        },
     ]
+}
+
+/// A mob drawn from vanilla's layer geometry (`layer`) with `tex`, and the
+/// generic head-and-walk animation.
+fn exported(
+    kind: EntityKind,
+    layer: &[entity_model::ExportedPart],
+    tex: &'static [&'static [&'static str]],
+) -> MobDef {
+    MobDef {
+        kind,
+        anim: AnimationType::Generic,
+        adult: vec![VariantDef {
+            model: entity_model::bake_exported(layer),
+            tex_variants: tex,
+            tex_size: 64,
+            overlay_kind: OverlayKind::Opaque,
+            invisible_outline: false,
+        }],
+        baby: None,
+        adult_overlays: vec![],
+        baby_overlays: vec![],
+    }
 }
 
 impl EntityRenderer {
@@ -2848,6 +3015,14 @@ impl EntityRenderer {
                 info.golem_offer_flower_ticks,
             ),
             AnimationType::Static => entity_model::PartAnim::default(),
+            AnimationType::Generic => entity_model::compute_generic_anim(
+                model,
+                info.head_x_rot_deg,
+                local_head_y,
+                info.walk_anim_pos,
+                info.walk_anim_speed,
+                info.aggressive,
+            ),
         }
     }
 

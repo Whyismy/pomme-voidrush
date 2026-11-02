@@ -1322,6 +1322,30 @@ impl AppCore {
         let source = textures
             .map(PlayerSkinSource::Textures)
             .unwrap_or(PlayerSkinSource::Uuid);
+        self.queue_skin(uuid, source, uuid);
+    }
+
+    /// Vanilla `MannequinRenderer`'s skin: the profile's textures, else the
+    /// skin of the player it names by id or by name; with neither, the
+    /// mannequin keeps the default skin. Kept under the mannequin's own id.
+    fn queue_mannequin_skin(
+        &mut self,
+        mannequin: uuid::Uuid,
+        profile: &pomme_protocol::entity_data::Profile,
+    ) {
+        let id = profile.id.map(uuid::Uuid::from_u128);
+        let source = match (&profile.textures, id, &profile.name) {
+            (Some(textures), ..) => PlayerSkinSource::Textures(textures.clone()),
+            (None, Some(id), _) if !id.is_nil() => PlayerSkinSource::Uuid,
+            (None, _, Some(name)) if !name.is_empty() => PlayerSkinSource::Name(name.clone()),
+            _ => return,
+        };
+        self.queue_skin(mannequin, source, id.unwrap_or(mannequin));
+    }
+
+    /// Fetches `source`'s skin (a `Uuid` source names `profile`) and keeps
+    /// it under `uuid`.
+    fn queue_skin(&mut self, uuid: uuid::Uuid, source: PlayerSkinSource, profile: uuid::Uuid) {
         if self.requested_player_skins.get(&uuid) == Some(&source) {
             return;
         }
@@ -1335,7 +1359,7 @@ impl AppCore {
 
         let tx = self.player_skin_tx.clone();
         self.tokio_rt.spawn(async move {
-            let result = fetch_skin(&source, Some(uuid)).await;
+            let result = fetch_skin(&source, Some(profile)).await;
             let _ = tx.send(PlayerSkinResult {
                 uuid,
                 source,
@@ -2599,7 +2623,7 @@ impl AppCore {
                         game.display_store
                             .spawn(id, kind, *position, y_rot_deg, x_rot_deg);
                     }
-                    game.name_store.spawn(id, entity_type);
+                    game.name_store.spawn(id, entity_type, uuid);
                 }
                 NetworkEvent::EntityMoved {
                     id,
@@ -2738,13 +2762,27 @@ impl AppCore {
                         renderer.camera_render_position(),
                     );
                 }
+                NetworkEvent::MannequinProfile { id, profile } => {
+                    if let Some(entity) = game.entity_store.living.get(&id) {
+                        let uuid = entity.uuid;
+                        self.queue_mannequin_skin(uuid, &profile);
+                    }
+                }
+                NetworkEvent::MannequinDescription { id, spans } => {
+                    game.name_store.set_description(id, spans);
+                }
                 NetworkEvent::EntitiesRemoved { ids } => {
                     for id in &ids {
-                        if let Some(entity) = game.entity_store.remove_living(*id)
-                            && let Some(uuid) = entity.player_uuid
-                            && !game.entity_store.has_player_uuid(&uuid)
-                        {
-                            self.remove_player_skin(renderer, &uuid);
+                        if let Some(entity) = game.entity_store.remove_living(*id) {
+                            if let Some(uuid) = entity.player_uuid
+                                && !game.entity_store.has_player_uuid(&uuid)
+                            {
+                                self.remove_player_skin(renderer, &uuid);
+                            }
+                            if entity.entity_type == azalea_registry::builtin::EntityKind::Mannequin
+                            {
+                                self.remove_player_skin(renderer, &entity.uuid);
+                            }
                         }
                         game.entity_positions.remove(id);
                         game.silent_entities.remove(id);

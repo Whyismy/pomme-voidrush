@@ -1556,7 +1556,7 @@ impl LivingEntity {
                 let step = if self.is_standing { 1.0 } else { -1.0 };
                 self.stand_anim = (self.stand_anim + step).clamp(0.0, 6.0);
             }
-            EntityKind::Slime => self.tick_squish(),
+            EntityKind::Slime | EntityKind::MagmaCube => self.tick_squish(),
             EntityKind::SulfurCube => {
                 if self.sulfur_fuse > 0 {
                     self.sulfur_fuse -= 1;
@@ -2034,9 +2034,8 @@ impl EntityStore {
             (EntityKind::Bogged, 16, Bool(b)) => entity.is_sheared = b,
             // Slime size: 16 on 1.21.9-26.1.x, 18 since Slime joined
             // AgeableMob in 26.2.
-            (EntityKind::Slime, 16 | 18, Int(s)) | (EntityKind::SulfurCube, 18, Int(s)) => {
-                entity.slime_size = s.clamp(1, 127) as u8
-            }
+            (EntityKind::Slime | EntityKind::MagmaCube, 16 | 18, Int(s))
+            | (EntityKind::SulfurCube, 18, Int(s)) => entity.slime_size = s.clamp(1, 127) as u8,
             // `SulfurCube.onSyncedDataUpdated` primes the fuse from MAX_FUSE.
             (EntityKind::SulfurCube, 19, Int(f)) => entity.sulfur_fuse = f,
             (EntityKind::Allay, 16, Bool(b)) => entity.allay.dancing = b,
@@ -2573,6 +2572,34 @@ pub fn is_living_mob(kind: &EntityKind) -> bool {
                 | EntityKind::Turtle
                 | EntityKind::Axolotl
                 | EntityKind::PolarBear
+                // Drawn from vanilla's own layer geometry (`bake_exported`)
+                // or, for mannequins and wither skeletons, existing models.
+                | EntityKind::Mannequin
+                | EntityKind::WitherSkeleton
+                | EntityKind::Piglin
+                | EntityKind::PiglinBrute
+                | EntityKind::ZombifiedPiglin
+                | EntityKind::Vindicator
+                | EntityKind::Pillager
+                | EntityKind::Evoker
+                | EntityKind::Illusioner
+                | EntityKind::Vex
+                | EntityKind::Ravager
+                | EntityKind::Blaze
+                | EntityKind::MagmaCube
+                | EntityKind::Hoglin
+                | EntityKind::Zoglin
+                | EntityKind::Strider
+                | EntityKind::Phantom
+                | EntityKind::Ghast
+                | EntityKind::Frog
+                | EntityKind::Guardian
+                | EntityKind::ElderGuardian
+                | EntityKind::Shulker
+                | EntityKind::Warden
+                | EntityKind::Breeze
+                | EntityKind::Creaking
+                | EntityKind::Camel
         )
 }
 

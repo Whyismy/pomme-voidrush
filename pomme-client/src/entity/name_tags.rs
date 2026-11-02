@@ -26,15 +26,52 @@ const INVISIBLE: u8 = 0x20;
 #[derive(Default)]
 pub struct Named {
     pub kind: Option<EntityKind>,
+    /// Its scoreboard name (`Entity.getScoreboardName`), which teams list.
+    pub uuid: Option<uuid::Uuid>,
     pub name: Option<Vec<TextSpan>>,
     pub name_visible: bool,
     pub invisible: bool,
     armor_stand_flags: u8,
-    /// The name laid out, until it changes.
-    pub layout: Option<Arc<TextLayout>>,
+    /// The styled name as last laid out.
+    layout: Option<(Vec<TextSpan>, Arc<TextLayout>)>,
+    /// A mannequin's description, the line under its name, and its layout.
+    description: Option<Vec<TextSpan>>,
+    description_layout: Option<Arc<TextLayout>>,
 }
 
 impl Named {
+    /// `spans` laid out, by `layout` only when they differ from last time.
+    pub fn layout(
+        &mut self,
+        spans: Vec<TextSpan>,
+        layout: impl FnOnce(&[TextSpan]) -> TextLayout,
+    ) -> Arc<TextLayout> {
+        match &self.layout {
+            Some((old, cached)) if *old == spans => cached.clone(),
+            _ => {
+                let laid = Arc::new(layout(&spans));
+                self.layout = Some((spans, laid.clone()));
+                laid
+            }
+        }
+    }
+
+    /// The description laid out, when there is a visible one.
+    pub fn description_layout(
+        &mut self,
+        layout: impl FnOnce(&[TextSpan]) -> TextLayout,
+    ) -> Option<Arc<TextLayout>> {
+        let description = self.description.as_ref()?;
+        if description.iter().all(|span| span.text.is_empty()) {
+            return None;
+        }
+        Some(
+            self.description_layout
+                .get_or_insert_with(|| Arc::new(layout(description)))
+                .clone(),
+        )
+    }
+
     /// Where the name hangs above the entity's feet: its box's top
     /// (`EntityAttachment.NAME_TAG`), which the renderer lifts 0.5 more.
     pub fn name_height(&self) -> f32 {
@@ -64,14 +101,22 @@ pub struct NameStore {
 }
 
 impl NameStore {
-    pub fn spawn(&mut self, id: i32, kind: EntityKind) {
+    pub fn spawn(&mut self, id: i32, kind: EntityKind, uuid: uuid::Uuid) {
         self.entities.insert(
             id,
             Named {
                 kind: Some(kind),
+                uuid: Some(uuid),
                 ..Named::default()
             },
         );
+    }
+
+    pub fn set_description(&mut self, id: i32, description: Option<Vec<TextSpan>>) {
+        if let Some(named) = self.entities.get_mut(&id) {
+            named.description = description;
+            named.description_layout = None;
+        }
     }
 
     pub fn remove(&mut self, ids: &[i32]) {
@@ -105,11 +150,7 @@ impl NameStore {
     }
 
     pub fn set_name(&mut self, id: i32, name: Option<Vec<TextSpan>>) {
-        let named = self.entities.entry(id).or_default();
-        if named.name != name {
-            named.name = name;
-            named.layout = None;
-        }
+        self.entities.entry(id).or_default().name = name;
     }
 
     pub fn apply_entity_data(&mut self, id: i32, index: u8, value: MetaValue) {
@@ -149,7 +190,7 @@ mod tests {
     #[test]
     fn a_marker_armor_stand_hologram_shows_its_name_at_its_feet() {
         let mut store = NameStore::default();
-        store.spawn(7, EntityKind::ArmorStand);
+        store.spawn(7, EntityKind::ArmorStand, uuid::Uuid::nil());
         store.set_name(7, Some(vec![span("Lvl 3 Station")]));
         store.apply_entity_data(7, 0, MetaValue::Byte(INVISIBLE));
         store.apply_entity_data(7, NAME_VISIBLE, MetaValue::Bool(true));
@@ -160,7 +201,7 @@ mod tests {
             .collect();
         assert_eq!(shown, [(7, 0.0)]);
         // A name not made visible stays hidden, and changing it drops the layout.
-        store.spawn(8, EntityKind::Villager);
+        store.spawn(8, EntityKind::Villager, uuid::Uuid::nil());
         store.set_name(8, Some(vec![span("Vendor")]));
         assert_eq!(store.shown().count(), 1);
         store.apply_entity_data(8, NAME_VISIBLE, MetaValue::Bool(true));
