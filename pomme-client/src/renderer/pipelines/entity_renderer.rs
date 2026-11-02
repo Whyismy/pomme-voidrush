@@ -491,6 +491,9 @@ struct ArmorMeshes {
     humanoid: [ArmorMesh; 4],
     husk: [ArmorMesh; 4],
     zombie_villager: [ArmorMesh; 4],
+    /// The 26.x baby models' own armor layers (`zombie_baby#helmet`...),
+    /// head/chest/legs/feet: zombie, husk, drowned, zombie villager.
+    baby: [[ArmorMesh; 4]; 4],
     /// `LLAMA_DECOR` chestless and chested; the baby never shows a chest.
     llama_decor: [ArmorMesh; 2],
     baby_llama_decor: ArmorMesh,
@@ -863,6 +866,38 @@ fn build_armor_meshes(device: &rhi::backend::Device) -> ArmorMeshes {
         humanoid: bake(entity_model::bake_humanoid_armor_model),
         husk: bake(entity_model::bake_husk_armor_model),
         zombie_villager: bake(entity_model::bake_zombie_villager_armor_model),
+        baby: {
+            use entity_model::exported_data as layers;
+            [
+                [
+                    layers::ZOMBIE_BABY_HELMET,
+                    layers::ZOMBIE_BABY_CHESTPLATE,
+                    layers::ZOMBIE_BABY_LEGGINGS,
+                    layers::ZOMBIE_BABY_BOOTS,
+                ],
+                [
+                    layers::HUSK_BABY_HELMET,
+                    layers::HUSK_BABY_CHESTPLATE,
+                    layers::HUSK_BABY_LEGGINGS,
+                    layers::HUSK_BABY_BOOTS,
+                ],
+                [
+                    layers::DROWNED_BABY_HELMET,
+                    layers::DROWNED_BABY_CHESTPLATE,
+                    layers::DROWNED_BABY_LEGGINGS,
+                    layers::DROWNED_BABY_BOOTS,
+                ],
+                [
+                    layers::ZOMBIE_VILLAGER_BABY_HELMET,
+                    layers::ZOMBIE_VILLAGER_BABY_CHESTPLATE,
+                    layers::ZOMBIE_VILLAGER_BABY_LEGGINGS,
+                    layers::ZOMBIE_VILLAGER_BABY_BOOTS,
+                ],
+            ]
+            .map(|set| {
+                set.map(|layer| build_armor_mesh(device, entity_model::bake_exported(layer)))
+            })
+        },
         llama_decor: [false, true]
             .map(|chest| build_armor_mesh(device, entity_model::bake_llama_decor_model(chest))),
         baby_llama_decor: build_armor_mesh(device, entity_model::bake_baby_llama_decor_model()),
@@ -886,9 +921,19 @@ impl ArmorMeshes {
     // TODO: the other vanilla `HumanoidArmorLayer` wearers once pomme renders
     // them: wither skeleton (1.2 scale), parched, piglin / piglin brute /
     // zombified piglin (`PiglinModel.createArmorMeshSet`), giant, armor stand.
-    fn for_entity(&self, kind: EntityKind, slot: usize) -> Option<&ArmorMesh> {
+    fn for_entity(&self, kind: EntityKind, baby: bool, slot: usize) -> Option<&ArmorMesh> {
         if slot >= 4 {
             return None;
+        }
+        if baby {
+            let set = match kind {
+                EntityKind::Zombie => 0,
+                EntityKind::Husk => 1,
+                EntityKind::Drowned => 2,
+                EntityKind::ZombieVillager => 3,
+                _ => return None,
+            };
+            return Some(&self.baby[set][slot]);
         }
         match kind {
             EntityKind::ZombieVillager => Some(&self.zombie_villager[slot]),
@@ -946,6 +991,9 @@ pub struct EntityRenderer {
     armor_assets: HashMap<String, ArmorAsset>,
     armor_meshes: ArmorMeshes,
     player_skins: HashMap<uuid::Uuid, PlayerSkinTexture>,
+    /// Vanilla's default skins ([`DEFAULT_SKINS`]), for players without
+    /// one of their own.
+    default_skins: Vec<PlayerSkinTexture>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1097,27 +1145,7 @@ fn mob_definitions() -> Vec<MobDef> {
     const SHEEP_WOOL_UNDERCOAT_TEX: &[&[&str]] = tex_table!("sheep" => "sheep_wool_undercoat");
     const SHEEP_WOOL_TEX: &[&[&str]] = tex_table!("sheep" => "sheep_wool");
     const SHEEP_BABY_WOOL_TEX: &[&[&str]] = tex_table!("sheep" => "sheep_wool_baby");
-    // Vanilla `DefaultPlayerSkin.DEFAULT_SKINS`, in its order.
-    const DEFAULT_SKIN_TEX: [&[&[&str]]; 18] = [
-        tex_table!("player/slim" => "alex"),
-        tex_table!("player/slim" => "ari"),
-        tex_table!("player/slim" => "efe"),
-        tex_table!("player/slim" => "kai"),
-        tex_table!("player/slim" => "makena"),
-        tex_table!("player/slim" => "noor"),
-        tex_table!("player/slim" => "steve"),
-        tex_table!("player/slim" => "sunny"),
-        tex_table!("player/slim" => "zuri"),
-        tex_table!("player/wide" => "alex"),
-        tex_table!("player/wide" => "ari"),
-        tex_table!("player/wide" => "efe"),
-        tex_table!("player/wide" => "kai"),
-        tex_table!("player/wide" => "makena"),
-        tex_table!("player/wide" => "noor"),
-        tex_table!("player/wide" => "steve"),
-        tex_table!("player/wide" => "sunny"),
-        tex_table!("player/wide" => "zuri"),
-    ];
+    const PLAYER_TEX: &[&[&str]] = tex_table!("player/wide" => "steve");
     const ZOMBIE_TEX: &[&[&str]] = tex_table!("zombie" => "zombie");
     const ZOMBIE_BABY_TEX: &[&[&str]] = tex_table!("zombie" => "zombie_baby");
     const HUSK_TEX: &[&[&str]] = tex_table!("zombie" => "husk");
@@ -1628,15 +1656,13 @@ fn mob_definitions() -> Vec<MobDef> {
         MobDef {
             kind: EntityKind::Player,
             anim: AnimationType::Humanoid,
-            // Vanilla's 18 default skins (`DefaultPlayerSkin`), slim then
-            // wide, for a player with no skin of its own; a fetched skin
-            // replaces the texture and picks the model by its metadata
+            // Variant 0 = classic (wide) arms, 1 = slim; picked from the
+            // skin drawn, a fetched one or vanilla's default for the player
             // (effective_variant_index).
-            adult: DEFAULT_SKIN_TEX
-                .iter()
-                .enumerate()
-                .map(|(i, tex)| opaque(entity_model::bake_player_model(i < 9), tex, 64))
-                .collect(),
+            adult: vec![
+                opaque(entity_model::bake_player_model(false), PLAYER_TEX, 64),
+                opaque(entity_model::bake_player_model(true), PLAYER_TEX, 64),
+            ],
             baby: None,
             adult_overlays: vec![],
             baby_overlays: vec![],
@@ -2423,12 +2449,34 @@ fn mob_definitions() -> Vec<MobDef> {
 
 /// A mob drawn from vanilla's layer geometry (`layer`) with `tex`, and the
 /// generic head-and-walk animation.
-/// The player variant of vanilla's default slim and wide Steve skins.
-pub(crate) const SLIM_STEVE_SKIN: u32 = 6;
+/// Vanilla `DefaultPlayerSkin.DEFAULT_SKINS`, in its order: each texture and
+/// whether it's slim.
+const DEFAULT_SKINS: [(&str, bool); 18] = [
+    ("minecraft/textures/entity/player/slim/alex.png", true),
+    ("minecraft/textures/entity/player/slim/ari.png", true),
+    ("minecraft/textures/entity/player/slim/efe.png", true),
+    ("minecraft/textures/entity/player/slim/kai.png", true),
+    ("minecraft/textures/entity/player/slim/makena.png", true),
+    ("minecraft/textures/entity/player/slim/noor.png", true),
+    ("minecraft/textures/entity/player/slim/steve.png", true),
+    ("minecraft/textures/entity/player/slim/sunny.png", true),
+    ("minecraft/textures/entity/player/slim/zuri.png", true),
+    ("minecraft/textures/entity/player/wide/alex.png", false),
+    ("minecraft/textures/entity/player/wide/ari.png", false),
+    ("minecraft/textures/entity/player/wide/efe.png", false),
+    ("minecraft/textures/entity/player/wide/kai.png", false),
+    ("minecraft/textures/entity/player/wide/makena.png", false),
+    ("minecraft/textures/entity/player/wide/noor.png", false),
+    ("minecraft/textures/entity/player/wide/steve.png", false),
+    ("minecraft/textures/entity/player/wide/sunny.png", false),
+    ("minecraft/textures/entity/player/wide/zuri.png", false),
+];
+
+/// The default skin of vanilla's wide Steve, as a player `variant_index`.
 pub(crate) const WIDE_STEVE_SKIN: u32 = 15;
 
-/// Vanilla `DefaultPlayerSkin.get(uuid)`: the player variant (one of 18
-/// default skins) a player without a skin of its own draws with.
+/// Vanilla `DefaultPlayerSkin.get(uuid)`: the default skin (a player's
+/// `variant_index`) a player without a skin of its own draws with.
 pub(crate) fn default_skin_variant(uuid: &uuid::Uuid) -> u32 {
     crate::world::waypoints::java_uuid_hash(uuid).rem_euclid(18) as u32
 }
@@ -2598,6 +2646,20 @@ impl EntityRenderer {
             armor_assets,
             armor_meshes,
             player_skins: HashMap::new(),
+            default_skins: DEFAULT_SKINS
+                .iter()
+                .map(|&(path, slim)| {
+                    let texture =
+                        load_entity_texture(device, jar_assets_dir, asset_index, &[path], 64);
+                    let set = util::create_texture_group(
+                        device,
+                        texture_layout,
+                        texture.handle(),
+                        texture_sampler,
+                    );
+                    PlayerSkinTexture { texture, set, slim }
+                })
+                .collect(),
         }
     }
 
@@ -2683,7 +2745,10 @@ impl EntityRenderer {
         if info.entity_kind != EntityKind::Player {
             return None;
         }
-        self.player_skins.get(info.player_uuid.as_ref()?)
+        self.player_skins
+            .get(info.player_uuid.as_ref()?)
+            // A player's `variant_index` names its default skin.
+            .or_else(|| self.default_skins.get(info.variant_index as usize))
     }
 
     fn player_texture_set(
@@ -2694,16 +2759,11 @@ impl EntityRenderer {
         self.player_skin(info).map_or(fallback, |skin| skin.set)
     }
 
-    /// Players with a fetched skin pick the slim or wide model from its
-    /// metadata; the rest keep the caller's default-skin index.
+    /// Players pick their model variant (0 = wide, 1 = slim) from the skin
+    /// they draw with rather than the caller-supplied index.
     fn effective_variant_index(&self, info: &EntityRenderInfo) -> u32 {
-        self.player_skin(info).map_or(info.variant_index, |skin| {
-            if skin.slim {
-                SLIM_STEVE_SKIN
-            } else {
-                WIDE_STEVE_SKIN
-            }
-        })
+        self.player_skin(info)
+            .map_or(info.variant_index, |skin| skin.slim as u32)
     }
 
     /// Texture set and tint of each drawn equipment layer, in submit order.
@@ -2747,17 +2807,16 @@ impl EntityRenderer {
                 let layers = self.equipment_layers(&decor.equipment, |asset| &asset.llama_body);
                 self.push_equipment_draws(vi, v, mesh, layers, instances, &mut records);
             }
-            // TODO: baby armor (vanilla `HUMANOID_BABY` layer type +
-            // `HumanoidModel.createBabyArmorMeshSet`) needs anisotropic
-            // `CubeDeformation`, which pomme's model format lacks.
-            if v.info.is_baby {
-                continue;
-            }
+            // Babies wear their model's own armor layers (exported, with the
+            // anisotropic `CubeDeformation` pomme's hand models lack).
             for slot in ARMOR_SUBMIT_ORDER {
                 let Some(armor) = &v.info.armor[slot] else {
                     continue;
                 };
-                let Some(mesh) = self.armor_meshes.for_entity(v.info.entity_kind, slot) else {
+                let Some(mesh) =
+                    self.armor_meshes
+                        .for_entity(v.info.entity_kind, v.info.is_baby, slot)
+                else {
                     continue;
                 };
                 let layers = self.armor_layers(armor, slot);
@@ -3529,6 +3588,9 @@ impl EntityRenderer {
 
     pub fn destroy(&mut self, device: &rhi::backend::Device) {
         destroy_armor_assets(device, &mut self.armor_assets);
+        for skin in self.default_skins.drain(..) {
+            free_player_skin_texture(device, skin);
+        }
 
         util::destroy_buffers(device, &mut self.camera_buffers);
         util::destroy_buffers(device, &mut self.instance_buffers);
@@ -3540,6 +3602,7 @@ impl EntityRenderer {
             .iter_mut()
             .chain(self.armor_meshes.husk.iter_mut())
             .chain(self.armor_meshes.zombie_villager.iter_mut())
+            .chain(self.armor_meshes.baby.iter_mut().flatten())
             .chain(self.armor_meshes.llama_decor.iter_mut())
             .chain([&mut self.armor_meshes.baby_llama_decor])
         {

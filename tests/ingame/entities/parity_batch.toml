@@ -1,0 +1,49 @@
+# A baby zombie in iron armor (its model's own armor layers), primed TNT, a
+# 2x-scaled ravager carrying a block display offset by its scaled passenger
+# height (2.2625 x 2) the way Void Rush's boss rigs are, so the gold block
+# sits on the ground, then night with and without night vision.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/summon minecraft:zombie 0.5 -60 4.5 {IsBaby:1b,NoAI:1b,Silent:1b,Rotation:[180f,0f],equipment:{head:{id:\"minecraft:iron_helmet\"},chest:{id:\"minecraft:iron_chestplate\"},legs:{id:\"minecraft:iron_leggings\"},feet:{id:\"minecraft:iron_boots\"}}}"
+
+[[step]]
+chat = "/summon minecraft:tnt 3.5 -60 5.5 {fuse:400}"
+
+[[step]]
+chat = "/summon minecraft:ravager -4.5 -60 7.5 {NoAI:1b,Silent:1b,Tags:[\"host\"],attributes:[{id:\"minecraft:scale\",base:2.0d}],Passengers:[{id:\"minecraft:block_display\",block_state:{Name:\"minecraft:gold_block\"},transformation:{left_rotation:[0f,0f,0f,1f],right_rotation:[0f,0f,0f,1f],translation:[-0.5f,-4.525f,-0.5f],scale:[1f,1f,1f]}}]}"
+
+[[step]]
+chat = "/effect give @e[type=ravager,tag=host] minecraft:invisibility infinite 0 true"
+
+[[step]]
+chat = "/tp @s 0.5 -59 -1.5 0 15"
+
+[[step]]
+wait_ms = 6000
+
+[[step]]
+screenshot = "day"
+
+[[step]]
+chat = "/time set 18000"
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+screenshot = "night"
+
+[[step]]
+chat = "/effect give @s minecraft:night_vision 60 0 true"
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+screenshot = "night_vision"

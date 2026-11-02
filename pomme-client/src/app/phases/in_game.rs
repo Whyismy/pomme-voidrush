@@ -5627,11 +5627,19 @@ fn build_falling_blocks(
         };
         // The baked meshes are centred on the block.
         let centre = *feet + glam::DVec3::Y * 0.5;
+        // `TntRenderer`: primed TNT swells over its last 10 ticks.
+        // TODO: its white flash every 5 ticks (`renderWhiteSolidBlock`).
+        let swell = block.fuse.map_or(1.0, |fuse| {
+            let left = fuse as f32 - partial_tick + 1.0;
+            let g = (1.0 - left / 10.0).clamp(0.0, 1.0).powi(4);
+            1.0 + g * 0.3
+        });
         out.push(ItemRenderInfo {
             item_name,
             outline_color: None,
             tints,
-            model_matrix: glam::Mat4::from_translation((centre - anchor).as_vec3()),
+            model_matrix: glam::Mat4::from_translation((centre - anchor).as_vec3())
+                * glam::Mat4::from_scale(glam::Vec3::splat(swell)),
             light: entity_light(
                 world_light,
                 EntityKind::FallingBlock,
@@ -5842,8 +5850,8 @@ fn display_seat(
         return Some(*player_position + glam::dvec3(0.0, f64::from(height), 0.0));
     }
     if let Some(entity) = living.get(&vehicle) {
-        let height = crate::entity::dimensions::EntityDimensions::of(entity.entity_type).height;
-        return Some(*entity.position + glam::dvec3(0.0, f64::from(height), 0.0));
+        let height = crate::entity::passenger_attachment_height(entity);
+        return Some(*entity.position + glam::dvec3(0.0, height, 0.0));
     }
     positions.get(&vehicle).map(|position| **position)
 }
@@ -6739,6 +6747,17 @@ fn tick_block_light_flicker(flicker: f32) -> f32 {
     (flicker + (r() - r()) * r() * r() * 0.1) * 0.9
 }
 
+/// Vanilla `GameRenderer.getNightVisionScale`: full while the effect has
+/// more than 200 ticks left (or no end), then flickering as it runs out.
+// TODO: conduit power's underwater vision.
+fn night_vision_scale(duration: Option<i32>, partial_tick: f32) -> f32 {
+    match duration {
+        None => 0.0,
+        Some(d) if !(0..=200).contains(&d) => 1.0,
+        Some(d) => 0.7 + ((d as f32 - partial_tick) * std::f32::consts::PI * 0.2).sin() * 0.3,
+    }
+}
+
 /// How far the clock is between its last tick and the next.
 fn sky_partial_tick(core: &AppCore) -> f32 {
     (core.time_tick_accumulator / TICK_RATE).clamp(0.0, 1.0)
@@ -6746,7 +6765,7 @@ fn sky_partial_tick(core: &AppCore) -> f32 {
 
 /// Vanilla `LightmapRenderStateExtractor.extract`, which samples the
 /// attribute probe at the frame's partial tick.
-/// TODO: night vision, darkness, boss fog and the lightning and end flashes.
+/// TODO: darkness, boss fog and the lightning and end flashes.
 fn lightmap_info(game: &GameState, brightness: f32, partial_tick: f32) -> LightmapInfo {
     let attributes = game.environment_probe.at(partial_tick);
     let with = |rgb: glam::Vec3, w: f32| rgb.extend(w).to_array();
@@ -6754,7 +6773,10 @@ fn lightmap_info(game: &GameState, brightness: f32, partial_tick: f32) -> Lightm
         block_light_tint: with(attributes.block_light_tint, game.block_light_flicker + 1.4),
         sky_light_color: with(attributes.sky_light_color, attributes.sky_light_factor),
         ambient_color: with(attributes.ambient_light_color, brightness),
-        night_vision_color: with(attributes.night_vision_color, 0.0),
+        night_vision_color: with(
+            attributes.night_vision_color,
+            night_vision_scale(game.player.effects.duration("night_vision"), partial_tick),
+        ),
         ..bytemuck::Zeroable::zeroed()
     }
 }
@@ -6762,8 +6784,8 @@ fn lightmap_info(game: &GameState, brightness: f32, partial_tick: f32) -> Lightm
 #[cfg(test)]
 mod tests {
     use super::{
-        MeshGate, detached_distance, has_red_overlay, scroll_wheel, section_bit, section_bits,
-        tick_block_light_flicker,
+        MeshGate, detached_distance, has_red_overlay, night_vision_scale, scroll_wheel,
+        section_bit, section_bits, tick_block_light_flicker,
     };
 
     #[test]
@@ -6786,6 +6808,15 @@ mod tests {
                 hidden: 24
             }
         );
+    }
+
+    #[test]
+    fn night_vision_is_full_until_its_last_ten_seconds() {
+        assert_eq!(night_vision_scale(None, 0.0), 0.0);
+        assert_eq!(night_vision_scale(Some(-1), 0.0), 1.0);
+        assert_eq!(night_vision_scale(Some(201), 0.5), 1.0);
+        let flicker = night_vision_scale(Some(100), 0.25);
+        assert!((0.4..=1.0).contains(&flicker), "{flicker}");
     }
 
     #[test]

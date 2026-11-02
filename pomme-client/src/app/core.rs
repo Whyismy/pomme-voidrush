@@ -2605,6 +2605,13 @@ impl AppCore {
                     if entity_type == azalea_registry::builtin::EntityKind::FallingBlock {
                         game.falling_blocks.spawn(id, data, position, velocity);
                     }
+                    if entity_type == azalea_registry::builtin::EntityKind::Tnt {
+                        let table = game.block_registry.block_state_table();
+                        if let Some(tnt) = table.state_with("tnt", &[("unstable", "false")]) {
+                            game.falling_blocks
+                                .spawn_tnt(id, tnt.id() as u32, position, velocity);
+                        }
+                    }
                     if entity_type == azalea_registry::builtin::EntityKind::Interaction {
                         game.interactions.spawn(id, position);
                     }
@@ -2828,9 +2835,12 @@ impl AppCore {
                     count,
                     stack,
                 } => {
-                    renderer.ensure_item_mesh(&item_name);
+                    // The stack's own model (a pack's `custom_model_data`
+                    // case, an `item_model`), as the screens draw it.
+                    let model = renderer.render_assets().stack_model_key(&item_name, &stack);
+                    renderer.ensure_item_mesh(&model);
                     game.item_entity_store
-                        .set_item_data(id, item_name, item_id, damage, count, stack);
+                        .set_item_data(id, model, item_id, damage, count, stack);
                 }
                 NetworkEvent::EntityData { id, index, value } => {
                     if index == 4
@@ -2863,9 +2873,19 @@ impl AppCore {
                     {
                         game.falling_blocks.set_no_gravity(id, no_gravity);
                     }
+                    if index == 8
+                        && let crate::entity::MetaValue::Int(fuse) = value
+                    {
+                        game.falling_blocks.set_fuse(id, fuse);
+                    }
                     game.entity_store.apply_entity_data(id, index, value);
                 }
                 NetworkEvent::DisplayData { id, index, value } => {
+                    if index == 9
+                        && let crate::entity::display::DisplayValue::BlockState(state) = &value
+                    {
+                        game.falling_blocks.set_tnt_state(id, *state);
+                    }
                     game.display_store.apply_display_data(id, index, value);
                 }
                 NetworkEvent::EntityPose { id, is_crouching } => {

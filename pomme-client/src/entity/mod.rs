@@ -947,6 +947,33 @@ pub(crate) fn baby_dimensions(kind: EntityKind, width: f32, height: f32) -> (f32
     (width * scale, height * scale)
 }
 
+/// Vanilla `Entity.getPassengerRidingPosition`'s height: the type's passenger
+/// attachment (`EntityType.Builder.passengerAttachments`, else the top of
+/// its box) at the entity's size, its age and `scale` attribute. Server
+/// rigs ride displays on scaled mobs and offset their models by exactly
+/// this, so a wrong height sinks or floats the whole rig.
+// TODO: the other `passengerAttachments` overrides and the horizontal and
+// multi-seat ones (camels, boats, minecarts).
+pub fn passenger_attachment_height(entity: &LivingEntity) -> f64 {
+    let dims = living_entity_dimensions(entity);
+    let unscaled = EntityDimensions::of(entity.entity_type).height;
+    let age = if unscaled > 0.0 {
+        dims.height / unscaled
+    } else {
+        1.0
+    };
+    let attachment = match entity.entity_type {
+        EntityKind::Ravager => 2.2625 * age,
+        EntityKind::Zombie | EntityKind::PiglinBrute => 2.0125 * age,
+        _ => dims.height,
+    };
+    let scale = entity
+        .attributes
+        .value(crate::attribute::AttributeKind::Scale)
+        .unwrap_or(1.0);
+    f64::from(attachment) * scale
+}
+
 pub(crate) fn living_entity_dimensions(entity: &LivingEntity) -> EntityDimensions {
     let mut dims = EntityDimensions::of(entity.entity_type);
     // `Sniffer.DIGGING_DIMENSIONS`, then the same age scale.

@@ -31,6 +31,9 @@ pub struct FallingBlock {
     on_ground: bool,
     /// `Entity.DATA_NO_GRAVITY`: how plugins hang a block in the air.
     no_gravity: bool,
+    /// Primed TNT (vanilla `PrimedTnt`), tracked here as it moves the same
+    /// way: the ticks left on its fuse.
+    pub fuse: Option<i32>,
 }
 
 #[derive(Default)]
@@ -57,8 +60,40 @@ impl FallingBlockStore {
                 velocity,
                 on_ground: false,
                 no_gravity: false,
+                fuse: None,
             },
         );
+    }
+
+    /// Vanilla `PrimedTnt` as the client sees it spawn: a TNT block (until
+    /// `DATA_BLOCK_STATE_ID` says otherwise) on `PrimedTnt.DEFAULT_FUSE_TIME`.
+    pub fn spawn_tnt(&mut self, id: i32, state: u32, position: Position, velocity: DVec3) {
+        self.blocks.insert(
+            id,
+            FallingBlock {
+                state,
+                position,
+                prev_position: position,
+                velocity,
+                on_ground: false,
+                no_gravity: false,
+                fuse: Some(80),
+            },
+        );
+    }
+
+    /// `PrimedTnt.DATA_FUSE_ID`.
+    pub fn set_fuse(&mut self, id: i32, fuse: i32) {
+        if let Some(block) = self.blocks.get_mut(&id).filter(|b| b.fuse.is_some()) {
+            block.fuse = Some(fuse);
+        }
+    }
+
+    /// `PrimedTnt.DATA_BLOCK_STATE_ID`, in the session's state ids.
+    pub fn set_tnt_state(&mut self, id: i32, state: u32) {
+        if let Some(block) = self.blocks.get_mut(&id).filter(|b| b.fuse.is_some()) {
+            block.state = state;
+        }
     }
 
     pub fn move_delta(&mut self, id: i32, delta: DVec3, on_ground: bool) {
@@ -129,10 +164,22 @@ impl FallingBlockStore {
             );
             block.position += delta;
             block.on_ground = on_ground;
-            if on_ground {
-                block.velocity.y = 0.0;
+            match &mut block.fuse {
+                // `PrimedTnt.tick`: drag, then a bounce on the ground.
+                Some(fuse) => {
+                    block.velocity *= DRAG;
+                    if on_ground {
+                        block.velocity *= DVec3::new(0.7, -0.5, 0.7);
+                    }
+                    *fuse -= 1;
+                }
+                None => {
+                    if on_ground {
+                        block.velocity.y = 0.0;
+                    }
+                    block.velocity *= DRAG;
+                }
             }
-            block.velocity *= DRAG;
         }
     }
 }
