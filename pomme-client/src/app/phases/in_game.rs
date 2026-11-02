@@ -4767,12 +4767,15 @@ pub fn update_game(
     // Benchmarks and deterministic tests draw neither particles nor clouds.
     let no_ambience = benchmark_running || game.deterministic;
     let extract_start = Instant::now();
-    let particle_quads = if no_ambience {
+    let mut particle_quads = if no_ambience {
         Vec::new()
     } else {
         game.particle_store
             .extract(partial_tick, gfx.renderer.camera_anchor(), &world_light)
     };
+    if !no_ambience {
+        add_entity_flames(game, &gfx.renderer, partial_tick, &mut particle_quads);
+    }
     crate::frame_log::add(
         "particle_extract",
         extract_start.elapsed().as_secs_f32() * 1000.0,
@@ -5771,6 +5774,90 @@ fn holds_items(kind: EntityKind) -> bool {
             | EntityKind::Illusioner
             | EntityKind::Vex
             | EntityKind::ArmorStand
+    )
+}
+
+/// Vanilla `EntityRenderDispatcher.renderFlame`: a burning entity wears a
+/// stack of fire quads, 1.4 times its width, climbing its height 0.45 at a
+/// time, each a little narrower and nearer the camera, alternating the two
+/// fire frames (mirrored every other pair), at full brightness.
+// TODO: vanilla's quads are 1.4 times taller than wide and turn only about
+// y; particle quads are square and face the camera fully.
+fn add_entity_flames(
+    game: &GameState,
+    renderer: &Renderer,
+    partial_tick: f32,
+    out: &mut Vec<crate::renderer::pipelines::particle::ParticleQuad>,
+) {
+    use crate::renderer::pipelines::particle::ParticleQuad;
+    let frames = [
+        game.particle_store.item_region("fire_0"),
+        game.particle_store.item_region("fire_1"),
+    ];
+    let [Some(fire_0), Some(fire_1)] = frames else {
+        return;
+    };
+    let camera = renderer.camera_render_position();
+    let anchor = renderer.camera_anchor();
+    let full_bright = LightLevels::new(15, 15).lane();
+    for e in game.entity_store.living.values() {
+        if !e.is_on_fire || e.is_invisible || fire_immune(e.entity_type) {
+            continue;
+        }
+        let dims = crate::entity::living_entity_dimensions(e);
+        let scale = dims.width * 1.4;
+        let feet = *e.prev_position.lerp(e.position, partial_tick as f64);
+        let mut toward = camera - feet;
+        toward.y = 0.0;
+        let toward = toward.try_normalize().unwrap_or(glam::DVec3::Z);
+        let mut left = dims.height / scale;
+        let (mut bottom, mut half_width, mut depth) = (0.0f32, 0.5f32, 0.3 - left.floor() * 0.02);
+        let mut i = 0;
+        while left > 0.0 {
+            let frame = if i % 2 == 0 { fire_0 } else { fire_1 };
+            let (u0, u1) = if i / 2 % 2 == 0 {
+                (frame.u_max, frame.u_min)
+            } else {
+                (frame.u_min, frame.u_max)
+            };
+            let centre = feet
+                + glam::DVec3::Y * f64::from((bottom + 0.7) * scale)
+                + toward * f64::from(depth * scale);
+            out.push(ParticleQuad {
+                pos: (centre - anchor).as_vec3().into(),
+                size: 0.7 * scale * (half_width / 0.5).sqrt(),
+                u0,
+                u1,
+                v0: frame.v_min,
+                v1: frame.v_max,
+                color: u32::MAX,
+                light: full_bright,
+                translucent: false,
+            });
+            left -= 0.45;
+            bottom += 0.45;
+            half_width *= 0.9;
+            depth -= 0.03;
+            i += 1;
+        }
+    }
+}
+
+/// Vanilla `EntityType.fireImmune()` among the mobs pomme draws: they never
+/// show flames (`Entity.isOnFire` is false for them).
+fn fire_immune(kind: EntityKind) -> bool {
+    matches!(
+        kind,
+        EntityKind::Blaze
+            | EntityKind::MagmaCube
+            | EntityKind::WitherSkeleton
+            | EntityKind::Ghast
+            | EntityKind::Strider
+            | EntityKind::Zoglin
+            | EntityKind::ZombifiedPiglin
+            | EntityKind::Wither
+            | EntityKind::EnderDragon
+            | EntityKind::Warden
     )
 }
 

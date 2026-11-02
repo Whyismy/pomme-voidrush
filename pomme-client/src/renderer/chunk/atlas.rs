@@ -669,6 +669,9 @@ pub(crate) fn atlas_texture_names(
         .texture_names()
         .chain(generated_item_textures.iter().copied())
         .chain(crate::particle::particle_sprites())
+        // Burning entities' flames (`renderFlame`); only the fire block's
+        // first frame comes in through a block model.
+        .chain(["fire_0", "fire_1"])
         .collect();
     (texture_names, generated_item_textures)
 }
