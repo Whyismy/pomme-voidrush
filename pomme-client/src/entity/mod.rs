@@ -1706,6 +1706,10 @@ pub struct ItemEntityStore {
 }
 
 impl ItemEntityStore {
+    pub fn get(&self, id: i32) -> Option<&ItemEntity> {
+        self.items.get(&id)
+    }
+
     #[cfg(feature = "test-harness")]
     pub fn items(&self) -> impl Iterator<Item = (i32, &ItemEntity)> {
         self.items.iter().map(|(id, item)| (*id, item))

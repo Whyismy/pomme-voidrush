@@ -4486,6 +4486,8 @@ pub fn update_game(
             NameTagSources {
                 names: &mut game.name_store,
                 living: &game.entity_store,
+                items: &game.item_entity_store,
+                falling_blocks: &game.falling_blocks,
                 positions: &game.entity_positions,
                 tab_list: &game.tab_list,
                 scoreboard: &game.scoreboard,
@@ -5501,6 +5503,10 @@ fn build_falling_blocks(
 struct NameTagSources<'a> {
     names: &'a mut crate::entity::name_tags::NameStore,
     living: &'a crate::entity::EntityStore,
+    /// Items and falling blocks move between the server's updates, which
+    /// come only once a second, so their names follow the simulation.
+    items: &'a crate::entity::ItemEntityStore,
+    falling_blocks: &'a crate::entity::falling_block::FallingBlockStore,
     positions: &'a HashMap<i32, crate::entity::components::Position>,
     tab_list: &'a crate::player::tab_list::TabList,
     scoreboard: &'a crate::ui::hud::Scoreboard,
@@ -5642,10 +5648,18 @@ fn build_name_tags(
                     .prev_position
                     .lerp(entity.position, f64::from(partial_tick))
             }
-            None => match sources.positions.get(id) {
-                Some(at) => **at,
-                None => continue,
-            },
+            None => {
+                let lerp = |prev: Position, now: Position| *prev.lerp(now, f64::from(partial_tick));
+                if let Some(item) = sources.items.get(*id) {
+                    lerp(item.prev_position, item.position)
+                } else if let Some(block) = sources.falling_blocks.blocks.get(id) {
+                    lerp(block.prev_position, block.position)
+                } else if let Some(at) = sources.positions.get(id) {
+                    **at
+                } else {
+                    continue;
+                }
+            }
         };
         let at = feet + glam::DVec3::Y * (f64::from(named.name_height()) + 0.5);
         if at.distance_squared(eye) > 64.0 * 64.0 {
