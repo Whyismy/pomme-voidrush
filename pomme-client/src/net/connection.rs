@@ -321,16 +321,7 @@ async fn negotiate_wire_version(
     let selected = crate::version::selected_protocol();
     let probed = match known {
         Some(p) => Some(p),
-        None => {
-            let probe = async {
-                let (status, _) = super::resolve::request_status(server_addr).await.ok()?;
-                Some(status.version.protocol)
-            };
-            tokio::time::timeout(std::time::Duration::from_secs(5), probe)
-                .await
-                .ok()
-                .flatten()
-        }
+        None => probe_protocol(server_addr).await,
     };
     let wire = resolve_wire(probed, selected).map_err(|p| {
         let name = pomme_protocol::ProtocolVersion::from_protocol(p)
@@ -341,6 +332,23 @@ async fn negotiate_wire_version(
     tracing::info!("Negotiated wire protocol {wire}");
     adopt_wire_protocol(wire);
     Ok(wire)
+}
+
+/// The server's protocol from a status request. A probe that fails would
+/// send the join through the launched version instead, which a server
+/// behind a version translator still accepts, with its quirks; so a slow
+/// first answer (the client busy loading its assets, a tunnel waking up)
+/// gets a second, longer try.
+async fn probe_protocol(server_addr: &ServerAddr) -> Option<i32> {
+    for (attempt, secs) in [(1, 5), (2, 10)] {
+        let probe = super::resolve::request_status(server_addr);
+        match tokio::time::timeout(std::time::Duration::from_secs(secs), probe).await {
+            Ok(Ok((status, _))) => return Some(status.version.protocol),
+            Ok(Err(e)) => tracing::warn!("Server protocol probe {attempt} failed: {e}"),
+            Err(_) => tracing::warn!("Server protocol probe {attempt} timed out after {secs}s"),
+        }
+    }
+    None
 }
 
 /// Publish the adopted wire identity before either transport starts login.
