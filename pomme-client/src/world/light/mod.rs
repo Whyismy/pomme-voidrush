@@ -18,7 +18,7 @@ mod sources;
 mod storage;
 mod world;
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 use azalea_block::BlockState;
@@ -26,6 +26,7 @@ use block::BlockLightEngine;
 pub(crate) use data::DataLayer;
 use data::LAYER_BYTES;
 use engine::LightEngine;
+use rustc_hash::FxHashSet as HashSet;
 use sky::SkyLightEngine;
 use sources::ChunkSkyLightSources;
 use storage::StorageCore;

@@ -27,6 +27,8 @@ shaderc = "0.10"
 winresource = "0.1.34"
 
 [dependencies]
+# FxHash for the light engine's position-keyed maps, rehashed many times a frame.
+rustc-hash = "2"
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

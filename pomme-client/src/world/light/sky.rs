@@ -4,10 +4,11 @@
 //! empty-section fall-through that streams skylight down tall air gaps at
 //! section borders.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 use azalea_block::BlockState;
+use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
 use super::data::{DataLayer, LAYER_BYTES};
 use super::engine::LightEngine;
@@ -38,7 +39,7 @@ pub(crate) struct SkyStorage {
 impl SkyStorage {
     fn new() -> Self {
         Self {
-            top_sections: HashMap::new(),
+            top_sections: HashMap::default(),
             current_lowest_y: i32::MAX,
         }
     }
@@ -149,12 +150,12 @@ pub(crate) struct SkyLightEngine {
 impl SkyLightEngine {
     pub fn new() -> Self {
         Self {
-            nodes_to_check: HashSet::new(),
+            nodes_to_check: HashSet::default(),
             decrease_queue: VecDeque::new(),
             increase_queue: VecDeque::new(),
             storage: StorageCore::new(),
             sky: SkyStorage::new(),
-            sources: HashMap::new(),
+            sources: HashMap::default(),
         }
     }
 

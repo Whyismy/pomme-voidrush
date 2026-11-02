@@ -3,7 +3,9 @@
 //! and staleness guard); the block and sky engines supply the per-layer
 //! passes.
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::VecDeque;
+
+use rustc_hash::FxHashSet as HashSet;
 
 use super::queue as entry;
 use super::storage::{LightPos, StorageCore};

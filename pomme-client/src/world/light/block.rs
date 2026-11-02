@@ -1,9 +1,10 @@
 //! Vanilla `BlockLightEngine`; the generic drive loop lives in
 //! [`LightEngine`].
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::VecDeque;
 
 use azalea_block::BlockState;
+use rustc_hash::FxHashSet as HashSet;
 
 use super::data::DataLayer;
 use super::engine::LightEngine;
@@ -23,7 +24,7 @@ pub(crate) struct BlockLightEngine {
 impl BlockLightEngine {
     pub fn new() -> Self {
         Self {
-            nodes_to_check: HashSet::new(),
+            nodes_to_check: HashSet::default(),
             decrease_queue: VecDeque::new(),
             increase_queue: VecDeque::new(),
             storage: StorageCore::new(),

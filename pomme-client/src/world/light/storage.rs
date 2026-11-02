@@ -12,7 +12,7 @@
 //! - `retainData` is never called on the vanilla client, so the retained-
 //!   column re-stash in `markNewInconsistencies` is omitted.
 
-use std::collections::{HashMap, HashSet};
+use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
 use super::data::DataLayer;
 use super::queue::Dir;
@@ -137,13 +137,13 @@ pub(crate) struct StorageCore {
 impl StorageCore {
     pub fn new() -> Self {
         Self {
-            section_states: HashMap::new(),
-            columns_with_sources: HashSet::new(),
-            updating: HashMap::new(),
-            queued: HashMap::new(),
-            to_remove: HashSet::new(),
-            changed_sections: HashSet::new(),
-            affected_sections: HashSet::new(),
+            section_states: HashMap::default(),
+            columns_with_sources: HashSet::default(),
+            updating: HashMap::default(),
+            queued: HashMap::default(),
+            to_remove: HashSet::default(),
+            changed_sections: HashSet::default(),
+            affected_sections: HashSet::default(),
             has_inconsistencies: false,
         }
     }
