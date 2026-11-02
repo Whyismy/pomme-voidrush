@@ -279,6 +279,25 @@ fn layers<T: WireValue>(
     }
 }
 
+/// A 1.21.11 dimension type's `ambient_light`, the lightmap's floor (the
+/// End's 0.25, the Nether's 0.1), as the ambient colour 26.1 replaced it
+/// with, when the dimension sets no colour of its own.
+fn legacy_ambient(
+    mut layers: AttributeLayers<Vec3>,
+    extra: &HashMap<String, NbtTag>,
+) -> AttributeLayers<Vec3> {
+    if layers.dimension.is_none()
+        && let Some(ambient) = extra.get("ambient_light").and_then(NbtTag::float)
+        && ambient > 0.0
+    {
+        layers.dimension = Some(Modifier {
+            op: ModifierOp::Override,
+            argument: Argument::opaque(Vec3::splat(ambient)),
+        });
+    }
+    layers
+}
+
 /// The dimension type's attribute layers. `timelines` must already be a list
 /// of ids (see [`resolve_timeline_tags`]).
 pub(super) fn environment(
@@ -322,7 +341,7 @@ pub(super) fn environment(
         sky_light_color: rgb(EnvAttribute::SkyLightColor),
         sky_light_factor: float(EnvAttribute::SkyLightFactor),
         night_vision_color: rgb(EnvAttribute::NightVisionColor),
-        ambient_light_color: rgb(EnvAttribute::AmbientLightColor),
+        ambient_light_color: legacy_ambient(rgb(EnvAttribute::AmbientLightColor), extra),
         sky_color: rgb(EnvAttribute::SkyColor),
         fog_color: rgb(EnvAttribute::FogColor),
         cloud_color: argb(EnvAttribute::CloudColor),
@@ -413,6 +432,37 @@ mod tests {
                 .map(|(key, tag)| (key.into(), tag))
                 .collect(),
         )
+    }
+
+    /// A 1.21.11 End (`ambient_light` 0.25, no colour) lights its unlit
+    /// blocks at a quarter; a dimension with its own colour keeps it.
+    #[test]
+    fn legacy_ambient_light_becomes_the_ambient_colour() {
+        let end = HashMap::from([("ambient_light".to_owned(), NbtTag::Float(0.25))]);
+        let ambient = legacy_ambient(AttributeLayers::default(), &end);
+        let modifier = ambient.dimension.expect("an ambient colour");
+        assert_eq!(modifier.op, ModifierOp::Override);
+        assert_eq!(modifier.argument, Argument::opaque(Vec3::splat(0.25)));
+
+        let own = AttributeLayers {
+            dimension: Some(Modifier {
+                op: ModifierOp::Override,
+                argument: Argument::opaque(Vec3::ONE),
+            }),
+            ..Default::default()
+        };
+        let kept = legacy_ambient(own, &end);
+        assert_eq!(
+            kept.dimension.unwrap().argument,
+            Argument::opaque(Vec3::ONE)
+        );
+
+        let overworld = HashMap::from([("ambient_light".to_owned(), NbtTag::Float(0.0))]);
+        assert!(
+            legacy_ambient(AttributeLayers::default(), &overworld)
+                .dimension
+                .is_none()
+        );
     }
 
     #[test]

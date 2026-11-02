@@ -385,6 +385,8 @@ pub enum GrassColorModifier {
 pub struct BiomeClimate {
     pub temperature: f32,
     pub downfall: f32,
+    /// Vanilla `Biome.hasPrecipitation`: whether it rains (or snows) there.
+    pub has_precipitation: bool,
     pub grass_color_override: Option<[f32; 3]>,
     pub grass_color_modifier: GrassColorModifier,
     pub foliage_color_override: Option<[f32; 3]>,
@@ -397,6 +399,7 @@ impl Default for BiomeClimate {
         Self {
             temperature: 0.8,
             downfall: 0.4,
+            has_precipitation: true,
             grass_color_override: None,
             grass_color_modifier: GrassColorModifier::None,
             foliage_color_override: None,

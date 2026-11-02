@@ -13,6 +13,7 @@ pub mod gui_item;
 pub mod gui_item_atlas;
 pub mod hand;
 pub mod held_item;
+pub mod hit_outline;
 pub mod item_display;
 pub mod item_entity;
 pub mod lightmap;

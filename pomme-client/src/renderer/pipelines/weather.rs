@@ -26,10 +26,11 @@ pub enum Precip {
 }
 
 /// Classifies precipitation for a biome at a given Y, mirroring vanilla
-/// `Biome.getPrecipitationAt`: no precipitation when the biome has no downfall,
-/// snow when the (height-adjusted) temperature is below 0.15, else rain.
+/// `Biome.getPrecipitationAt`: none where the biome has no precipitation,
+/// snow where the (height-adjusted) temperature is below 0.15, else rain.
+// TODO: frozen oceans' `TemperatureModifier.FROZEN` noise.
 pub fn precipitation_for(climate: &BiomeClimate, y: i32) -> Precip {
-    if climate.downfall <= 0.0 {
+    if !climate.has_precipitation {
         return Precip::None;
     }
     let snow_line = SEA_LEVEL + 17;

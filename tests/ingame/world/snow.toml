@@ -1,0 +1,32 @@
+# Snow falls instead of rain in a cold biome (Biome.getPrecipitationAt):
+# snowy plains around the player while it rains.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/tp @s 120.5 -60 0.5 0 -10"
+
+[[step]]
+wait_ms = 3000
+
+[[step]]
+chat = "/fillbiome 108 -64 -12 132 -40 12 minecraft:snowy_plains"
+
+[[step]]
+chat = "/weather rain"
+
+[[step]]
+wait_ms = 6000
+
+[[step]]
+expect = { player = { raining = true } }
+
+[[step]]
+screenshot = "snowing"
+
+[[step]]
+chat = "/weather clear"

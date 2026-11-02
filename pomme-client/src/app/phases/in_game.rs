@@ -4775,6 +4775,8 @@ pub fn update_game(
             .collect()
     };
 
+    gfx.renderer
+        .set_hit_outline(hit_outline(game, core.input.selected_slot() as usize));
     gfx.renderer.set_end_portals(
         if benchmark_running {
             Vec::new()
@@ -7002,6 +7004,43 @@ fn night_vision_scale(duration: Option<i32>, partial_tick: f32) -> f32 {
         Some(d) if !(0..=200).contains(&d) => 1.0,
         Some(d) => 0.7 + ((d as f32 - partial_tick) * std::f32::consts::PI * 0.2).sin() * 0.3,
     }
+}
+
+/// Vanilla `GameRenderer.shouldRenderBlockOutline` and
+/// `LevelRenderer.renderHitOutline`'s shape: the targeted block's outline
+/// (`getShape` in the player's context), unless the HUD is hidden or a
+/// spectator looks at anything but a container.
+// TODO: adventure mode's `canBreak`/`canPlaceOn` check.
+fn hit_outline(
+    game: &GameState,
+    selected_slot: usize,
+) -> Option<(
+    glam::DVec3,
+    &'static [crate::physics::block_shape::LocalBox],
+)> {
+    let Some(HitResult::Block(hit)) = game.interaction.target else {
+        return None;
+    };
+    if game.hide_gui {
+        return None;
+    }
+    let pos = hit.block_pos;
+    let data = game
+        .block_registry
+        .block_state_data(game.chunk_store.get_block_state(pos.x, pos.y, pos.z));
+    if data.is_air() {
+        return None;
+    }
+    if crate::player::is_spectator(game.player.game_mode)
+        && !crate::world::block_entity::is_block_entity_block(data.id())
+    {
+        return None;
+    }
+    let held = game.player.inventory.hotbar_slots()[selected_slot]
+        .as_present()
+        .map(|stack| crate::player::inventory::item_resource_name(stack.kind));
+    let boxes = crate::physics::block_shape::outline_shape_holding_data(data, held.as_deref());
+    Some((data.outline_shape_position(pos.x, pos.y, pos.z), boxes))
 }
 
 /// The end portal and gateway blocks to draw, with the faces each shows: a

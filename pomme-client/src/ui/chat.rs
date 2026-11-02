@@ -2644,13 +2644,7 @@ fn item_tooltip_lines_with_bindings(
     };
     let rarity_rgb = item_rarity_rgb(rarity);
 
-    let path = id.split(':').next_back().unwrap_or(id);
-    let item_key = format!("item.minecraft.{path}");
-    let block_key = format!("block.minecraft.{path}");
-    let default_name = crate::lang::translate(&item_key)
-        .or_else(|| crate::lang::translate(&block_key))
-        .map(str::to_owned)
-        .unwrap_or_else(|| crate::lang::title_case_snake(path));
+    let default_name = default_item_name(id);
 
     let custom_name = item_component(components, raw_components, "custom_name");
     let item_name = item_component(components, raw_components, "item_name");
@@ -2672,6 +2666,13 @@ fn item_tooltip_lines_with_bindings(
     } else {
         vec![TooltipLine::new(default_name, common::rgb(rarity_rgb))]
     };
+
+    if tooltip_component_visible(tooltip_display, "container")
+        && let Some(entries) =
+            component_value(components, "container").and_then(serde_json::Value::as_array)
+    {
+        lines.extend(container_tooltip_lines(entries, bindings));
+    }
 
     for component_name in ["enchantments", "stored_enchantments"] {
         if !tooltip_component_visible(tooltip_display, component_name) {
@@ -2863,6 +2864,85 @@ fn enchantment_level_fallback(level: i32) -> String {
         10 => "X".to_owned(),
         _ => level.to_string(),
     }
+}
+
+/// Vanilla `ItemContainerContents.addToTooltip` (a shulker box's contents):
+/// the first five stacks as `item.container.item_count`, then
+/// `item.container.more_items` for the rest, in italics.
+fn container_tooltip_lines(
+    entries: &[serde_json::Value],
+    bindings: &KeyBindings,
+) -> Vec<TooltipLine> {
+    let stacks: Vec<&serde_json::Map<String, serde_json::Value>> = entries
+        .iter()
+        .filter_map(serde_json::Value::as_object)
+        .filter(|stack| {
+            stack
+                .get("count")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(1)
+                > 0
+        })
+        .collect();
+    let template = crate::lang::translate("item.container.item_count").unwrap_or("%s x%s");
+    let (before, rest) = template.split_once("%s").unwrap_or(("", " x%s"));
+    let (between, after) = rest.split_once("%s").unwrap_or((rest, ""));
+    let plain = |text: &str| TextSpan::new(text.to_owned(), common::WHITE);
+    let mut lines: Vec<TooltipLine> = stacks
+        .iter()
+        .take(5)
+        .map(|stack| {
+            let components = stack
+                .get("components")
+                .and_then(serde_json::Value::as_object);
+            let id = stack
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("minecraft:air");
+            // `getHoverName`: the custom name, else the item name, unstyled
+            // by rarity.
+            let name = item_component(components, None, "custom_name")
+                .or_else(|| item_component(components, None, "item_name"));
+            let mut spans = vec![plain(before)];
+            match name {
+                Some(name) => spans.extend(format_component_spans_with_parent_and_bindings(
+                    &name,
+                    &ResolvedStyle::default(),
+                    common::WHITE,
+                    bindings,
+                )),
+                None => spans.push(plain(&default_item_name(id))),
+            }
+            let count = stack
+                .get("count")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(1);
+            spans.push(plain(between));
+            spans.push(plain(&count.to_string()));
+            spans.push(plain(after));
+            spans.retain(|span| !span.text.is_empty());
+            TooltipLine::from_spans(spans)
+        })
+        .collect();
+    let more = stacks.len().saturating_sub(5);
+    if more > 0 {
+        let text = crate::lang::translate("item.container.more_items")
+            .unwrap_or("and %s more...")
+            .replacen("%s", &more.to_string(), 1);
+        let mut span = plain(&text);
+        span.italic = true;
+        lines.push(TooltipLine::from_spans(vec![span]));
+    }
+    lines
+}
+
+/// An item's translated default name.
+fn default_item_name(id: &str) -> String {
+    let path = id.split(':').next_back().unwrap_or(id);
+    crate::lang::translate(&format!("item.minecraft.{path}"))
+        .or_else(|| crate::lang::translate(&format!("block.minecraft.{path}")))
+        .map(str::to_owned)
+        .unwrap_or_else(|| crate::lang::title_case_snake(path))
 }
 
 fn enchantment_tooltip_line(id: &str, level: i32) -> TooltipLine {

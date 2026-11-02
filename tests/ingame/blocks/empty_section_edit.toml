@@ -1,0 +1,35 @@
+# Blocks set in a section that was all air (an arch rising over flat ground,
+# as Void Rush's tunnel mouths do) mesh and show.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/tp @s 60.5 -60 -6.5"
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+chat = "/setblock 60 -40 8 minecraft:stone"
+
+[[step]]
+chat = "/fill 58 -45 8 62 -42 8 minecraft:deepslate_tiles"
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+expect = { block = "stone", at = [60, -40, 8] }
+
+[[step]]
+look_at = [60.5, -43.0, 8.5]
+
+[[step]]
+wait_ms = 500
+
+[[step]]
+screenshot = "arch"

@@ -1,0 +1,29 @@
+# A shulker box's tooltip lists its contents (ItemContainerContents): the
+# first five stacks as "name xN", then "and 2 more..." in italics.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/clear @s"
+
+[[step]]
+chat = "/give @s minecraft:purple_shulker_box[container=[{slot:0,item:{id:\"minecraft:diamond\",count:12}},{slot:1,item:{id:\"minecraft:stone\",count:64}},{slot:3,item:{id:\"minecraft:apple\",count:3,components:{\"minecraft:custom_name\":{text:\"Void Apple\",color:\"light_purple\"}}}},{slot:5,item:{id:\"minecraft:iron_ingot\",count:9}},{slot:8,item:{id:\"minecraft:bread\",count:16}},{slot:10,item:{id:\"minecraft:torch\",count:32}},{slot:20,item:{id:\"minecraft:arrow\",count:5}}]]"
+
+[[step]]
+wait_ms = 1000
+
+[[step]]
+open_inventory = true
+
+[[step]]
+wait_ms = 1000
+
+[[step]]
+cursor = [142, 187]
+
+[[step]]
+wait_ms = 500
+
+[[step]]
+screenshot = "shulker"

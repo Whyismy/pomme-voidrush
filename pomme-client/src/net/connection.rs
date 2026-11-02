@@ -773,6 +773,10 @@ fn extract_biome_climate(
         for (id, (_, nbt)) in registry.map.iter().enumerate() {
             let temp = nbt_float(nbt, "temperature").unwrap_or(0.8);
             let downfall = nbt_float(nbt, "downfall").unwrap_or(0.4);
+            let has_precipitation = match nbt.get("has_precipitation") {
+                Some(simdnbt::owned::NbtTag::Byte(flag)) => *flag != 0,
+                _ => true,
+            };
 
             let effects = nbt.get("effects").and_then(|v| match v {
                 simdnbt::owned::NbtTag::Compound(c) => Some(c),
@@ -810,6 +814,7 @@ fn extract_biome_climate(
                 BiomeClimate {
                     temperature: temp,
                     downfall,
+                    has_precipitation,
                     grass_color_override,
                     grass_color_modifier,
                     foliage_color_override,

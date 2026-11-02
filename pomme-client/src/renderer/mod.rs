@@ -301,6 +301,7 @@ pub struct Renderer {
     moving_block_buffers: MovingBlockBuffers,
     block_entity_pipeline: BlockEntityPipeline,
     end_portal_pipeline: pipelines::end_portal::EndPortalPipeline,
+    hit_outline_pipeline: pipelines::hit_outline::HitOutlinePipeline,
     /// The selected shader pack, and its render path once built.
     shader_pack: Option<(
         crate::shaderpack::ShaderPack,
@@ -509,6 +510,9 @@ impl Renderer {
             asset_index,
         );
 
+        let hit_outline_pipeline =
+            pipelines::hit_outline::HitOutlinePipeline::new(&ctx.device, swapchain_state.targets());
+
         let chunk_border_pipeline = pipelines::chunk_borders::ChunkBorderPipeline::new(
             &ctx.device,
             swapchain_state.targets(),
@@ -586,6 +590,7 @@ impl Renderer {
             moving_block_buffers,
             block_entity_pipeline,
             end_portal_pipeline,
+            hit_outline_pipeline,
             shader_pack: None,
             shader_pack_selected: None,
             pack_world: Default::default(),
@@ -1093,6 +1098,8 @@ impl Renderer {
                 .recreate_pipeline(&self.ctx.device, targets);
             self.end_portal_pipeline
                 .recreate_pipeline(&self.ctx.device, targets);
+            self.hit_outline_pipeline
+                .recreate_pipeline(&self.ctx.device, targets);
             self.item_entity_pipeline
                 .recreate_pipeline(&self.ctx.device, targets);
             self.held_item_pipeline
@@ -1202,6 +1209,15 @@ impl Renderer {
     pub fn set_hurt(&mut self, hurt_time: u8, hurt_dir: f32, damage_tilt_strength: f32) {
         self.camera
             .set_hurt(hurt_time, hurt_dir, damage_tilt_strength);
+    }
+
+    /// The block outline to draw this frame (see
+    /// [`pipelines::hit_outline::HitOutlinePipeline::set_target`]).
+    pub fn set_hit_outline(
+        &mut self,
+        target: Option<(glam::DVec3, &[crate::physics::block_shape::LocalBox])>,
+    ) {
+        self.hit_outline_pipeline.set_target(target);
     }
 
     /// This frame's end portal and gateway blocks (see
@@ -2081,6 +2097,7 @@ impl Renderer {
             self.entity_shadow_pipeline.update_camera(frame, &uniform);
             self.block_entity_pipeline.update_camera(frame, &uniform);
             self.end_portal_pipeline.update_camera(frame, &uniform);
+            self.hit_outline_pipeline.update_camera(frame, &uniform);
             self.chunk_border_pipeline.update_camera(frame, &uniform);
             self.item_entity_pipeline.update_camera(frame, &uniform);
             self.world_text_pipeline.update_camera(frame, &uniform);
@@ -2392,6 +2409,13 @@ impl Renderer {
                     self.block_entity_pipeline
                         .draw(&mut pass, frame, anchor, block_entities);
                     self.end_portal_pipeline.draw(&mut pass, frame, anchor);
+                    let extent = self.swapchain.extent;
+                    self.hit_outline_pipeline.draw(
+                        &mut pass,
+                        frame,
+                        anchor,
+                        [extent.width as f32, extent.height as f32],
+                    );
 
                     self.item_entity_pipeline.draw(
                         &self.ctx.device,
@@ -3048,6 +3072,7 @@ impl Drop for Renderer {
         self.moving_block_buffers.destroy(&self.ctx.device);
         self.block_entity_pipeline.destroy(&self.ctx.device);
         self.end_portal_pipeline.destroy(&self.ctx.device);
+        self.hit_outline_pipeline.destroy(&self.ctx.device);
         self.chunk_border_pipeline.destroy(&self.ctx.device);
         self.item_entity_pipeline.destroy(&self.ctx.device);
         self.held_item_pipeline.destroy(&self.ctx.device);
