@@ -114,6 +114,8 @@ fn replay_live_capture() {
     let path = std::env::var("POMME_REPLAY").expect("POMME_REPLAY names a capture");
     let out = std::env::var("POMME_REPLAY_OUT").expect("POMME_REPLAY_OUT names the report");
     let protocol = std::env::var("POMME_REPLAY_PROTOCOL").map_or(774, |p| p.parse().unwrap());
+    // The raw readers consult the session protocol, as on a live connection.
+    crate::version::set_session_protocol(protocol);
     let bytes = std::fs::read(path).expect("capture reads");
     let records = pomme_protocol::capture::records(&bytes).expect("capture records");
 

@@ -1012,6 +1012,8 @@ pub fn bake_item_models(
         }
     };
 
+    // Items the special `chest` renderer draws, with its texture.
+    let mut chests = Vec::new();
     for item_name in item_definition_names(jar_assets_dir, packs) {
         let item_name = item_name.as_str();
         let item_asset_key = item_definition_asset_key(item_name);
@@ -1024,6 +1026,9 @@ pub fn bake_item_models(
             continue;
         };
 
+        if let Some(texture) = chest_special_texture(&json) {
+            chests.push((item_name.to_string(), texture));
+        }
         let parts = collect_model_parts(&json);
         if parts.is_empty() {
             continue;
@@ -1058,13 +1063,15 @@ pub fn bake_item_models(
         &mut model_cache,
         packs,
     );
-    item_models.insert(
-        "chest".to_string(),
-        bake_chest_item_model(chest.gui_transform, chest.gui_light),
-    );
-    gui_transforms.insert("chest".to_string(), chest.gui_transform);
-    ground_transforms.insert("chest".to_string(), chest.ground_transform);
-    flat_keys.remove("chest");
+    for (name, texture) in chests {
+        item_models.insert(
+            name.clone(),
+            bake_chest_item_model(&texture, chest.gui_transform, chest.gui_light),
+        );
+        gui_transforms.insert(name.clone(), chest.gui_transform);
+        ground_transforms.insert(name.clone(), chest.ground_transform);
+        flat_keys.remove(&name);
+    }
 
     tracing::info!(
         "Baked {} item models, {} flat items, and registered {} generated-item textures",
@@ -1082,8 +1089,27 @@ pub fn bake_item_models(
     }
 }
 
-fn bake_chest_item_model(gui: DisplayTransform, gui_light: GuiLight) -> BakedModel {
-    let tex = "entity/chest/normal";
+/// The texture (`entity/chest/<name>`) of the special `chest` model a plain
+/// stack of this item definition draws: `chest`'s and `trapped_chest`'s
+/// outside Christmas (the `local_time` select's fallback), `ender_chest`'s,
+/// the copper chests'.
+// TODO: the Christmas texture from 24 to 26 December.
+fn chest_special_texture(json: &serde_json::Value) -> Option<String> {
+    let mut node = json.get("model")?;
+    while node_type(node) == Some("select") {
+        node = node.get("fallback")?;
+    }
+    let special = node
+        .get("model")
+        .filter(|_| node_type(node) == Some("special"))?;
+    if node_type(special) != Some("chest") {
+        return None;
+    }
+    let texture = strip_mc_prefix(special.get("texture")?.as_str()?);
+    Some(format!("entity/chest/{texture}"))
+}
+
+fn bake_chest_item_model(tex: &str, gui: DisplayTransform, gui_light: GuiLight) -> BakedModel {
     let mut quads = Vec::new();
     let shades = vanilla_gui_face_shades(gui, gui_light);
     add_chest_cube(
@@ -2490,7 +2516,8 @@ mod tests {
 
     #[test]
     fn chest_body_faces_match_vanilla_modelpart_cube() {
-        let model = bake_chest_item_model(gui_transform(45.0), GuiLight::Side);
+        let model =
+            bake_chest_item_model("entity/chest/normal", gui_transform(45.0), GuiLight::Side);
         assert_eq!(model.quads.len(), 18);
 
         let x0 = 1.0 / 16.0;
@@ -3002,6 +3029,32 @@ mod tests {
 
     /// Non-composite trees (bundles' select/condition) keep the old
     /// first-model-string behavior.
+    #[test]
+    fn chest_items_name_their_special_texture() {
+        let ender = serde_json::json!({"model": {"type": "minecraft:special",
+            "base": "minecraft:item/ender_chest",
+            "model": {"type": "minecraft:chest", "texture": "minecraft:ender"}}});
+        assert_eq!(
+            chest_special_texture(&ender).as_deref(),
+            Some("entity/chest/ender")
+        );
+        let trapped = serde_json::json!({"model": {"type": "minecraft:select",
+            "property": "minecraft:local_time", "pattern": "MM-dd",
+            "cases": [{"when": ["12-24"], "model": {"type": "minecraft:special",
+                "base": "minecraft:item/trapped_chest",
+                "model": {"type": "minecraft:chest", "texture": "minecraft:christmas"}}}],
+            "fallback": {"type": "minecraft:special", "base": "minecraft:item/trapped_chest",
+                "model": {"type": "minecraft:chest", "texture": "minecraft:trapped"}}}});
+        assert_eq!(
+            chest_special_texture(&trapped).as_deref(),
+            Some("entity/chest/trapped")
+        );
+        let bed = serde_json::json!({"model": {"type": "minecraft:special",
+            "base": "minecraft:item/red_bed",
+            "model": {"type": "minecraft:bed", "texture": "minecraft:red"}}});
+        assert_eq!(chest_special_texture(&bed), None);
+    }
+
     #[test]
     fn select_item_falls_back_to_first_model() {
         let json: serde_json::Value = serde_json::from_str(
