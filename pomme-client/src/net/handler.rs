@@ -542,6 +542,8 @@ fn particle_options(
             to: r.i32()? as u32,
             scale: r.f32()?,
         },
+        // ColorParticleOption: an ARGB int.
+        K::EntityEffect => O::Color(r.i32()? as u32),
         // BlockParticleOption: the state id.
         K::Block | K::BlockCrumble | K::FallingDust => O::Block(r.varint()?),
         // ItemParticleOption: through 1.21.11 a whole stack, count first;

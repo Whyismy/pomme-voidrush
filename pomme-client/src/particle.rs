@@ -435,6 +435,13 @@ impl Particle {
 
     /// `SpellParticle` (`witch`): purple, rising.
     fn witch(pos: DVec3, vel: DVec3) -> Self {
+        let shade = fastrand::f32() * 0.5 + 0.35;
+        Self::spell(pos, vel, [shade, 0.0, shade], 1.0)
+    }
+
+    /// `SpellParticle`, coloured by its provider: `witch` a random purple,
+    /// `entity_effect` its option's colour and alpha.
+    fn spell(pos: DVec3, vel: DVec3, color: [f32; 3], alpha: f32) -> Self {
         let mut p = Self::thrown(
             pos,
             dvec3(0.5 - fastrand::f64(), vel.y, 0.5 - fastrand::f64()),
@@ -450,10 +457,80 @@ impl Particle {
         }
         p.size *= 0.75;
         p.lifetime = (8.0 / (fastrand::f32() * 0.8 + 0.2)) as i32;
-        let shade = fastrand::f32() * 0.5 + 0.35;
-        p.color = [shade, 0.0, shade];
+        p.color = color;
+        p.alpha = alpha;
         p.animated = Some(SpriteSet::Spell);
         p.translucent = true;
+        p
+    }
+
+    /// `BubblePopParticle`: the spawn velocity, 0.008 gravity, no friction,
+    /// four ticks through its frames.
+    fn bubble_pop(pos: DVec3, vel: DVec3) -> Self {
+        Self {
+            vel,
+            gravity: f64::from(0.008f32) / 0.04,
+            friction: 1.0,
+            lifetime: 4,
+            animated: Some(SpriteSet::BubblePop),
+            ..Self::at(pos)
+        }
+    }
+
+    /// `BaseAshSmokeParticle` as `AshParticle` (grey, falling at 0.1,
+    /// ignoring the spawn velocity) or `WhiteAshParticle` (pale lilac,
+    /// drifting down at 0.0125 with its provider's random speed).
+    fn ash(pos: DVec3, white: bool) -> Self {
+        let mut p = Self::thrown(pos, DVec3::ZERO);
+        p.motion = Motion::Free;
+        p.friction = f64::from(0.96f32);
+        p.speed_up_blocked = true;
+        p.vel *= dvec3(0.1, -0.1, 0.1);
+        if white {
+            let r = || fastrand::f64();
+            p.vel += dvec3(
+                r() * -1.9 * r() * 0.1,
+                r() * -0.5 * r() * 0.1 * 5.0,
+                r() * -1.9 * r() * 0.1,
+            );
+            p.gravity = f64::from(0.0125f32);
+            p.color = [0.729_411_8, 0.694_117_67, 0.760_784_3];
+        } else {
+            p.gravity = 0.1;
+            p.color = [fastrand::f32() * 0.5; 3];
+        }
+        p.size *= 0.75;
+        p.lifetime = ((20.0 / (fastrand::f32() * 0.8 + 0.2)) as i32).max(1);
+        p.animated = Some(SpriteSet::Ash);
+        p
+    }
+
+    /// `ExplodeParticle` (`poof`): the spawn velocity jittered, rising
+    /// slowly, sized at random.
+    fn poof(pos: DVec3, vel: DVec3) -> Self {
+        let jitter = || (fastrand::f64() * 2.0 - 1.0) * 0.05;
+        let shade = fastrand::f32() * 0.3 + 0.7;
+        let r = fastrand::f32();
+        Self {
+            vel: vel + dvec3(jitter(), jitter(), jitter()),
+            gravity: f64::from(-0.1f32),
+            friction: f64::from(0.9f32),
+            color: [shade; 3],
+            size: 0.1 * (r * fastrand::f32() * 6.0 + 1.0),
+            lifetime: (16.0 / (fastrand::f32() * 0.8 + 0.2)) as i32 + 2,
+            animated: Some(SpriteSet::Generic),
+            ..Self::at(pos)
+        }
+    }
+
+    /// `SplashParticle`: a water drop at 0.04 gravity, thrown sideways when
+    /// spawned moving only sideways.
+    fn splash(pos: DVec3, vel: DVec3) -> Self {
+        let mut p = Self::water_drop(pos);
+        p.gravity = 1.0;
+        if vel.y == 0.0 && (vel.x != 0.0 || vel.z != 0.0) {
+            p.vel = dvec3(vel.x, 0.1, vel.z);
+        }
         p
     }
 
@@ -814,8 +891,13 @@ enum SpriteSet {
     BigSmoke,
     DripHang,
     DripFall,
-    /// `rain`: one random `splash_*`.
+    /// `rain` and `splash`: one random `splash_*`.
     Rain,
+    /// `entity_effect`: `effect_7` to `effect_0`.
+    Effect,
+    BubblePop,
+    /// `ash`, `white_ash`: `generic_0` alone.
+    Ash,
 }
 
 /// The sprites of each set, as atlas texture keys.
@@ -977,6 +1059,30 @@ const SPRITE_SETS: &[(SpriteSet, &[&str])] = &[
             "particle/splash_3",
         ],
     ),
+    (
+        SpriteSet::Effect,
+        &[
+            "particle/effect_7",
+            "particle/effect_6",
+            "particle/effect_5",
+            "particle/effect_4",
+            "particle/effect_3",
+            "particle/effect_2",
+            "particle/effect_1",
+            "particle/effect_0",
+        ],
+    ),
+    (
+        SpriteSet::BubblePop,
+        &[
+            "particle/bubble_pop_0",
+            "particle/bubble_pop_1",
+            "particle/bubble_pop_2",
+            "particle/bubble_pop_3",
+            "particle/bubble_pop_4",
+        ],
+    ),
+    (SpriteSet::Ash, &["particle/generic_0"]),
 ];
 
 /// Frame order from `assets/minecraft/particles/end_rod.json`: frame 0 is
@@ -1068,6 +1174,12 @@ pub enum ServerParticleKind {
     CampfireSignalSmoke,
     DrippingObsidianTear,
     FallingObsidianTear,
+    EntityEffect,
+    BubblePop,
+    Ash,
+    WhiteAsh,
+    Poof,
+    Splash,
 }
 
 impl ServerParticleKind {
@@ -1094,6 +1206,12 @@ impl ServerParticleKind {
             "explosion" => Self::Explosion,
             "happy_villager" => Self::HappyVillager,
             "witch" => Self::Witch,
+            "entity_effect" => Self::EntityEffect,
+            "bubble_pop" => Self::BubblePop,
+            "ash" => Self::Ash,
+            "white_ash" => Self::WhiteAsh,
+            "poof" => Self::Poof,
+            "splash" => Self::Splash,
             "soul" => Self::Soul,
             "electric_spark" => Self::ElectricSpark,
             "lava" => Self::Lava,
@@ -1157,6 +1275,8 @@ pub enum ParticleOptions {
     Block(u32),
     /// `ItemParticleOption`: a native item id.
     Item(u32),
+    /// `ColorParticleOption`: an ARGB colour.
+    Color(u32),
 }
 
 /// How a block or item particle looks, resolved by the caller (which has
@@ -1620,6 +1740,41 @@ impl ParticleStore {
                 p.sprite_from_age(sets);
                 p
             }
+            K::EntityEffect => {
+                let argb = match spawn.options {
+                    ParticleOptions::Color(argb) => argb,
+                    _ => 0xFFFF_FFFF,
+                };
+                let channel = |shift: u32| ((argb >> shift) & 0xFF) as f32 / 255.0;
+                let mut p =
+                    Particle::spell(pos, vel, [channel(16), channel(8), channel(0)], channel(24));
+                p.animated = Some(SpriteSet::Effect);
+                p.sprite_from_age(sets);
+                p
+            }
+            K::BubblePop => {
+                let mut p = Particle::bubble_pop(pos, vel);
+                p.sprite_from_age(sets);
+                p
+            }
+            K::Ash | K::WhiteAsh => {
+                let mut p = Particle::ash(pos, spawn.kind == K::WhiteAsh);
+                p.sprite_from_age(sets);
+                p
+            }
+            K::Poof => {
+                let mut p = Particle::poof(pos, vel);
+                p.sprite_from_age(sets);
+                p
+            }
+            K::Splash => {
+                let mut p = Particle::splash(pos, vel);
+                let frames = sets.get(SpriteSet::Rain);
+                if !frames.is_empty() {
+                    p.set_sprite(&frames[fastrand::usize(..frames.len())]);
+                }
+                p
+            }
             K::Soul => {
                 let mut p = Particle::soul(pos, vel);
                 p.sprite_from_age(sets);
@@ -1844,6 +1999,14 @@ fn rot_y(v: DVec3, angle: f64) -> DVec3 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `SpriteSets::load` indexes the sets by `SpriteSet` discriminant.
+    #[test]
+    fn sprite_sets_are_listed_in_enum_order() {
+        for (i, (set, _)) in SPRITE_SETS.iter().enumerate() {
+            assert_eq!(*set as usize, i, "{set:?}");
+        }
+    }
 
     #[test]
     fn particles_take_vanilla_light_coords() {

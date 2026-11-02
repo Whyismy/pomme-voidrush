@@ -1,0 +1,39 @@
+# Server particle types Void Rush sends that pomme had no provider for:
+# entity_effect (a coloured potion swirl), bubble_pop, ash, white_ash, poof
+# and splash, each spawned in a cloud in front of the camera.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/tp @s 0.5 -59 0.5 0 0"
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+chat = "/particle entity_effect{color:[1.0,0.2,0.2,1.0]} -2 -58 5 0.3 0.5 0.3 1 40 force"
+
+[[step]]
+chat = "/particle bubble_pop -0.5 -58 5 0.3 0.3 0.3 0 40 force"
+
+[[step]]
+chat = "/particle ash 1 -57 5 0.6 0.6 0.6 0 200 force"
+
+[[step]]
+chat = "/particle white_ash 2.5 -57 5 0.6 0.6 0.6 0 200 force"
+
+[[step]]
+chat = "/particle poof 4 -58 5 0.3 0.3 0.3 0.02 30 force"
+
+[[step]]
+chat = "/particle splash 5.5 -59.5 5 0.3 0 0.3 0 60 force"
+
+[[step]]
+wait_ms = 150
+
+[[step]]
+screenshot = "particles"
