@@ -1964,6 +1964,17 @@ impl Renderer {
         }
     }
 
+    /// The pose of an entity's right or left arm part as drawn this frame
+    /// (see `EntityRenderer::arm_pose`).
+    pub fn entity_arm_pose(
+        &self,
+        info: &pipelines::entity_renderer::EntityRenderInfo,
+        right: bool,
+    ) -> Option<glam::Mat4> {
+        self.entity_renderer
+            .arm_pose(info, self.camera_anchor(), right)
+    }
+
     /// Changes whenever item meshes are rebuilt (a resource reload).
     pub fn display_assets_generation(&self) -> u32 {
         self.display_assets_generation

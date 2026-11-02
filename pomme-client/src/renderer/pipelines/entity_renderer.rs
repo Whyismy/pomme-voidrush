@@ -139,6 +139,8 @@ pub struct EntityRenderInfo {
     pub player_uuid: Option<uuid::Uuid>,
     /// Indexed like [`ARMOR_SLOTS`].
     pub armor: [Option<ArmorRenderInfo>; 4],
+    /// The living entity drawn, for the layers drawn beside it (held items).
+    pub entity_id: Option<i32>,
     pub variant_index: u32,
     pub overlay_tints: [Option<[f32; 4]>; MAX_OVERLAYS],
     /// Per-slot overlay texture variant (villager type/profession/level).
@@ -259,6 +261,7 @@ impl Default for EntityRenderInfo {
             entity_kind: EntityKind::Player,
             player_uuid: None,
             armor: Default::default(),
+            entity_id: None,
             variant_index: 0,
             overlay_tints: [None; MAX_OVERLAYS],
             overlay_variants: [0; MAX_OVERLAYS],
@@ -2739,6 +2742,24 @@ impl EntityRenderer {
         for (_, skin) in self.player_skins.drain() {
             free_player_skin_texture(device, skin);
         }
+    }
+
+    /// Vanilla `ArmedModel.translateToHand`: the pose of `info`'s right or
+    /// left arm part as drawn this frame (anchor-relative), or `None` for a
+    /// model without one.
+    pub fn arm_pose(
+        &self,
+        info: &EntityRenderInfo,
+        anchor: glam::DVec3,
+        right: bool,
+    ) -> Option<glam::Mat4> {
+        let entry = self.mobs.get(&info.entity_kind)?;
+        let variant = entry.base_variant(info.is_baby, self.effective_variant_index(info));
+        let name = if right { "right_arm" } else { "left_arm" };
+        let part = variant.model.parts.iter().position(|p| p.name == name)?;
+        let anim = self.compute_anim(entry.anim, &variant.model, info);
+        let transforms = variant.model.compute_part_transforms(&anim);
+        Some(Self::entity_matrix(info, anchor) * transforms[part])
     }
 
     fn player_skin(&self, info: &EntityRenderInfo) -> Option<&PlayerSkinTexture> {

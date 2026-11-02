@@ -4294,6 +4294,7 @@ pub fn update_game(
                         e.player_uuid
                     },
                     armor: e.armor.clone(),
+                    entity_id: Some(entity_id),
                     variant_index: extras.variant_index,
                     overlay_tints: extras.overlay_tints,
                     overlay_variants: extras.overlay_variants,
@@ -4639,6 +4640,9 @@ pub fn update_game(
     }
     crate::frame_log::add("displays", display_start.elapsed().as_secs_f32() * 1000.0);
     item_renders.extend(display_items);
+    if !benchmark_running {
+        build_held_items(game, &mut gfx.renderer, &entity_renders, &mut item_renders);
+    }
     if !benchmark_running {
         build_falling_blocks(
             &game.falling_blocks,
@@ -5649,6 +5653,102 @@ fn build_falling_blocks(
             ),
         });
     }
+}
+
+/// Vanilla `ItemInHandLayer`: what a mob or another player holds, in the
+/// hand of its arm part: the arm's pose, turned and pushed out to the fist
+/// (`renderArmWithItem`), then the item's third-person display transform.
+// TODO: left-handed mobs and players, the illagers' crossed-arm hiding, the
+// witch, fox, panda and dolphin's own placements, and the local player in
+// third person.
+fn build_held_items(
+    game: &GameState,
+    renderer: &mut Renderer,
+    entities: &[EntityRenderInfo],
+    out: &mut Vec<crate::renderer::pipelines::item_entity::ItemRenderInfo>,
+) {
+    use azalea_inventory::components::EquipmentSlot;
+
+    use crate::renderer::pipelines::item_entity::ItemRenderInfo;
+    for info in entities {
+        let Some(entity) = info
+            .entity_id
+            .and_then(|id| game.entity_store.living.get(&id))
+        else {
+            continue;
+        };
+        if !holds_items(entity.entity_type) {
+            continue;
+        }
+        for (slot, right) in [
+            (EquipmentSlot::Mainhand, true),
+            (EquipmentSlot::Offhand, false),
+        ] {
+            let Some(stack) = entity.equipment(slot).and_then(|stack| stack.as_present()) else {
+                continue;
+            };
+            let Some(arm) = renderer.entity_arm_pose(info, right) else {
+                continue;
+            };
+            let name = crate::player::inventory::item_resource_name(stack.kind);
+            let model = renderer.render_assets().stack_model_key(&name, stack);
+            renderer.ensure_item_mesh(&model);
+            let tints: Arc<[u32]> = renderer
+                .render_assets()
+                .item_tint_palette(&model, Some(stack), None)
+                .into();
+            // THIRD_PERSON_RIGHT_HAND / THIRD_PERSON_LEFT_HAND.
+            let transform = renderer.item_display_transform(&model, if right { 2 } else { 1 });
+            let side = if right { 1.0 } else { -1.0 };
+            let model_matrix = arm
+                * ARM_FRAME
+                * glam::Mat4::from_rotation_x(-std::f32::consts::FRAC_PI_2)
+                * glam::Mat4::from_rotation_y(std::f32::consts::PI)
+                * glam::Mat4::from_translation(glam::Vec3::new(side / 16.0, 0.125, -0.625))
+                * transform;
+            out.push(ItemRenderInfo {
+                item_name: model.into(),
+                outline_color: info.outline_color,
+                tints,
+                model_matrix,
+                light: info.light,
+            });
+        }
+    }
+}
+
+/// From a model part's frame as pomme poses it to vanilla's (y down), which
+/// `ItemInHandLayer`'s offsets are in.
+const ARM_FRAME: glam::Mat4 = glam::Mat4::from_cols(
+    glam::Vec4::new(1.0, 0.0, 0.0, 0.0),
+    glam::Vec4::new(0.0, -1.0, 0.0, 0.0),
+    glam::Vec4::new(0.0, 0.0, 1.0, 0.0),
+    glam::Vec4::W,
+);
+
+/// The kinds `ItemInHandLayer` draws held items for (humanoid arms).
+fn holds_items(kind: EntityKind) -> bool {
+    matches!(
+        kind,
+        EntityKind::Player
+            | EntityKind::Mannequin
+            | EntityKind::Zombie
+            | EntityKind::Husk
+            | EntityKind::Drowned
+            | EntityKind::Skeleton
+            | EntityKind::Stray
+            | EntityKind::Bogged
+            | EntityKind::WitherSkeleton
+            | EntityKind::Piglin
+            | EntityKind::PiglinBrute
+            | EntityKind::ZombifiedPiglin
+            | EntityKind::Vindicator
+            | EntityKind::Pillager
+            | EntityKind::Evoker
+            | EntityKind::Illusioner
+            | EntityKind::Vex
+            | EntityKind::ArmorStand
+    )
 }
 
 /// What [`build_name_tags`] reads.

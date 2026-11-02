@@ -1,0 +1,48 @@
+# Items in mobs' hands (vanilla ItemInHandLayer): a zombie with a sword and
+# a shield, a skeleton with a bow, a piglin with a golden sword, all facing
+# the camera, then from the side (the blades point up and forward from the fist).
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/time set 18000"
+
+[[step]]
+chat = "/effect give @s minecraft:night_vision infinite 0 true"
+
+[[step]]
+chat = "/summon minecraft:zombie -2.5 -60 4.5 {NoAI:1b,Silent:1b,Rotation:[180f,0f],equipment:{mainhand:{id:\"minecraft:iron_sword\"},offhand:{id:\"minecraft:shield\"}}}"
+
+[[step]]
+chat = "/summon minecraft:skeleton 0.5 -60 4.5 {NoAI:1b,Silent:1b,Rotation:[180f,0f],equipment:{mainhand:{id:\"minecraft:bow\"}}}"
+
+[[step]]
+chat = "/summon minecraft:piglin 3.5 -60 4.5 {NoAI:1b,Silent:1b,IsImmuneToZombification:1b,Rotation:[180f,0f],equipment:{mainhand:{id:\"minecraft:golden_sword\"}}}"
+
+[[step]]
+chat = "/tp @s 0.5 -59 0.5 0 10"
+
+[[step]]
+wait_ms = 6000
+
+[[step]]
+screenshot = "held"
+
+[[step]]
+chat = "/tp @s -6.5 -59 4.5 -90 10"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "held_side"
+
+[[step]]
+chat = "/tp @s 8.5 -59 4.5 90 10"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "piglin_side"
