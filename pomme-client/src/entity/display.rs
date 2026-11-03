@@ -439,8 +439,18 @@ impl DisplayEntity {
     fn move_to(&mut self, position: DVec3, rotation: Option<(f32, f32)>) {
         self.server_position = position;
         let (y_rot, x_rot) = rotation.unwrap_or((self.y_rot, self.x_rot));
+        // A passenger sits where its vehicle puts it every tick
+        // (`positionRider`), so where the server has it never shows: a snap
+        // here would draw it sliding back from there until the next tick
+        // (worn wings, seated by the server's packet but moved only to stay
+        // tracked).
+        if self.vehicle.is_some() {
+            self.y_rot = y_rot;
+            self.x_rot = x_rot;
+            return;
+        }
         let steps = self.synced.pos_rot_interpolation_duration;
-        if steps > 0 && self.vehicle.is_none() {
+        if steps > 0 {
             self.lerp = Some(Lerp {
                 position,
                 y_rot,
@@ -709,6 +719,23 @@ mod tests {
         let mut display = DisplayEntity::new(kind, DVec3::ZERO, 0.0, 0.0);
         display.tick();
         display
+    }
+
+    /// The server moving a seated display (to keep it tracked) neither
+    /// moves it nor resets where it's drawn from: its seat places it.
+    #[test]
+    fn a_passenger_ignores_server_moves() {
+        let mut store = DisplayStore::default();
+        store.displays.insert(7, spawned(DisplayKind::Block));
+        store.set_passengers(1, &[7]);
+        let seat = |at: f64| move |_| Some(DVec3::new(at, 0.0, 0.0));
+        store.tick(seat(1.0));
+        store.tick(seat(2.0));
+        store.teleport(7, DVec3::new(-3.0, 0.0, 0.0), 0.0, 0.0);
+        store.move_delta(7, DVec3::new(0.5, 0.0, 0.0), None);
+        let display = &store.displays[&7];
+        assert_eq!(display.prev_position, DVec3::new(1.0, 0.0, 0.0));
+        assert_eq!(display.position, DVec3::new(2.0, 0.0, 0.0));
     }
 
     #[test]
