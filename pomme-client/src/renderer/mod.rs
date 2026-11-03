@@ -1909,6 +1909,47 @@ impl Renderer {
         if let Some(info) = self.item_entity_pipeline.mesh_info(name) {
             return info;
         }
+        // A banner stack's pattern layers: copies of its flag's base pattern
+        // in each layer's texture, taking the tints after the model's
+        // (`BannerRenderer.renderPatterns`).
+        if name.contains('~')
+            && let Some(base) = self
+                .render_assets
+                .get_item_model(crate::banner::base_key(name))
+        {
+            let base_pattern = crate::world::block::model::TextureId::intern(
+                crate::world::block::model::BANNER_BASE_PATTERN,
+            );
+            let flag: Vec<_> = base
+                .quads
+                .iter()
+                .filter(|quad| quad.texture == base_pattern)
+                .cloned()
+                .collect();
+            // The palette lists the model's own tints, then the layers'.
+            let tint_base = self
+                .render_assets
+                .item_tint_palette(crate::banner::base_key(name), None, None)
+                .len() as u32;
+            let mut model = base.clone();
+            for (i, (texture, _)) in crate::banner::layers(name).enumerate() {
+                let texture = crate::world::block::model::TextureId::intern(&texture);
+                model.quads.extend(flag.iter().cloned().map(|mut quad| {
+                    quad.texture = texture;
+                    quad.tint_index = Some(tint_base + i as u32);
+                    quad
+                }));
+            }
+            self.item_entity_pipeline.ensure_mesh(
+                &self.ctx.device,
+                name,
+                &model,
+                &self.atlas.uv_map,
+            );
+        }
+        if let Some(info) = self.item_entity_pipeline.mesh_info(name) {
+            return info;
+        }
         let is_block_model = if let Some(model) = self.render_assets.get_item_model(name) {
             self.item_entity_pipeline.ensure_mesh(
                 &self.ctx.device,
@@ -2319,6 +2360,16 @@ impl Renderer {
                 .set_atlas_px(self.gui_item_atlas.atlas_px());
         }
 
+        // A banner stack's icon draws a mesh built for its pattern layers.
+        let banner_stacks: Vec<String> = unique_items
+            .values()
+            .map(|(name, _)| name)
+            .filter(|name| name.contains('~'))
+            .cloned()
+            .collect();
+        for name in banner_stacks {
+            self.ensure_item_mesh(&name);
+        }
         let unique_keys: HashSet<String> = unique_items.keys().cloned().collect();
         if !self.gui_item_atlas.has_space_for_all(&unique_keys)
             && !self.gui_item_atlas.reclaim_space_for(&unique_keys)

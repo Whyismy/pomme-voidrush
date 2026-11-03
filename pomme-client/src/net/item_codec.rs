@@ -36,8 +36,6 @@ pub(super) const DROPPED: &[&str] = &[
     "intangible_projectile",
     "recipes",
     "lock",
-    // Holder vs plain registry id.
-    "banner_patterns",
     // The occupant's entity type is missing.
     "bees",
     // Same bytes, wrong registry (entity type for block-entity type).
@@ -211,6 +209,7 @@ pub(super) fn transcode_to_azalea(id: u32, value: &[u8]) -> Option<Vec<u8>> {
         "consumable" => transcode_consumable(&mut r, true).ok()??,
         "death_protection" => transcode_effects(&mut r, true).ok()??,
         "trim" => transcode_trim(&mut r, true).ok()??,
+        "banner_patterns" => transcode_banner_patterns(&mut r, true).ok()??,
         _ => r.bytes(value.len()).ok()?.to_vec(),
     };
     r.ensure_eof().ok()?;
@@ -281,6 +280,7 @@ fn vanilla_component(
         DataComponentKind::Consumable => transcode_consumable(&mut r, false).ok()??,
         DataComponentKind::DeathProtection => transcode_effects(&mut r, false).ok()??,
         DataComponentKind::Trim => transcode_trim(&mut r, false).ok()??,
+        DataComponentKind::BannerPatterns => transcode_banner_patterns(&mut r, false).ok()??,
         _ => return Some(azalea.to_vec()),
     };
     Some(bytes)
@@ -416,6 +416,22 @@ fn transcode_trim(r: &mut Reader, to_azalea: bool) -> DecodeResult<Option<Vec<u8
         if transcode_holder_id(r, &mut out, to_azalea)?.is_none() {
             return Ok(None);
         }
+    }
+    Ok(Some(out))
+}
+
+/// BannerPatternLayers.java: each layer's pattern is a holder in vanilla, a
+/// plain registry id in azalea; an inline pattern drops the component.
+fn transcode_banner_patterns(r: &mut Reader, to_azalea: bool) -> DecodeResult<Option<Vec<u8>>> {
+    let mut out = Vec::new();
+    let count = r.varint()?;
+    write_varint(&mut out, count);
+    for _ in 0..count {
+        if transcode_holder_id(r, &mut out, to_azalea)?.is_none() {
+            return Ok(None);
+        }
+        let color = r.varint()?;
+        write_varint(&mut out, color);
     }
     Ok(Some(out))
 }

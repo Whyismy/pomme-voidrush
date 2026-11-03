@@ -1,0 +1,44 @@
+# Void Rush's scrolls: banners whose GUI model is a composite of the banner
+# special (shrunk out of sight) and the flat scroll sprite.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/gamemode survival"
+
+[[step]]
+chat = "/clear @s"
+
+[[step]]
+chat = "/give @s minecraft:white_banner"
+
+[[step]]
+chat = "/give @s minecraft:purple_banner[minecraft:banner_patterns=[{pattern:'minecraft:border',color:'black'},{pattern:'minecraft:rhombus',color:'magenta'},{pattern:'minecraft:circle',color:'black'}]]"
+
+[[step]]
+chat = "/give @s minecraft:yellow_banner[minecraft:banner_patterns=[{pattern:'minecraft:stripe_downright',color:'light_blue'},{pattern:'minecraft:stripe_center',color:'white'},{pattern:'minecraft:border',color:'gray'}]]"
+
+[[step]]
+chat = "/give @s minecraft:white_banner[minecraft:custom_model_data={strings:['learning_scroll_3']}]"
+
+[[step]]
+chat = "/summon minecraft:item_display ~ ~1.2 ~3 {Rotation:[180f,0f],item:{id:\"minecraft:red_banner\",count:1,components:{\"minecraft:banner_patterns\":[{pattern:\"minecraft:cross\",color:\"white\"}]}},item_display:\"fixed\"}"
+
+[[step]]
+wait_ms = 11000
+
+[[step]]
+screenshot = "banner_display"
+
+[[step]]
+open_inventory = true
+
+[[step]]
+wait_ms = 500
+
+[[step]]
+screenshot = "scrolls"

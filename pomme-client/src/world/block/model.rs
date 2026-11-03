@@ -928,6 +928,7 @@ pub fn bake_item_models(
         "entity/shield_base_nopattern",
     ]);
     let trident_texture = jar_texture(["entity/trident/trident", "entity/trident"]);
+    let banner_texture = jar_texture(["entity/banner/banner_base", "entity/banner_base"]);
     let mut tint_sources: HashMap<String, Vec<ItemTintSource>> = HashMap::new();
     let grass_colormap = Colormap::load(
         jar_assets_dir,
@@ -948,6 +949,8 @@ pub fn bake_item_models(
         let mut gui_transform: Option<DisplayTransform> = None;
         let mut gui_light: Option<GuiLight> = None;
         let mut display: Option<DisplayTransforms> = None;
+        // Each part's GUI pose, for a GUI variant whose parts disagree.
+        let mut part_gui: Vec<(usize, DisplayTransform)> = Vec::new();
         for part in parts {
             let resolved = resolve_model(
                 &part.path,
@@ -1024,9 +1027,29 @@ pub fn bake_item_models(
                             exported_data::CONDUIT_SHELL,
                             "entity/conduit/base".to_owned(),
                         ),
+                        SpecialModel::Banner { .. } => {
+                            (exported_data::STANDING_BANNER, banner_texture.to_owned())
+                        }
                     };
-                    Some(bake_exported_item(layer, &texture))
+                    let mut baked = bake_exported_item(layer, &texture);
+                    // `BannerRenderer.renderPatterns`: the flag, then the base
+                    // pattern in the base colour (tint 0, the part's own).
+                    if matches!(special, SpecialModel::Banner { .. }) {
+                        let flag = exported_data::STANDING_BANNER_FLAG;
+                        baked
+                            .quads
+                            .extend(bake_exported_item(flag, banner_texture).quads);
+                        let mut base = bake_exported_item(flag, BANNER_BASE_PATTERN).quads;
+                        for quad in &mut base {
+                            quad.tint_index = Some(0);
+                        }
+                        baked.quads.extend(base);
+                    }
+                    Some(baked)
                 }
+                // A generated sprite among other parts: its layers as flat
+                // cards (vanilla's generated faces, less the edges).
+                None if resolved.elements.is_empty() => bake_generated_layers(&resolved),
                 None => bake_resolved_model(&resolved, 0, 0, Tint::None),
             };
             let Some(mut baked) = baked else {
@@ -1051,6 +1074,8 @@ pub fn bake_item_models(
                     }
                 }
             }
+            let start = merged.as_ref().map_or(0, |model| model.quads.len());
+            part_gui.push((start, resolved.gui_transform));
             merged = Some(match merged.take() {
                 None => baked,
                 Some(mut model) => {
@@ -1059,6 +1084,30 @@ pub fn bake_item_models(
                     model
                 }
             });
+        }
+        // Vanilla draws each layer of the stack in its own model's pose; a GUI
+        // variant (Void Rush's scrolls: a banner shrunk behind a sprite) whose
+        // parts disagree takes each part's pose into its quads instead.
+        if name.ends_with("#gui")
+            && part_gui.windows(2).any(|pair| pair[0].1 != pair[1].1)
+            && let Some(model) = &mut merged
+        {
+            let ends = part_gui
+                .iter()
+                .skip(1)
+                .map(|(start, _)| *start)
+                .chain(std::iter::once(model.quads.len()));
+            for ((start, transform), end) in part_gui.iter().zip(ends) {
+                let m = Mat4::from_translation(Vec3::splat(0.5))
+                    * transform.to_matrix()
+                    * Mat4::from_translation(Vec3::splat(-0.5));
+                for quad in &mut model.quads[*start..end] {
+                    for p in &mut quad.positions {
+                        *p = m.transform_point3(Vec3::from_array(*p)).to_array();
+                    }
+                }
+            }
+            gui_transform = Some(DisplayTransform::IDENTITY);
         }
         if let Some(transform) = ground_transform {
             ground_transforms.insert(name.to_string(), transform);
@@ -1248,8 +1297,7 @@ fn bake_chest_item_model(tex: &str, gui: DisplayTransform, gui_light: GuiLight) 
 
 /// The special item models pomme draws (vanilla `SpecialModelRenderer`s),
 /// each from vanilla's own model layer.
-// TODO: banners (the flag's base colour and patterns as tinted layers), the
-// shield's patterns, decorated pots and copper golem statues.
+// TODO: the shield's patterns, decorated pots and copper golem statues.
 #[derive(Clone, Debug, PartialEq)]
 enum SpecialModel {
     Shield,
@@ -1260,7 +1308,17 @@ enum SpecialModel {
     },
     /// `ConduitSpecialRenderer`: the conduit's shell.
     Conduit,
+    /// `BannerSpecialRenderer`: the standing banner, its flag in its base
+    /// colour (`0xRRGGBB`); a stack's pattern layers go on per stack
+    /// ([`crate::banner`]).
+    Banner {
+        color: u32,
+    },
 }
+
+/// The banner pattern every flag draws first, in the banner's base colour;
+/// a stack's pattern layers copy its quads.
+pub const BANNER_BASE_PATTERN: &str = "entity/banner/base";
 
 impl SpecialModel {
     /// A `minecraft:special` node's model, if pomme draws it.
@@ -1269,6 +1327,14 @@ impl SpecialModel {
             "shield" => Some(Self::Shield),
             "trident" => Some(Self::Trident),
             "conduit" => Some(Self::Conduit),
+            "banner" => Some(Self::Banner {
+                color: crate::banner::dye_rgb_named(
+                    model
+                        .get("color")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("white"),
+                ),
+            }),
             "shulker_box" => {
                 let name = model
                     .get("texture")
@@ -1286,12 +1352,18 @@ impl SpecialModel {
     /// the item definition's `transformation`, for definitions in the older
     /// format (packs made for 1.21): `ShieldSpecialRenderer` and
     /// `TridentSpecialRenderer` flip it, `ShulkerBoxRenderer` stands it in the
-    /// block, flipped, a hair inside, and `ConduitSpecialRenderer` centres it.
+    /// block, flipped, a hair inside, `ConduitSpecialRenderer` centres it and
+    /// `BannerRenderer.renderInHand` stands it in the block at two thirds,
+    /// flipped.
     fn legacy_transform(&self) -> Mat4 {
         let flip = Mat4::from_scale(Vec3::new(1.0, -1.0, -1.0));
         match self {
             Self::Shield | Self::Trident => flip,
             Self::Conduit => Mat4::from_translation(Vec3::splat(0.5)),
+            Self::Banner { .. } => {
+                Mat4::from_translation(Vec3::new(0.5, 0.0, 0.5))
+                    * Mat4::from_scale(Vec3::new(2.0, -2.0, -2.0) / 3.0)
+            }
             Self::ShulkerBox { .. } => {
                 Mat4::from_translation(Vec3::new(0.5, 1.4995, 0.5))
                     * flip
@@ -1299,6 +1371,49 @@ impl SpecialModel {
             }
         }
     }
+}
+
+/// A generated item's layers (`layer0`, `layer1`, ...) as two-sided flat
+/// cards a pixel thick, each taking its layer's tint index: vanilla
+/// `ItemModelGenerator`'s front and back faces.
+fn bake_generated_layers(resolved: &ResolvedModel) -> Option<BakedModel> {
+    let mut quads = Vec::new();
+    for layer in 0..5u32 {
+        let Some(value) = resolved.textures.get(&format!("layer{layer}")) else {
+            break;
+        };
+        let Some(texture) = texture_to_name(value) else {
+            continue;
+        };
+        let texture = TextureId::intern(&texture);
+        let card = |z: f32, front: bool| {
+            let corners = [
+                ([0.0, 1.0, z], [0.0, 0.0]),
+                ([0.0, 0.0, z], [0.0, 1.0]),
+                ([1.0, 0.0, z], [1.0, 1.0]),
+                ([1.0, 1.0, z], [1.0, 0.0]),
+            ];
+            let order = if front { [0, 1, 2, 3] } else { [3, 2, 1, 0] };
+            BakedQuad {
+                positions: order.map(|i| corners[i].0),
+                uvs: order.map(|i| corners[i].1),
+                texture,
+                cullface: None,
+                tint: Tint::None,
+                tint_index: Some(layer),
+                shade_light: 1.0,
+                shade_face: None,
+                emission: 0,
+                ambient_occlusion: false,
+            }
+        };
+        quads.push(card(8.5 / 16.0, true));
+        quads.push(card(7.5 / 16.0, false));
+    }
+    (!quads.is_empty()).then_some(BakedModel {
+        quads,
+        is_full_cube: false,
+    })
 }
 
 /// A special model's geometry from vanilla's model layer, as its renderer
@@ -1856,10 +1971,17 @@ fn collect_parts_from_node(
             if let Some(special) = node.get("model").and_then(SpecialModel::of)
                 && let Some(base) = node.get("base").and_then(|b| b.as_str())
             {
+                // A banner's base colour, as the tint its base pattern takes.
+                let tints = match special {
+                    SpecialModel::Banner { color } => {
+                        vec![serde_json::json!({"type": "minecraft:constant", "value": color})]
+                    }
+                    _ => Vec::new(),
+                };
                 parts.push(ModelPart {
                     path: strip_mc_prefix(base).to_string(),
                     transform,
-                    tints: Vec::new(),
+                    tints,
                     special: Some(special),
                 });
             }

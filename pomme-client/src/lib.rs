@@ -10,6 +10,7 @@ mod args;
 mod assets;
 mod attribute;
 mod audio;
+mod banner;
 mod benchmark;
 mod chat_component;
 #[cfg(feature = "cpu-bench")]

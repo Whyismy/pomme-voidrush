@@ -2098,6 +2098,7 @@ impl AppCore {
                 }
                 NetworkEvent::Registries(registries) => {
                     crate::trim::set_from_registries(&registries);
+                    crate::banner::set_from_registries(&registries);
                     crate::ui::chat::set_enchantment_names(
                         registries
                             .enchantment

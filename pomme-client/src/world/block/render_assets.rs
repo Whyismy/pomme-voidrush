@@ -107,6 +107,12 @@ pub struct BlockRenderAssets {
     item_ground_transforms: HashMap<String, glam::Mat4>,
     item_display_transforms: HashMap<String, model::DisplayTransforms>,
     item_tint_sources: HashMap<String, Vec<model::ItemTintSource>>,
+    /// Item models with a banner's flag, which take a stack's patterns
+    /// ([`crate::banner`]).
+    banner_models: std::collections::HashSet<String>,
+    /// Every banner pattern texture in the jar and the packs, for the atlas
+    /// (stacks name them, no model does).
+    banner_pattern_textures: Vec<String>,
 }
 
 /// Lightweight view of CPU assets paired with the session's explicitly selected
@@ -217,6 +223,13 @@ impl BlockRenderAssets {
         let item_ground_transforms = baked_items.ground_transforms;
         let item_display_transforms = baked_items.display_transforms;
         let item_tint_sources = baked_items.tint_sources;
+        let base_pattern = model::TextureId::intern(model::BANNER_BASE_PATTERN);
+        let banner_models = item_models
+            .iter()
+            .filter(|(_, model)| model.quads.iter().any(|quad| quad.texture == base_pattern))
+            .map(|(key, _)| key.clone())
+            .collect();
+        let banner_pattern_textures = banner_pattern_textures(jar_assets_dir, packs);
 
         Self {
             textures,
@@ -230,6 +243,8 @@ impl BlockRenderAssets {
             item_ground_transforms,
             item_display_transforms,
             item_tint_sources,
+            banner_models,
+            banner_pattern_textures,
         }
     }
 
@@ -251,7 +266,16 @@ impl BlockRenderAssets {
     /// The model `key` draws in the GUI: its GUI variant where its
     /// definition has one ([`model::gui_model_key`]), else itself.
     pub fn gui_model_key(&self, key: &str) -> String {
+        let (key, layers) = key.split_at(key.find('~').unwrap_or(key.len()));
         let gui = model::gui_model_key(key);
+        if !layers.is_empty() {
+            let base = if self.banner_models.contains(&gui) {
+                gui
+            } else {
+                key.to_owned()
+            };
+            return base + layers;
+        }
         if self.item_models.contains_key(&gui) || self.flat_item_texture_keys.contains_key(&gui) {
             gui
         } else {
@@ -259,7 +283,21 @@ impl BlockRenderAssets {
         }
     }
 
+    /// [`Self::stack_model_key_base`], with the stack's banner pattern
+    /// layers on a banner's model (`~` and the layers, [`crate::banner`]).
     pub fn stack_model_key(&self, name: &str, stack: &ItemStackData) -> String {
+        let key = self.stack_model_key_base(name, stack);
+        if self.banner_models.contains(&key)
+            && let Some(layers) = stack
+                .get_component::<azalea_inventory::components::BannerPatterns>()
+                .and_then(|patterns| crate::banner::layers_suffix(&patterns))
+        {
+            return key + &layers;
+        }
+        key
+    }
+
+    fn stack_model_key_base(&self, name: &str, stack: &ItemStackData) -> String {
         let has = |key: &str| {
             self.item_models.contains_key(key) || self.flat_item_texture_keys.contains_key(key)
         };
@@ -306,6 +344,7 @@ impl BlockRenderAssets {
     /// A flat item's layer textures indexed by layer (`None` = unresolvable),
     /// defaulting to the item's own sprite.
     pub fn flat_item_layers(&self, name: &str) -> Vec<Option<String>> {
+        let name = crate::banner::base_key(name);
         self.flat_item_texture_keys
             .get(name)
             .cloned()
@@ -321,26 +360,32 @@ impl BlockRenderAssets {
         stack: Option<&ItemStackData>,
         team_color: Option<u32>,
     ) -> Vec<u32> {
-        self.item_tint_sources
-            .get(name)
+        let mut palette: Vec<u32> = self
+            .item_tint_sources
+            .get(crate::banner::base_key(name))
             .map(|sources| {
                 sources
                     .iter()
                     .map(|source| evaluate_item_tint(source, stack, team_color))
                     .collect()
             })
-            .unwrap_or_default()
+            .unwrap_or_default();
+        // A banner stack's pattern layers take the tints after the model's.
+        palette.extend(crate::banner::layers(name).map(|(_, color)| 0xFF00_0000 | color));
+        palette
     }
 
     pub(crate) fn get_item_gui_transform(&self, name: &str) -> model::DisplayTransform {
         self.item_gui_transforms
-            .get(name)
+            .get(crate::banner::base_key(name))
             .copied()
             .unwrap_or(model::DisplayTransform::IDENTITY)
     }
 
     pub fn get_item_ground_transform(&self, name: &str) -> Option<glam::Mat4> {
-        self.item_ground_transforms.get(name).copied()
+        self.item_ground_transforms
+            .get(crate::banner::base_key(name))
+            .copied()
     }
 
     /// A baked item model's transform for display context `context`
@@ -350,7 +395,9 @@ impl BlockRenderAssets {
         name: &str,
         context: u8,
     ) -> Option<model::DisplayTransform> {
-        let display = self.item_display_transforms.get(name)?;
+        let display = self
+            .item_display_transforms
+            .get(crate::banner::base_key(name))?;
         Some(
             display
                 .get(context as usize)
@@ -441,8 +488,49 @@ impl BlockRenderAssets {
         let quad_textures =
             models.flat_map(|model| model.quads.iter().map(|quad| quad.texture.name()));
 
-        face_textures.chain(quad_textures)
+        face_textures
+            .chain(quad_textures)
+            .chain(self.banner_pattern_textures.iter().map(String::as_str))
     }
+}
+
+/// Every `textures/entity/banner/*.png` in the jar and the packs, as texture
+/// names (`entity/banner/border`, or namespaced outside `minecraft`).
+fn banner_pattern_textures(
+    jar_assets_dir: &Path,
+    packs: Option<&crate::resource_pack::ResourcePackManager>,
+) -> Vec<String> {
+    let mut names = std::collections::BTreeSet::new();
+    let roots = std::iter::once(jar_assets_dir.to_path_buf()).chain(
+        packs
+            .into_iter()
+            .flat_map(|packs| packs.active_pack_dirs())
+            .map(|pack| pack.join("assets")),
+    );
+    for root in roots {
+        let Ok(namespaces) = std::fs::read_dir(&root) else {
+            continue;
+        };
+        for namespace in namespaces.flatten() {
+            let ns = namespace.file_name().to_string_lossy().into_owned();
+            let Ok(files) = std::fs::read_dir(namespace.path().join("textures/entity/banner"))
+            else {
+                continue;
+            };
+            for file in files.flatten() {
+                let file = file.file_name().to_string_lossy().into_owned();
+                let Some(stem) = file.strip_suffix(".png") else {
+                    continue;
+                };
+                names.insert(if ns == "minecraft" {
+                    format!("entity/banner/{stem}")
+                } else {
+                    format!("{ns}:entity/banner/{stem}")
+                });
+            }
+        }
+    }
+    names.into_iter().collect()
 }
 
 impl<'a> BlockRenderView<'a> {

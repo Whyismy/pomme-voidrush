@@ -5726,7 +5726,13 @@ fn azalea_reads_every_kept_component_exactly() {
     use super::item_codec::{DROPPED, transcode_to_azalea};
 
     // Holders azalea keeps as plain ids, so inline values can't cross.
-    const PLAIN_HOLDERS: &[&str] = &["equippable", "consumable", "death_protection", "trim"];
+    const PLAIN_HOLDERS: &[&str] = &[
+        "equippable",
+        "consumable",
+        "death_protection",
+        "trim",
+        "banner_patterns",
+    ];
     // Dropped for wrong values rather than a wrong layout.
     const SAME_BYTES: &[&str] = &[
         "block_entity_data",
