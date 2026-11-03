@@ -2107,6 +2107,16 @@ impl Renderer {
             .arm_pose(info, self.camera_anchor(), right)
     }
 
+    /// [`Self::entity_arm_pose`] for any named part of the model.
+    pub fn entity_part_pose(
+        &self,
+        info: &pipelines::entity_renderer::EntityRenderInfo,
+        part: &str,
+    ) -> Option<glam::Mat4> {
+        self.entity_renderer
+            .part_pose(info, self.camera_anchor(), part)
+    }
+
     /// Changes whenever item meshes are rebuilt (a resource reload).
     pub fn display_assets_generation(&self) -> u32 {
         self.display_assets_generation

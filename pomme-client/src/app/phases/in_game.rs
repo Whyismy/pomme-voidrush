@@ -5835,6 +5835,51 @@ fn build_held_items(
                 light: info.light,
             });
         }
+        // Vanilla `CustomHeadLayer`: a worn item that isn't armour (with an
+        // equipment asset) or a skull (drawn as a head above) sits on the
+        // head in its `head` display pose, as a training dummy's target
+        // block or a carved pumpkin does.
+        let Some(entity) = info
+            .entity_id
+            .and_then(|id| game.entity_store.living.get(&id))
+        else {
+            continue;
+        };
+        let Some(helmet) = entity.equipment(EquipmentSlot::Head) else {
+            continue;
+        };
+        let Some(stack) = helmet.as_present() else {
+            continue;
+        };
+        let name = crate::player::inventory::item_resource_name(stack.kind);
+        if crate::entity::heads::skull_model(&name).is_some()
+            || crate::renderer::pipelines::entity_renderer::equipment_render_info(helmet).is_some()
+        {
+            continue;
+        }
+        let Some(head) = renderer.entity_part_pose(info, "head") else {
+            continue;
+        };
+        let model = renderer.render_assets().stack_model_key(&name, stack);
+        renderer.ensure_item_mesh(&model);
+        let tints: Arc<[u32]> = renderer
+            .render_assets()
+            .item_tint_palette(&model, Some(stack), None)
+            .into();
+        // HEAD.
+        let transform = renderer.item_display_transform(&model, 5);
+        out.push(ItemRenderInfo {
+            item_name: model.into(),
+            outline_color: info.outline_color,
+            tints,
+            model_matrix: head
+                * ARM_FRAME
+                * glam::Mat4::from_translation(glam::Vec3::new(0.0, -0.25, 0.0))
+                * glam::Mat4::from_rotation_y(std::f32::consts::PI)
+                * glam::Mat4::from_scale(glam::Vec3::new(0.625, -0.625, -0.625))
+                * transform,
+            light: info.light,
+        });
     }
 }
 
@@ -6400,9 +6445,18 @@ fn entity_extras(
         },
         EntityKind::SulfurCube => sulfur_cube_extras(e, alpha),
         // Without a skin of its own, one of vanilla's default skins.
-        EntityKind::Player | EntityKind::Mannequin => EntityExtras {
+        EntityKind::Player => EntityExtras {
             variant_index: crate::renderer::pipelines::entity_renderer::default_skin_variant(
                 &e.uuid,
+            ),
+            ..Default::default()
+        },
+        // `ClientMannequin.DEFAULT_SKIN`: a mannequin without a profile skin
+        // wears the default skin of the empty profile (the nil UUID), not one
+        // picked by its own id.
+        EntityKind::Mannequin => EntityExtras {
+            variant_index: crate::renderer::pipelines::entity_renderer::default_skin_variant(
+                &uuid::Uuid::nil(),
             ),
             ..Default::default()
         },

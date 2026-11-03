@@ -2908,9 +2908,19 @@ impl EntityRenderer {
         anchor: glam::DVec3,
         right: bool,
     ) -> Option<glam::Mat4> {
+        self.part_pose(info, anchor, if right { "right_arm" } else { "left_arm" })
+    }
+
+    /// Where model part `name` of `info`'s model is this frame, in the
+    /// camera-anchored space items draw in.
+    pub fn part_pose(
+        &self,
+        info: &EntityRenderInfo,
+        anchor: glam::DVec3,
+        name: &str,
+    ) -> Option<glam::Mat4> {
         let entry = self.mobs.get(&info.entity_kind)?;
         let variant = entry.base_variant(info.is_baby, self.effective_variant_index(info));
-        let name = if right { "right_arm" } else { "left_arm" };
         let part = variant.model.parts.iter().position(|p| p.name == name)?;
         let anim = self.compute_anim(entry.anim, &variant.model, info);
         let transforms = variant.model.compute_part_transforms(&anim);

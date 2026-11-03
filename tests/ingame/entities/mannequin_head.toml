@@ -1,0 +1,30 @@
+# A mannequin (Void Rush's training dummy) wearing a block on its head
+# (vanilla `CustomHeadLayer`) and holding one, in the empty profile's
+# default skin; a zombie in a carved pumpkin.
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/gamemode spectator"
+
+[[step]]
+chat = "/summon minecraft:mannequin 340.5 -60 345.5 {Rotation:[180f,0f],immovable:1b,equipment:{head:{id:\"minecraft:target\",count:1},mainhand:{id:\"minecraft:hay_block\",count:1}}}"
+
+[[step]]
+chat = "/summon minecraft:zombie 343.5 -60 345.5 {NoAI:1b,Silent:1b,Rotation:[180f,0f],equipment:{head:{id:\"minecraft:carved_pumpkin\",count:1}}}"
+
+[[step]]
+chat = "/tp @s 341.5 -58.4 341.5 0 15"
+
+[[step]]
+wait_ms = 11000
+
+[[step]]
+screenshot = "dummy"
