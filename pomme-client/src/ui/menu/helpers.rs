@@ -592,7 +592,7 @@ pub(super) fn push_bottom_text(
         centered: false,
     });
 
-    let name = "Pomme";
+    let name = crate::update::APP_NAME;
     let tag = crate::update::version();
     let tag_size = fs * 0.65;
     let gap = 2.0 * gs;

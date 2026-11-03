@@ -313,7 +313,7 @@ impl MainMenu {
         let logo_size = LOGO_SIZE * gs;
         let wordmark_size = WORDMARK_SIZE * gs;
         if visible(logo_top, logo_size, sh) {
-            let wordmark_w = text_width_fn("Pomme", wordmark_size);
+            let wordmark_w = text_width_fn(crate::update::APP_NAME, wordmark_size);
             let lockup_w = logo_size + LOGO_GAP * gs + wordmark_w;
             let logo_x = cx - lockup_w / 2.0;
             elements.push(MenuElement::Image {
@@ -327,7 +327,7 @@ impl MainMenu {
             elements.push(MenuElement::Text {
                 x: logo_x + logo_size + LOGO_GAP * gs,
                 y: logo_top + (logo_size - wordmark_size) / 2.0,
-                text: "Pomme".into(),
+                text: crate::update::APP_NAME.into(),
                 scale: wordmark_size,
                 color: COL_WORDMARK,
                 centered: false,

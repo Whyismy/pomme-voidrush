@@ -18,6 +18,9 @@ const REPLACED: &str = "old";
 /// Offline, the check gives up this soon rather than hold the menu back.
 const CHECK_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// The client's name wherever players see it: Void Rush's build of Pomme.
+pub const APP_NAME: &str = "VoidPomme";
+
 /// This build's `x.y.z` for display, or "dev" for one that isn't a release.
 pub fn version() -> &'static str {
     RELEASE.and_then(client::release_version).unwrap_or("dev")
