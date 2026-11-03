@@ -185,7 +185,10 @@ fn press_key(core: &mut AppCore, press: &protocol::Press) -> Result<Value, Strin
         },
         _ => return Err("press takes one of action or key".into()),
     };
-    core.input.press_key(code, press.ctrl);
+    match press.hold {
+        Some(down) => core.input.hold_key(code, down),
+        None => core.input.press_key(code, press.ctrl),
+    }
     Ok(Value::Null)
 }
 

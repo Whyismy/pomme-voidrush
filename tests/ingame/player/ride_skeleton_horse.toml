@@ -1,0 +1,95 @@
+# Riding a saddled skeleton horse forward, seen from behind: the horse
+# under its rider every frame (it moves smoothly, not a tick at a time).
+# Then from the front: the rider sits (vanilla `HumanoidModel`'s passenger
+# legs), as does a zombie riding a horse beside it, which this client
+# seats itself (`positionRider`; the server sends no passenger positions).
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/gamemode survival"
+
+[[step]]
+chat = "/effect give @s minecraft:resistance infinite 4 true"
+
+[[step]]
+chat = "/tp @s 700.5 -60 700.5 0 10"
+
+[[step]]
+wait_ms = 1000
+
+[[step]]
+chat = "/execute at @s run summon minecraft:skeleton_horse ~ ~ ~2 {Tame:1b,equipment:{saddle:{id:\"minecraft:saddle\",count:1}},Rotation:[0f,0f],CustomName:'War Horse',CustomNameVisible:1b}"
+
+[[step]]
+wait_ms = 500
+
+[[step]]
+chat = "/ride @s mount @e[type=skeleton_horse,limit=1,sort=nearest]"
+
+[[step]]
+press = { action = "key.togglePerspective" }
+
+[[step]]
+wait_ms = 1000
+
+[[step]]
+screenshot = "seated"
+
+[[step]]
+press = { action = "key.forward", hold = true }
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "riding_1"
+
+[[step]]
+wait_ms = 70
+
+[[step]]
+screenshot = "riding_2"
+
+[[step]]
+wait_ms = 70
+
+[[step]]
+screenshot = "riding_3"
+
+[[step]]
+wait_ms = 70
+
+[[step]]
+screenshot = "riding_4"
+
+[[step]]
+press = { action = "key.forward", hold = false }
+
+[[step]]
+wait_ms = 1000
+
+[[step]]
+screenshot = "stopped"
+
+[[step]]
+chat = "/execute at @s run summon minecraft:horse ~2.5 -60 ~ {Tame:1b,Rotation:[180f,0f],NoAI:1b,Passengers:[{id:\"minecraft:zombie\",NoAI:1b,PersistenceRequired:1b}]}"
+
+[[step]]
+press = { action = "key.togglePerspective" }
+
+[[step]]
+press = { action = "key.toggleGui" }
+
+[[step]]
+wait_ms = 1000
+
+[[step]]
+screenshot = "front"

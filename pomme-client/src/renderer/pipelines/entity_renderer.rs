@@ -179,6 +179,9 @@ pub struct EntityRenderInfo {
     pub sleeping_eye_height: f32,
     pub is_baby: bool,
     pub is_crouching: bool,
+    /// Vanilla `HumanoidRenderState.isPassenger`: a humanoid riding
+    /// something sits.
+    pub is_passenger: bool,
     pub walk_anim_pos: f32,
     pub walk_anim_speed: f32,
     pub entity_kind: EntityKind,
@@ -311,6 +314,7 @@ impl Default for EntityRenderInfo {
             sleeping_eye_height: crate::player::STANDING_EYE_HEIGHT,
             is_baby: false,
             is_crouching: false,
+            is_passenger: false,
             walk_anim_pos: 0.0,
             walk_anim_speed: 0.0,
             entity_kind: EntityKind::Player,
@@ -3364,6 +3368,7 @@ impl EntityRenderer {
                 info.walk_anim_pos,
                 info.walk_anim_speed,
                 info.is_crouching,
+                info.is_passenger,
                 info.attack_time,
                 info.attack_stabs,
             ),

@@ -849,6 +849,7 @@ mod tests {
                 action: None,
                 key: Some("key.keyboard.j".into()),
                 ctrl: false,
+                hold: None,
             }))
         );
         assert_eq!(

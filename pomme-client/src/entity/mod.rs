@@ -805,6 +805,9 @@ pub struct LivingEntity {
     pub is_invisible: bool,
     pub is_glowing: bool,
     pub is_on_fire: bool,
+    /// The entity it rides (`SetPassengers`); the server stops sending a
+    /// passenger's position, so the client seats it (`positionRider`).
+    pub vehicle: Option<i32>,
     /// Dye id, wolf/cat collars (vanilla default red).
     pub collar_color: u8,
     pub is_interested: bool,
@@ -989,6 +992,36 @@ pub fn creeper_swelling(entity: &LivingEntity, partial_tick: f32) -> f32 {
     swell / (CREEPER_MAX_SWELL - 2) as f32
 }
 
+/// Vanilla `EntityType`'s vehicle attachment: how far above a rider's feet
+/// its seat is (`ridingOffset`, negated; a player's
+/// `DEFAULT_VEHICLE_ATTACHMENT`).
+pub fn vehicle_attachment(kind: EntityKind) -> f64 {
+    match kind {
+        EntityKind::Player | EntityKind::Mannequin => 0.6,
+        EntityKind::Allay | EntityKind::Vex => -0.04,
+        EntityKind::Ghast | EntityKind::HappyGhast => -0.5,
+        EntityKind::Phantom => 0.125,
+        EntityKind::Giant => 3.75,
+        EntityKind::WitherSkeleton => 0.875,
+        EntityKind::Evoker
+        | EntityKind::Illusioner
+        | EntityKind::Pillager
+        | EntityKind::Vindicator => 0.6,
+        EntityKind::Bogged
+        | EntityKind::Drowned
+        | EntityKind::Husk
+        | EntityKind::Parched
+        | EntityKind::Piglin
+        | EntityKind::PiglinBrute
+        | EntityKind::Skeleton
+        | EntityKind::Stray
+        | EntityKind::Zombie
+        | EntityKind::ZombieVillager
+        | EntityKind::ZombifiedPiglin => 0.7,
+        _ => 0.0,
+    }
+}
+
 pub fn passenger_attachment_height(entity: &LivingEntity) -> f64 {
     let dims = living_entity_dimensions(entity);
     let scale = entity_scale(entity);
@@ -1169,6 +1202,7 @@ impl LivingEntity {
             is_invisible: false,
             is_glowing: false,
             is_on_fire: false,
+            vehicle: None,
             collar_color: 14,
             is_interested: false,
             anger_end_time: -1,
@@ -2551,6 +2585,52 @@ impl EntityStore {
             .find(|entity| entity.player_uuid == Some(*uuid))
     }
 
+    /// Vanilla `ClientboundSetPassengersPacket`: `passengers` now ride
+    /// `vehicle`, and whoever rode it before and isn't listed got off.
+    pub fn set_passengers(&mut self, vehicle: i32, passengers: &[i32]) {
+        for (id, entity) in &mut self.living {
+            if passengers.contains(id) {
+                entity.vehicle = Some(vehicle);
+            } else if entity.vehicle == Some(vehicle) {
+                entity.vehicle = None;
+            }
+        }
+    }
+
+    /// Vanilla `Entity.positionRider` for every living passenger: at its
+    /// vehicle's riding position (`seat` gives it for a vehicle id) less
+    /// its own vehicle attachment. A passenger whose vehicle is gone gets
+    /// off.
+    pub fn position_riders(
+        &mut self,
+        seat: impl Fn(i32, &HashMap<i32, LivingEntity>) -> Option<DVec3>,
+    ) {
+        let seats: Vec<(i32, Option<DVec3>)> = self
+            .living
+            .iter()
+            .filter_map(|(&id, entity)| {
+                let vehicle = entity.vehicle?;
+                Some((id, seat(vehicle, &self.living)))
+            })
+            .collect();
+        for (id, seat) in seats {
+            let Some(entity) = self.living.get_mut(&id) else {
+                continue;
+            };
+            match seat {
+                Some(seat) => {
+                    let attachment =
+                        vehicle_attachment(entity.entity_type) * f64::from(entity_scale(entity));
+                    entity.position = (seat - DVec3::new(0.0, attachment, 0.0)).into();
+                    entity.velocity = DVec3::ZERO;
+                    entity.interp_steps = 0;
+                }
+                None => entity.vehicle = None,
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
     pub fn tick_living(
         &mut self,
         chunks: &ChunkStore,
@@ -2559,11 +2639,16 @@ impl EntityStore {
         local_push_box: Option<Aabb>,
         pusher_allowed: impl Fn(i32, &LivingEntity) -> bool,
         simulation_distance: u32,
+        driven: Option<i32>,
     ) -> DVec3 {
         let mut local_push = DVec3::ZERO;
         let thundering = self.thundering;
         for (&id, entity) in &mut self.living {
-            entity.tick_interpolation();
+            // The vehicle this client drives moved this tick already
+            // (`physics::ridden`), from where it was.
+            if Some(id) != driven {
+                entity.tick_interpolation();
+            }
             // `Creeper.tick` (the client's half): the fuse runs while the
             // creeper's swelling, the server ignites it.
             if entity.entity_type == EntityKind::Creeper && entity.health > 0.0 {
@@ -3232,6 +3317,7 @@ mod tests {
             None,
             |_, _| true,
             10,
+            None,
         );
     }
 
@@ -3310,6 +3396,7 @@ mod tests {
             Some(local_box),
             |id, _| id != 5,
             10,
+            None,
         );
         let expected = f64::from(0.05_f32) * 0.5;
 

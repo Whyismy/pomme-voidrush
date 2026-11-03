@@ -4009,11 +4009,14 @@ pub fn compute_humanoid_anim(
     walk_pos: f32,
     walk_speed: f32,
     is_crouching: bool,
+    is_passenger: bool,
     attack_time: f32,
     stab: bool,
 ) -> PartAnim {
     use std::f32::consts::PI;
     let mut anim = PartAnim::default();
+    // `LivingEntityRenderer.extractRenderState`: a passenger doesn't walk.
+    let walk_speed = if is_passenger { 0.0 } else { walk_speed };
     let crouch_arm_rot = if is_crouching { 0.4 } else { 0.0 };
     // Vanilla `HumanoidModel.setupAttackAnimation` (the right arm swinging):
     // the body twists, the arms' pivots ride round with it, and the arm
@@ -4087,6 +4090,18 @@ pub fn compute_humanoid_anim(
                 0.0,
             ),
             _ => continue,
+        };
+        // `HumanoidModel.setupAnim`: a passenger's arms reach forward and
+        // its legs sit out in front, splayed.
+        let rot = if is_passenger {
+            match part.name.as_str() {
+                "right_arm" | "left_arm" => rot + Vec3::new(-PI / 5.0, 0.0, 0.0),
+                "right_leg" => Vec3::new(-1.413_716_7, PI / 10.0, 0.078_539_82),
+                "left_leg" => Vec3::new(-1.413_716_7, -PI / 10.0, -0.078_539_82),
+                _ => rot,
+            }
+        } else {
+            rot
         };
         if is_crouching {
             let translation = match part.name.as_str() {

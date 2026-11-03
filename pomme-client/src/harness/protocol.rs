@@ -136,6 +136,9 @@ pub struct Press {
     pub key: Option<String>,
     #[serde(default)]
     pub ctrl: bool,
+    /// Holds the key down (`true`) or lets it go (`false`) instead of
+    /// tapping it.
+    pub hold: Option<bool>,
 }
 
 /// Key binding `action` set to `keys` (input ids), or back to its defaults

@@ -1971,6 +1971,7 @@ impl AppCore {
                     passengers,
                 } => {
                     game.display_store.set_passengers(vehicle, &passengers);
+                    game.entity_store.set_passengers(vehicle, &passengers);
                     game.interactions.set_passengers(vehicle, &passengers);
                     let me = game.player.entity_id;
                     if passengers.contains(&me) {
@@ -3604,6 +3605,9 @@ impl AppCore {
         // Vanilla `Level.isThundering`.
         game.entity_store.thundering =
             game.environment.has_weather && f64::from(game.sky_state.thunder()) > 0.9;
+        let driven = game
+            .controlled_vehicle_id
+            .filter(|&id| game.drives_vehicle(id));
         *game.player.velocity += game.entity_store.tick_living(
             &game.chunk_store,
             game.block_registry.block_state_table(),
@@ -3611,7 +3615,19 @@ impl AppCore {
             push_box,
             pusher_allowed,
             game.server_simulation_distance,
+            driven,
         );
+        let player = (
+            game.player.entity_id,
+            game.player.position,
+            game.player.eye_height,
+        );
+        let (displays, positions) = (&game.display_store.displays, &game.entity_positions);
+        game.entity_store
+            .position_riders(|vehicle, living| match displays.get(&vehicle) {
+                Some(display) => Some(display.position),
+                None => super::phases::in_game::display_seat(vehicle, living, positions, player),
+            });
     }
 
     fn tick_local_player(

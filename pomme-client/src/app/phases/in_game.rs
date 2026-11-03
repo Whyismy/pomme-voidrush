@@ -4347,6 +4347,7 @@ pub fn update_game(
                     sleeping_eye_height: standing_eye_height(e.entity_type, e.is_baby),
                     is_baby: e.is_baby,
                     is_crouching: e.is_crouching,
+                    is_passenger: e.vehicle.is_some(),
                     walk_anim_pos: e.walk_pos(partial_tick),
                     walk_anim_speed: e.walk_speed(partial_tick),
                     // Vanilla `MannequinRenderer` is an `AvatarRenderer`: the
@@ -4660,6 +4661,7 @@ pub fn update_game(
             sleeping_direction,
             sleeping_eye_height: crate::player::STANDING_EYE_HEIGHT,
             is_crouching: game.player.crouching && (!game.dead || game.player.death_time > 0),
+            is_passenger: game.riding_vehicle_id.is_some(),
             walk_anim_pos: game.player_walk_pos - game.player_walk_speed * (1.0 - partial_tick),
             walk_anim_speed: (game.player_prev_walk_speed
                 + (game.player_walk_speed - game.player_prev_walk_speed) * partial_tick)
@@ -6442,7 +6444,7 @@ fn build_name_tags(
 
 /// Where a display riding `vehicle` sits: `Entity.getPassengerRidingPosition`
 /// with the default attachment at the top of the vehicle's box.
-fn display_seat(
+pub(crate) fn display_seat(
     vehicle: i32,
     living: &HashMap<i32, crate::entity::LivingEntity>,
     positions: &HashMap<i32, Position>,
