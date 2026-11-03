@@ -229,7 +229,7 @@ impl MainMenu {
             "Render Distance:" => self.render_distance_max() as f32 - 2.0,
             "Chunk Detail:" => super::CHUNK_DETAIL_SPAN,
             "Simulation Distance:" => 27.0,
-            "Max Framerate:" => 25.0,
+            "Max Framerate:" => ((super::MAX_FRAMERATE_UNLIMITED - 10) / 10) as f32,
             "FOV:" => 80.0,
             CHAT_DELAY => CHAT_DELAY_MAX_TENTHS as f32,
             MENU_BACKGROUND_BLUR => f32::from(MAX_MENU_BACKGROUND_BLURRINESS),
@@ -343,7 +343,8 @@ impl MainMenu {
             / super::CHUNK_DETAIL_SPAN)
             .clamp(0.0, 1.0);
         let sd_frac = (self.simulation_distance as f32 - 5.0) / 27.0;
-        let mf_frac = (self.max_framerate as f32 - 10.0) / 250.0;
+        let mf_frac =
+            (self.max_framerate as f32 - 10.0) / (super::MAX_FRAMERATE_UNLIMITED - 10) as f32;
         let sliders: &[(&str, f32)] = &[
             ("Render Distance:", rd_frac),
             ("Chunk Detail:", cd_frac),

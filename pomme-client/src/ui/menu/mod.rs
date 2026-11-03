@@ -71,6 +71,10 @@ struct Settings {
     vsync: bool,
     #[serde(default = "default_max_framerate")]
     max_framerate: u32,
+    /// The slider reaches 800 before Unlimited; options saved before it did
+    /// (`false`) kept Unlimited as 260.
+    #[serde(default)]
+    framerate_to_800: bool,
     #[serde(default = "default_true")]
     show_online_status: bool,
     #[serde(default = "default_true")]
@@ -140,9 +144,12 @@ fn default_max_framerate() -> u32 {
     120
 }
 
-/// Top of the Max Framerate slider, where the cap is disabled (matching
-/// vanilla, which treats the slider's max as unlimited).
-pub const MAX_FRAMERATE_UNLIMITED: u32 = 260;
+/// Top of the Max Framerate slider, where the cap is disabled (as vanilla
+/// treats its slider's max, though vanilla's stops at 260): the last capped
+/// step is 800.
+pub const MAX_FRAMERATE_UNLIMITED: u32 = 810;
+/// Where Unlimited sat before the slider reached 800.
+const OLD_MAX_FRAMERATE_UNLIMITED: u32 = 260;
 
 const CHUNK_DETAIL_MIN: u32 = 8;
 /// Top of the Chunk Detail slider, where every column meshes at full detail.
@@ -236,6 +243,7 @@ impl Default for Settings {
             entity_shadows: true,
             vsync: true,
             max_framerate: 120,
+            framerate_to_800: true,
             show_online_status: true,
             show_current_server: true,
             skin_cape: true,
@@ -281,6 +289,12 @@ fn load_settings(game_dir: &Path) -> Settings {
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
+    if !settings.framerate_to_800 {
+        settings.framerate_to_800 = true;
+        if settings.max_framerate >= OLD_MAX_FRAMERATE_UNLIMITED {
+            settings.max_framerate = MAX_FRAMERATE_UNLIMITED;
+        }
+    }
     // Frame-time benchmarks (`frame_log`) measure the uncapped frame rate.
     if std::env::var_os("POMME_BENCH_UNCAPPED").is_some() {
         settings.vsync = false;
@@ -1155,6 +1169,7 @@ impl MainMenu {
                 entity_shadows: self.entity_shadows,
                 vsync: self.vsync,
                 max_framerate: self.max_framerate,
+                framerate_to_800: true,
                 show_online_status: self.show_online_status,
                 show_current_server: self.show_current_server,
                 master_volume: self.master_volume,
