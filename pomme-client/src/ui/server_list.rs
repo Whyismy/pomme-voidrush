@@ -65,6 +65,11 @@ pub type PingResults = Arc<RwLock<HashMap<String, PingState>>>;
 /// it was in flight (mirrors vanilla's `pinger.removeAll()` on refresh).
 pub type PingGeneration = Arc<AtomicU64>;
 
+/// Void Rush's own server, always in this build's list so a player who
+/// disconnects can get back in.
+const OFFICIAL_NAME: &str = "VoidRush Official";
+const OFFICIAL_ADDRESS: &str = "play.voidrush.org";
+
 impl ServerList {
     pub fn load(game_dir: &Path) -> Self {
         let path = game_dir.join("servers.json");
@@ -72,7 +77,35 @@ impl ServerList {
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
-        Self { servers, path }
+        let mut list = Self { servers, path };
+        if list.add_official() {
+            list.save();
+        }
+        list
+    }
+
+    /// Puts Void Rush's server at the top of the list when no entry already
+    /// points at it (any name, with or without the default port); whether
+    /// it added it.
+    fn add_official(&mut self) -> bool {
+        let official = with_default_port(OFFICIAL_ADDRESS);
+        if self
+            .servers
+            .iter()
+            .any(|s| with_default_port(s.address.trim()).eq_ignore_ascii_case(&official))
+        {
+            return false;
+        }
+        self.servers.insert(
+            0,
+            ServerEntry {
+                name: OFFICIAL_NAME.into(),
+                address: OFFICIAL_ADDRESS.into(),
+                protocol: None,
+                extra: serde_json::Map::new(),
+            },
+        );
+        true
     }
 
     pub fn save(&self) {
@@ -257,6 +290,41 @@ mod tests {
         );
         let back: serde_json::Value = serde_json::from_str(json).unwrap();
         assert_eq!(serde_json::to_value(&entry).unwrap(), back);
+    }
+
+    /// A new install starts with Void Rush's server; a list that has it
+    /// (under any name, with the port spelled out) keeps its own entry.
+    #[test]
+    fn the_official_server_is_always_listed() {
+        let dir = std::env::temp_dir().join(format!("pomme-servers-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let _ = std::fs::remove_file(dir.join("servers.json"));
+        let list = ServerList::load(&dir);
+        assert_eq!(list.servers.len(), 1);
+        assert_eq!(list.servers[0].name, "VoidRush Official");
+        assert_eq!(list.servers[0].address, "play.voidrush.org");
+        // Saved, so the next start finds it and adds nothing.
+        assert_eq!(ServerList::load(&dir).servers.len(), 1);
+
+        std::fs::write(
+            dir.join("servers.json"),
+            r#"[{"name":"a","address":"x.net"},{"name":"VR","address":"PLAY.voidrush.org:25565"}]"#,
+        )
+        .unwrap();
+        let list = ServerList::load(&dir);
+        assert_eq!(list.servers.len(), 2);
+        assert_eq!(list.servers[1].name, "VR");
+
+        std::fs::write(
+            dir.join("servers.json"),
+            r#"[{"name":"a","address":"x.net"}]"#,
+        )
+        .unwrap();
+        let list = ServerList::load(&dir);
+        assert_eq!(list.servers.len(), 2);
+        assert_eq!(list.servers[0].address, "play.voidrush.org");
+        assert_eq!(list.servers[1].name, "a");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Entries without the optional fields load and save without gaining any.
