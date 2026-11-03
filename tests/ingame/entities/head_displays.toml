@@ -1,0 +1,42 @@
+# Skull items on item displays (Void Rush's spinning realm-owner heads): the
+# head itself, in its skin, posed by the display's fixed transform and its
+# own transformation.
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/gamemode spectator"
+
+[[step]]
+chat = "/summon minecraft:item_display 440.5 -57 446.5 {item:{id:\"minecraft:player_head\",count:1,components:{\"minecraft:profile\":{name:\"Notch\"}}},item_display:\"fixed\",transformation:{left_rotation:{axis:[0f,1f,0f],angle:0.785f},right_rotation:[0f,0f,0f,1f],translation:[0f,0f,0f],scale:[2f,2f,2f]}}"
+
+[[step]]
+chat = "/summon minecraft:item_display 444.5 -57 446.5 {item:{id:\"minecraft:zombie_head\",count:1},item_display:\"fixed\",transformation:{left_rotation:[0f,0f,0f,1f],right_rotation:[0f,0f,0f,1f],translation:[0f,0f,0f],scale:[2f,2f,2f]}}"
+
+[[step]]
+chat = "/summon minecraft:item_display 448.5 -58 446.5 {item:{id:\"minecraft:creeper_head\",count:1},item_display:\"fixed\"}"
+
+[[step]]
+chat = "/tp @s 444.5 -57 440.5 0 0"
+
+[[step]]
+wait_ms = 11000
+
+[[step]]
+screenshot = "heads"
+
+[[step]]
+chat = "/tp @s 444.5 -57 452.5 180 0"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "faces"

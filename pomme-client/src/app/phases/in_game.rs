@@ -4690,8 +4690,13 @@ pub fn update_game(
     };
 
     let display_start = Instant::now();
-    let (display_items, mut world_texts) = if benchmark_running {
-        (Vec::new(), Vec::new())
+    let DisplayRenders {
+        items: display_items,
+        heads: display_heads,
+        head_skins,
+        texts: mut world_texts,
+    } = if benchmark_running {
+        DisplayRenders::default()
     } else {
         build_display_renders(
             &mut game.display_store,
@@ -4722,6 +4727,10 @@ pub fn update_game(
     }
     crate::frame_log::add("displays", display_start.elapsed().as_secs_f32() * 1000.0);
     item_renders.extend(display_items);
+    for (key, profile) in &head_skins {
+        core.queue_profile_skin(*key, profile);
+    }
+    entity_renders.extend(display_heads);
     if !benchmark_running {
         build_held_items(
             game,
@@ -5519,19 +5528,27 @@ fn build_item_render_infos(
 /// Vanilla `DisplayRenderer`: each display entity in view range, posed at its
 /// lerped position. Block and item displays draw through the item pipeline;
 /// text displays come back separately, back to front.
+/// What [`build_display_renders`] draws: item and block displays as items,
+/// skull items as heads (with the skins to fetch), and the texts back to
+/// front.
+#[derive(Default)]
+struct DisplayRenders {
+    items: Vec<crate::renderer::pipelines::item_entity::ItemRenderInfo>,
+    heads: Vec<EntityRenderInfo>,
+    head_skins: Vec<(uuid::Uuid, pomme_protocol::entity_data::Profile)>,
+    texts: Vec<(
+        f64,
+        crate::renderer::pipelines::menu_overlay::WorldTextRender,
+    )>,
+}
+
 fn build_display_renders(
     store: &mut crate::entity::display::DisplayStore,
     world_light: &WorldLight,
     renderer: &mut Renderer,
     table: crate::world::block::BlockStateTable,
     partial_tick: f32,
-) -> (
-    Vec<crate::renderer::pipelines::item_entity::ItemRenderInfo>,
-    Vec<(
-        f64,
-        crate::renderer::pipelines::menu_overlay::WorldTextRender,
-    )>,
-) {
+) -> DisplayRenders {
     use crate::entity::display::{DisplayKind, TEXT_SEE_THROUGH, TEXT_SHADOW};
     use crate::renderer::pipelines::item_entity::ItemRenderInfo;
     use crate::renderer::pipelines::menu_overlay::WorldTextRender;
@@ -5560,6 +5577,8 @@ fn build_display_renders(
     };
     let mut items = Vec::new();
     let mut texts = Vec::new();
+    let mut head_renders = Vec::new();
+    let mut heads = Vec::new();
     for display in store.displays.values_mut() {
         let lerped = display
             .prev_position
@@ -5628,6 +5647,60 @@ fn build_display_renders(
                 });
             }
             DisplayKind::Item => {
+                // Vanilla `SkullSpecialRenderer`: a head item is the head
+                // itself, the floor skull turned about (rotation 8) standing
+                // on the item's origin, posed by the item's display.
+                if let Some((stack, context)) = display.item()
+                    && let name = crate::player::inventory::item_resource_name(stack.kind)
+                    && renderer.render_assets().stack_model_key(&name, stack) == name
+                    && let Some(model) = crate::entity::heads::skull_model(&name)
+                {
+                    let skin = if model == EntityKind::Player {
+                        let stack = azalea_inventory::ItemStack::Present(stack.clone());
+                        crate::entity::heads::item_profile(&stack).map(|profile| {
+                            let key = crate::entity::heads::skin_key(&profile);
+                            heads.push((key, profile));
+                            key
+                        })
+                    } else {
+                        None
+                    };
+                    let Some((offset, yaw)) = crate::entity::heads::placed_skull(Some("8"), None)
+                    else {
+                        continue;
+                    };
+                    let (scale, lift) = crate::entity::heads::head_placement(model, offset.y, 0.5);
+                    let full = base
+                        * glam::Mat4::from_rotation_y(std::f32::consts::PI)
+                        * renderer.item_display_transform(&name, context)
+                        * glam::Mat4::from_translation(glam::Vec3::new(
+                            offset.x as f32 - 0.5,
+                            lift as f32 - 0.5,
+                            offset.z as f32 - 0.5,
+                        ))
+                        * glam::Mat4::from_rotation_y((180.0 - yaw).to_radians())
+                        * glam::Mat4::from_scale(glam::Vec3::splat(scale));
+                    let origin = full.w_axis.truncate();
+                    if !on_screen(origin, max_scale(&full)) {
+                        continue;
+                    }
+                    head_renders.push(EntityRenderInfo {
+                        position: Position::from(anchor + origin.as_dvec3()),
+                        head_y_rot_deg: 180.0,
+                        body_y_rot_deg: 180.0,
+                        entity_kind: model,
+                        // A player head without a skin draws vanilla's wide Steve.
+                        variant_index: crate::renderer::pipelines::entity_renderer::WIDE_STEVE_SKIN,
+                        player_uuid: skin,
+                        head_only: true,
+                        body_transform: Some(glam::Mat4::from_translation(-origin) * full),
+                        light,
+                        outline_color,
+                        skip_cull: true,
+                        ..Default::default()
+                    });
+                    continue;
+                }
                 if display
                     .item_render
                     .as_ref()
@@ -5714,7 +5787,12 @@ fn build_display_renders(
     }
     // Copies of one mesh draw as one instanced call only when consecutive.
     items.sort_unstable_by(|a, b| a.item_name.cmp(&b.item_name));
-    (items, texts)
+    DisplayRenders {
+        items,
+        heads: head_renders,
+        head_skins: heads,
+        texts,
+    }
 }
 
 /// Vanilla `FallingBlockRenderer`: the block's model, its corner at the
