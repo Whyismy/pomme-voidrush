@@ -1,5 +1,5 @@
-# Special item models (vanilla's model layers): shields, a shulker box and a
-# trident in the hotbar, on fixed displays and dropped.
+# Special item models (vanilla's model layers): shields, a shulker box, a
+# conduit and a trident in the hotbar, on fixed displays and dropped.
 
 [[step]]
 wait_ms = 15000
@@ -21,6 +21,15 @@ chat = "/give @s minecraft:trident"
 
 [[step]]
 chat = "/give @s minecraft:shulker_box"
+
+[[step]]
+chat = "/give @s minecraft:conduit"
+
+[[step]]
+chat = "/summon minecraft:item_display 184.5 -58.5 6.5 {Rotation:[180f,0f],item:{id:\"minecraft:conduit\",count:1},item_display:\"fixed\"}"
+
+[[step]]
+chat = "/summon minecraft:item 184.5 -60 3.5 {Item:{id:\"minecraft:conduit\",count:1},PickupDelay:32767,Age:-32768}"
 
 [[step]]
 chat = "/summon minecraft:item_display 178.5 -58.5 6.5 {Rotation:[180f,0f],item:{id:\"minecraft:shield\",count:1},item_display:\"fixed\"}"

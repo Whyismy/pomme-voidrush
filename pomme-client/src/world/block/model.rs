@@ -1020,6 +1020,10 @@ pub fn bake_item_models(
                         SpecialModel::ShulkerBox { texture } => {
                             (exported_data::SHULKER_BOX, texture.clone())
                         }
+                        SpecialModel::Conduit => (
+                            exported_data::CONDUIT_SHELL,
+                            "entity/conduit/base".to_owned(),
+                        ),
                     };
                     Some(bake_exported_item(layer, &texture))
                 }
@@ -1244,8 +1248,8 @@ fn bake_chest_item_model(tex: &str, gui: DisplayTransform, gui_light: GuiLight) 
 
 /// The special item models pomme draws (vanilla `SpecialModelRenderer`s),
 /// each from vanilla's own model layer.
-// TODO: banners (the flag's base colour and patterns as tinted layers) and
-// the shield's patterns.
+// TODO: banners (the flag's base colour and patterns as tinted layers), the
+// shield's patterns, decorated pots and copper golem statues.
 #[derive(Clone, Debug, PartialEq)]
 enum SpecialModel {
     Shield,
@@ -1254,6 +1258,8 @@ enum SpecialModel {
     ShulkerBox {
         texture: String,
     },
+    /// `ConduitSpecialRenderer`: the conduit's shell.
+    Conduit,
 }
 
 impl SpecialModel {
@@ -1262,6 +1268,7 @@ impl SpecialModel {
         match node_type(model)? {
             "shield" => Some(Self::Shield),
             "trident" => Some(Self::Trident),
+            "conduit" => Some(Self::Conduit),
             "shulker_box" => {
                 let name = model
                     .get("texture")
@@ -1279,11 +1286,12 @@ impl SpecialModel {
     /// the item definition's `transformation`, for definitions in the older
     /// format (packs made for 1.21): `ShieldSpecialRenderer` and
     /// `TridentSpecialRenderer` flip it, `ShulkerBoxRenderer` stands it in the
-    /// block, flipped, a hair inside.
+    /// block, flipped, a hair inside, and `ConduitSpecialRenderer` centres it.
     fn legacy_transform(&self) -> Mat4 {
         let flip = Mat4::from_scale(Vec3::new(1.0, -1.0, -1.0));
         match self {
             Self::Shield | Self::Trident => flip,
+            Self::Conduit => Mat4::from_translation(Vec3::splat(0.5)),
             Self::ShulkerBox { .. } => {
                 Mat4::from_translation(Vec3::new(0.5, 1.4995, 0.5))
                     * flip
