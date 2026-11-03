@@ -1556,6 +1556,7 @@ impl Renderer {
                     item_tints,
                     has_3d_model,
                     charged_crossbow: crate::player::interaction::is_charged_crossbow(&stack),
+                    stabs: crate::player::interaction::swing_animation(Some(&stack)).0,
                 }
             })
         });

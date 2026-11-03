@@ -4010,6 +4010,7 @@ pub fn compute_humanoid_anim(
     walk_speed: f32,
     is_crouching: bool,
     attack_time: f32,
+    stab: bool,
 ) -> PartAnim {
     use std::f32::consts::PI;
     let mut anim = PartAnim::default();
@@ -4021,10 +4022,37 @@ pub fn compute_humanoid_anim(
         let body_y = (attack_time.sqrt() * PI * 2.0).sin() * 0.2;
         let eased = 1.0 - (1.0 - attack_time).powi(4);
         let head_x = head_x_rot_deg.to_radians();
-        let sweep = (eased * PI).sin() * 1.2 + (attack_time * PI).sin() * -(head_x - 0.7) * 0.75;
-        (body_y, sweep, (attack_time * PI).sin() * -0.4)
+        let sweep = if stab {
+            // `SpearAnimations.thirdPersonAttackHand`: drawn back, thrust,
+            // then eased home (as a negative sweep, the arm pitching).
+            let progress =
+                |start: f32, end: f32| ((attack_time - start) / (end - start)).clamp(0.0, 1.0);
+            let prepare = -((PI * progress(0.0, 0.05)).cos() - 1.0) / 2.0;
+            let attack = progress(0.05, 0.2).powi(2);
+            let x = progress(0.4, 1.0);
+            let retract = if x <= 0.0 {
+                0.0
+            } else if x >= 1.0 {
+                1.0
+            } else if x < 0.5 {
+                2f32.powf(20.0 * x - 10.0) / 2.0
+            } else {
+                (2.0 - 2f32.powf(-20.0 * x + 10.0)) / 2.0
+            };
+            -(90.0 * prepare - 120.0 * attack + 30.0 * retract).to_radians()
+        } else {
+            (eased * PI).sin() * 1.2 + (attack_time * PI).sin() * -(head_x - 0.7) * 0.75
+        };
+        let roll = if stab {
+            0.0
+        } else {
+            (attack_time * PI).sin() * -0.4
+        };
+        (body_y, sweep, roll)
     });
     let (body_y, sweep, roll) = swing.unwrap_or_default();
+    // A stab undoes the whack's arm turns, keeping only the body's twist.
+    let arm_turn = if stab { 0.0 } else { body_y };
     if swing.is_some() {
         for (i, part) in model.parts.iter().enumerate() {
             // The arms' pivots, from (-5, 0) and (5, 0) round the body.
@@ -4044,12 +4072,12 @@ pub fn compute_humanoid_anim(
             "body" if swing.is_some() => Vec3::new(0.0, body_y, 0.0),
             "right_arm" => Vec3::new(
                 (walk_pos * 0.6662 + PI).cos() * 2.0 * walk_speed * 0.5 + crouch_arm_rot - sweep,
-                body_y * 3.0,
+                arm_turn * 3.0,
                 roll,
             ),
             "left_arm" => Vec3::new(
-                (walk_pos * 0.6662).cos() * 2.0 * walk_speed * 0.5 + crouch_arm_rot + body_y,
-                body_y,
+                (walk_pos * 0.6662).cos() * 2.0 * walk_speed * 0.5 + crouch_arm_rot + arm_turn,
+                arm_turn,
                 0.0,
             ),
             "right_leg" => Vec3::new((walk_pos * 0.6662).cos() * 1.4 * walk_speed, 0.0, 0.0),

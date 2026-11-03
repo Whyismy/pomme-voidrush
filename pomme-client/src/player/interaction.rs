@@ -161,6 +161,9 @@ pub struct InteractionState {
     swing_time: i32,
     attack_anim: f32,
     o_attack_anim: f32,
+    /// The held item's swing length in ticks (vanilla
+    /// `getCurrentSwingDuration`, its `swing_animation`; a spear's is slow).
+    swing_duration: i32,
     /// Vanilla `Player.attackStrengthTicker`. The companion `itemSwapTicker`
     /// (hand-raise animation) is not tracked.
     attack_strength_ticker: u32,
@@ -197,6 +200,7 @@ impl InteractionState {
             swing_time: 0,
             attack_anim: 0.0,
             o_attack_anim: 0.0,
+            swing_duration: SWING_DURATION,
             attack_strength_ticker: 0,
             last_item_in_main_hand: None,
         }
@@ -333,7 +337,7 @@ impl InteractionState {
     }
 
     fn start_swing(&mut self, hand: InteractionHand) {
-        if !self.swinging || self.swing_time >= SWING_DURATION / 2 || self.swing_time < 0 {
+        if !self.swinging || self.swing_time >= self.swing_duration / 2 || self.swing_time < 0 {
             self.swing_time = -1;
             self.swinging = true;
             self.swinging_arm = hand;
@@ -356,14 +360,14 @@ impl InteractionState {
         self.o_attack_anim = self.attack_anim;
         if self.swinging {
             self.swing_time += 1;
-            if self.swing_time >= SWING_DURATION {
+            if self.swing_time >= self.swing_duration {
                 self.swing_time = 0;
                 self.swinging = false;
             }
         } else {
             self.swing_time = 0;
         }
-        self.attack_anim = self.swing_time as f32 / SWING_DURATION as f32;
+        self.attack_anim = self.swing_time as f32 / self.swing_duration as f32;
     }
 
     /// Ports vanilla `LocalPlayer.pick`: block raycast first, entity ray
@@ -562,6 +566,7 @@ impl InteractionState {
             self.miss_time -= 1;
         }
         self.tick_attack_cooldown(held_stack);
+        self.swing_duration = swing_animation(held_stack).1;
         self.update_swing();
     }
 
@@ -647,9 +652,30 @@ impl InteractionState {
             return;
         }
 
-        // TODO: full-charge spears take vanilla's PIERCING_WEAPON branch
-        // instead of the plain entity/block dispatch.
         if self.cannot_attack_with_item(held_stack, attributes) {
+            return;
+        }
+
+        // Vanilla `Minecraft.startAttack`'s PIERCING_WEAPON branch: a spear
+        // jabs along its own reach whatever the crosshair is on, and the
+        // server finds what it pierces (and gives Lunge's push).
+        if let Some(weapon) =
+            held_stack.and_then(stack_component::<azalea_inventory::components::PiercingWeapon>)
+        {
+            sender.send_raw(wire::encode_stab());
+            // `Player.onAttack`: the attack strength starts over.
+            self.attack_strength_ticker = 0;
+            if let Some(sound) = &weapon.sound {
+                audio.play_world_sound(
+                    &SoundRef::resolve(sound),
+                    CATEGORY_PLAYERS,
+                    Position::new(player_pos.x, player_pos.y, player_pos.z),
+                    1.0,
+                    1.0,
+                    fastrand::u64(..),
+                );
+            }
+            self.swing(sender);
             return;
         }
 
@@ -1787,6 +1813,20 @@ pub(crate) fn is_charged_crossbow(stack: &ItemStackData) -> bool {
 
 /// The stack's component override if the server set one, else the item's
 /// default.
+/// Vanilla `ItemStack.getSwingAnimation`: whether the stack stabs (a spear)
+/// rather than whacks, and how many ticks its swing takes.
+pub(crate) fn swing_animation(stack: Option<&ItemStackData>) -> (bool, i32) {
+    use azalea_inventory::components::{SwingAnimation, SwingAnimationKind};
+    stack
+        .and_then(stack_component::<SwingAnimation>)
+        .map_or((false, SWING_DURATION), |swing| {
+            (
+                matches!(swing.kind, SwingAnimationKind::Stab),
+                swing.duration.max(1),
+            )
+        })
+}
+
 fn stack_component<T: DefaultableComponent + Clone>(stack: &ItemStackData) -> Option<T> {
     stack
         .component_patch

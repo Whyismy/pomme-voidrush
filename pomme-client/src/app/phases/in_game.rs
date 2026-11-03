@@ -4393,6 +4393,11 @@ pub fn update_game(
                     dragon: extras.dragon.clone(),
                     age_in_ticks: e.age_in_ticks as f32 + partial_tick,
                     attack_time: e.swing_progress(partial_tick),
+                    attack_stabs: crate::player::interaction::swing_animation(
+                        e.equipment(azalea_inventory::components::EquipmentSlot::Mainhand)
+                            .and_then(|stack| stack.as_present()),
+                    )
+                    .0,
                     skip_cull: false,
                     shadow: ShadowCaster {
                         position: *interp_pos,
@@ -4621,6 +4626,11 @@ pub fn update_game(
             // Vanilla `attackTime`: the local swing shows on its own model
             // in third person, as it does in first.
             attack_time: swing_progress[0].max(swing_progress[1]),
+            attack_stabs: crate::player::interaction::swing_animation(
+                game.player.inventory.hotbar_slots()[core.input.selected_slot() as usize]
+                    .as_present(),
+            )
+            .0,
             skip_cull: true,
             // Players drop their render offset before the shadow.
             shadow: ShadowCaster {

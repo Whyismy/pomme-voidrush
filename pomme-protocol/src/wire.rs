@@ -34,6 +34,20 @@ pub fn encode_attack(entity_id: i32) -> Vec<u8> {
     buf
 }
 
+/// Vanilla `ServerboundPlayerActionPacket` with action `STAB` (7): a
+/// piercing weapon's jab, which the server resolves along the weapon's
+/// reach. The position, face and sequence are unused (zero, `DOWN`, 0), and
+/// azalea's action enum stops before it.
+pub fn encode_stab() -> Vec<u8> {
+    let mut buf = Vec::new();
+    write_varint(&mut buf, game_serverbound_id("player_action"));
+    write_varint(&mut buf, 7);
+    buf.extend_from_slice(&0i64.to_be_bytes());
+    buf.push(0);
+    write_varint(&mut buf, 0);
+    buf
+}
+
 /// Vanilla 26.2 `ServerboundPickItemFromBlockPacket`: packed BlockPos then
 /// whether Ctrl requested block-entity/component data.
 pub fn encode_pick_item_from_block(x: i32, y: i32, z: i32, include_data: bool) -> Vec<u8> {

@@ -273,6 +273,8 @@ pub struct EntityRenderInfo {
     pub age_in_ticks: f32,
     /// Arm-swing progress 0..1; drives the zombie attack swing.
     pub attack_time: f32,
+    /// The swing is a stab (the main hand's `swing_animation`, a spear's).
+    pub attack_stabs: bool,
     /// Skip frustum/distance culling (the 3rd-person self entity, which sits at
     /// the camera and must never blink out).
     pub skip_cull: bool,
@@ -366,6 +368,7 @@ impl Default for EntityRenderInfo {
             dragon: None,
             age_in_ticks: 0.0,
             attack_time: 0.0,
+            attack_stabs: false,
             skip_cull: false,
             outline_color: None,
             visibility: Visibility::Visible,
@@ -3326,6 +3329,7 @@ impl EntityRenderer {
                 info.walk_anim_speed,
                 info.is_crouching,
                 info.attack_time,
+                info.attack_stabs,
             ),
             AnimationType::Enderman => entity_model::compute_enderman_anim(
                 model,

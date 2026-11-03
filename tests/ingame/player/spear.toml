@@ -1,0 +1,60 @@
+# A spear's left click jabs (vanilla's PIERCING_WEAPON branch): the server
+# pierces along the spear's 4.5-block reach, past the 3-block hand reach, and
+# the spear thrusts in its stab animation.
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/time set 18000"
+
+[[step]]
+chat = "/gamemode survival"
+
+[[step]]
+chat = "/effect give @s minecraft:resistance infinite 4 true"
+
+[[step]]
+chat = "/clear @s"
+
+[[step]]
+chat = "/give @s minecraft:iron_spear"
+
+[[step]]
+chat = "/tp @s 460.5 -60 460.5 0 20"
+
+[[step]]
+wait_ms = 1000
+
+[[step]]
+chat = "/kill @e[type=cow]"
+
+[[step]]
+chat = "/summon minecraft:cow 460.5 -60 464.5 {NoAI:1b,Silent:1b,Health:10f,PersistenceRequired:1b,Rotation:[90f,0f]}"
+
+[[step]]
+wait_ms = 2500
+
+[[step]]
+screenshot = "before"
+
+[[step]]
+mouse_down = "left"
+
+[[step]]
+wait_ms = 100
+
+[[step]]
+screenshot = "stab"
+
+[[step]]
+mouse_up = "left"
+
+[[step]]
+wait_ms = 400
+
+[[step]]
+screenshot = "after"

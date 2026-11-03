@@ -21,6 +21,8 @@ pub struct HeldItemInfo {
     pub item_tints: Vec<u32>,
     pub has_3d_model: bool,
     pub charged_crossbow: bool,
+    /// The item's swing is a stab (a spear's `swing_animation`).
+    pub stabs: bool,
 }
 
 /// One first-person hand holding an item (vanilla `submitArmWithItem` for a
@@ -139,6 +141,9 @@ impl HeldItemPipeline {
             let invert = hand::arm_invert(hand.right_arm);
             let mut arm = match hand.use_anim {
                 Some(anim) => eat_item_matrix(anim, invert),
+                None if item.stabs => {
+                    item_arm_matrix(invert) * stab_matrix(hand.swing_progress, invert)
+                }
                 None => first_person_item_matrix(hand.swing_progress, invert),
             };
             // Vanilla `submitArmWithItem`'s crossbow branch: a charged one
@@ -190,6 +195,34 @@ impl HeldItemPipeline {
         self.pipeline.destroy(device);
         self.shared.destroy(device);
     }
+}
+
+/// Vanilla `SpearAnimations.firstPersonAttack`: the spear drawn back, thrust
+/// out past the arm and eased home.
+fn stab_matrix(attack: f32, invert: f32) -> Mat4 {
+    let progress = |start: f32, end: f32| ((attack - start) / (end - start)).clamp(0.0, 1.0);
+    let in_out_sine = |x: f32| -((std::f32::consts::PI * x).cos() - 1.0) / 2.0;
+    let out_back = |x: f32| 1.0 + 2.70158 * (x - 1.0).powi(3) + 1.70158 * (x - 1.0).powi(2);
+    let in_out_expo = |x: f32| {
+        if x <= 0.0 {
+            0.0
+        } else if x >= 1.0 {
+            1.0
+        } else if x < 0.5 {
+            2f32.powf(20.0 * x - 10.0) / 2.0
+        } else {
+            (2.0 - 2f32.powf(-20.0 * x + 10.0)) / 2.0
+        }
+    };
+    let starting = in_out_sine(progress(0.0, 0.05));
+    let middle = out_back(progress(0.05, 0.2));
+    let ending = in_out_expo(progress(0.4, 1.0));
+    Mat4::from_translation(Vec3::new(
+        invert * 0.1 * (starting - middle),
+        -0.075 * (starting - ending),
+        0.65 * (starting - middle),
+    )) * Mat4::from_rotation_x((-70.0 * (starting - ending)).to_radians())
+        * Mat4::from_translation(Vec3::new(0.0, 0.0, -0.25 * (ending - middle)))
 }
 
 /// Vanilla `ItemInHandRenderer.applyItemArmTransform` (inverseArmHeight 0):
