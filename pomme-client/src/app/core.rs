@@ -2709,6 +2709,16 @@ impl AppCore {
                     if crate::entity::thrown_item::is_thrown_item(entity_type) {
                         game.thrown_items.spawn(id, entity_type, position, velocity);
                     }
+                    if crate::entity::arrow::is_arrow(entity_type) {
+                        game.arrows.spawn(
+                            id,
+                            entity_type,
+                            position,
+                            velocity,
+                            y_rot_deg,
+                            x_rot_deg,
+                        );
+                    }
                     game.silent_entities.remove(&id);
                     if crate::entity::is_living_mob(&entity_type) {
                         game.entity_store.spawn_living(
@@ -2750,6 +2760,7 @@ impl AppCore {
                     }
                     game.item_entity_store.move_delta(id, dx, dy, dz, on_ground);
                     game.thrown_items.move_delta(id, dvec3(dx, dy, dz));
+                    game.arrows.move_delta(id, dvec3(dx, dy, dz));
                     game.falling_blocks
                         .move_delta(id, dvec3(dx, dy, dz), on_ground);
                     game.interactions.move_delta(id, dvec3(dx, dy, dz));
@@ -2777,8 +2788,10 @@ impl AppCore {
                         game.entity_store
                             .rotate_living(id, y_rot_deg, x_rot_deg, on_ground);
                     }
+                    game.arrows.rotate(id, y_rot_deg, x_rot_deg);
                     game.item_entity_store.move_delta(id, dx, dy, dz, on_ground);
                     game.thrown_items.move_delta(id, dvec3(dx, dy, dz));
+                    game.arrows.move_delta(id, dvec3(dx, dy, dz));
                     game.falling_blocks
                         .move_delta(id, dvec3(dx, dy, dz), on_ground);
                     game.interactions.move_delta(id, dvec3(dx, dy, dz));
@@ -2802,6 +2815,7 @@ impl AppCore {
                         game.entity_store
                             .rotate_living(id, y_rot_deg, x_rot_deg, on_ground);
                     }
+                    game.arrows.rotate(id, y_rot_deg, x_rot_deg);
                     game.display_store.rotate(id, y_rot_deg, x_rot_deg);
                 }
                 NetworkEvent::EntityMotion { id, velocity } => {
@@ -2812,6 +2826,7 @@ impl AppCore {
                     } else {
                         game.item_entity_store.set_motion(id, velocity);
                         game.falling_blocks.set_motion(id, velocity);
+                        game.arrows.set_motion(id, velocity);
                         game.thrown_items.set_motion(id, velocity);
                         game.entity_store.set_living_motion(id, velocity);
                     }
@@ -2835,6 +2850,7 @@ impl AppCore {
                         game.entity_store
                             .rotate_living(id, y_rot_deg, x_rot_deg, on_ground);
                     }
+                    game.arrows.rotate(id, y_rot_deg, x_rot_deg);
                     if let Some(velocity) = velocity {
                         game.entity_store.set_living_motion(id, velocity);
                     }
@@ -2844,8 +2860,11 @@ impl AppCore {
                     game.interactions.teleport(id, position);
                     game.end_crystals.teleport(id, position);
                     game.thrown_items.teleport(id, position);
+                    game.arrows.teleport(id, position);
+                    game.arrows.rotate(id, y_rot_deg, x_rot_deg);
                     if let Some(velocity) = velocity {
                         game.thrown_items.set_motion(id, velocity);
+                        game.arrows.set_motion(id, velocity);
                     }
                     game.display_store
                         .teleport(id, *position, y_rot_deg, x_rot_deg);
@@ -2929,6 +2948,7 @@ impl AppCore {
                     game.interactions.remove(&ids);
                     game.end_crystals.remove(&ids);
                     game.thrown_items.remove(&ids);
+                    game.arrows.remove(&ids);
                     game.display_store.remove(&ids);
                     game.name_store.remove(&ids);
                     if game.controlled_vehicle_id.is_some_and(|v| ids.contains(&v)) {
@@ -2992,6 +3012,7 @@ impl AppCore {
                     game.display_store.apply_entity_data(id, index, value);
                     game.interactions.apply_entity_data(id, index, value);
                     game.end_crystals.apply_entity_data(id, index, value);
+                    game.arrows.apply_entity_data(id, index, &value);
                     game.name_store.apply_entity_data(id, index, value);
                     if index == 5
                         && let crate::entity::MetaValue::Bool(no_gravity) = value
@@ -3322,6 +3343,7 @@ impl AppCore {
                     game.interactions.clear();
                     game.end_crystals.clear();
                     game.thrown_items.clear();
+                    game.arrows.clear();
                     game.display_store.clear();
                     game.name_store.clear();
                     game.entity_positions.clear();

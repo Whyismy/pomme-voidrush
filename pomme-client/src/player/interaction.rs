@@ -137,6 +137,9 @@ struct ActiveUse {
     /// Counts down from `duration`; vanilla lets it run negative until the
     /// server completes the use.
     remaining: i32,
+    /// A use that's held and let go (a bow drawn, a shield raised), with no
+    /// consume sounds or crumbs.
+    held: bool,
 }
 
 pub struct InteractionState {
@@ -965,9 +968,30 @@ impl InteractionState {
                     use_effects: stack_component::<UseEffects>(stack).unwrap_or_default(),
                     duration: 200,
                     remaining: 200,
+                    held: false,
                 });
             }
             return UseResult::Success { swing: true };
+        }
+
+        // Vanilla `startUsingItem` from a bow, crossbow, trident, shield,
+        // spear, spyglass or goat horn: the use is held, and letting go
+        // (RELEASE_USE_ITEM) is what shoots, throws or lowers it.
+        if let Some((anim, duration)) = held_use(stack) {
+            self.using_item = Some(ActiveUse {
+                hand,
+                kind: stack.kind,
+                anim,
+                bundle: None,
+                sound: SoundRef::event("intentionally_empty"),
+                has_particles: false,
+                texture: String::new(),
+                use_effects: stack_component::<UseEffects>(stack).unwrap_or_default(),
+                duration,
+                remaining: duration,
+                held: true,
+            });
+            return item_use_result(stack, worn);
         }
 
         let Some(consumable) = stack_component::<Consumable>(stack) else {
@@ -994,6 +1018,7 @@ impl InteractionState {
             use_effects: stack_component::<UseEffects>(stack).unwrap_or_default(),
             duration,
             remaining: duration,
+            held: false,
         };
         if duration > 0 {
             self.using_item = Some(active);
@@ -1135,6 +1160,7 @@ impl InteractionState {
         let elapsed = active.duration - active.remaining;
         let wait = (active.duration as f32 * CONSUME_EFFECTS_START_FRACTION) as i32;
         if active.bundle.is_none()
+            && !active.held
             && elapsed > wait
             && active.remaining % CONSUME_EFFECTS_INTERVAL == 0
         {
@@ -1806,6 +1832,27 @@ fn hand_render_selection(
 }
 
 /// Vanilla `ItemInHandRenderer.isChargedCrossbow` / `CrossbowItem.isCharged`.
+/// The use a held-and-released item starts (vanilla `getUseAnimation` and
+/// `getUseDuration`), or `None` for one that acts at once: a loaded
+/// crossbow shoots on the click.
+fn held_use(stack: &ItemStackData) -> Option<(ItemUseAnimation, i32)> {
+    if stack_component::<BlocksAttacks>(stack).is_some() {
+        return Some((ItemUseAnimation::BlockKind, 72_000));
+    }
+    if stack_component::<KineticWeapon>(stack).is_some() {
+        return Some((ItemUseAnimation::Spear, 72_000));
+    }
+    match stack.kind {
+        ItemKind::Bow => Some((ItemUseAnimation::Bow, 72_000)),
+        // `CrossbowItem.getUseDuration`: the 25-tick charge and three more.
+        ItemKind::Crossbow if !is_charged_crossbow(stack) => Some((ItemUseAnimation::Crossbow, 28)),
+        ItemKind::Trident => Some((ItemUseAnimation::Spear, 72_000)),
+        ItemKind::Spyglass => Some((ItemUseAnimation::Spyglass, 1_200)),
+        ItemKind::GoatHorn => Some((ItemUseAnimation::TootHorn, 140)),
+        _ => None,
+    }
+}
+
 pub(crate) fn is_charged_crossbow(stack: &ItemStackData) -> bool {
     stack.kind == ItemKind::Crossbow
         && stack_component::<ChargedProjectiles>(stack).is_some_and(|c| !c.items.is_empty())
@@ -2238,6 +2285,7 @@ mod tests {
             use_effects: UseEffects::default(),
             duration: 32,
             remaining: 12,
+            held: false,
         }
     }
 

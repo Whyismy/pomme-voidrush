@@ -2692,6 +2692,31 @@ fn mob_definitions() -> Vec<MobDef> {
         // unless `NoBasePlate`; the variant is those two flags. A small
         // stand draws the small layer.
         // TODO: the six synced poses (head, body, arms, legs).
+        // `ArrowRenderer`: variant 1 is a tipped arrow.
+        MobDef {
+            kind: EntityKind::Arrow,
+            anim: AnimationType::Static,
+            adult: vec![opaque(
+                entity_model::bake_exported(exported_data::ARROW),
+                tex_table!("projectiles" => "arrow", "arrow_tipped"),
+                32,
+            )],
+            baby: None,
+            adult_overlays: vec![],
+            baby_overlays: vec![],
+        },
+        MobDef {
+            kind: EntityKind::SpectralArrow,
+            anim: AnimationType::Static,
+            adult: vec![opaque(
+                entity_model::bake_exported(exported_data::ARROW),
+                tex_table!("projectiles" => "arrow_spectral"),
+                32,
+            )],
+            baby: None,
+            adult_overlays: vec![],
+            baby_overlays: vec![],
+        },
         // `EndCrystalRenderer`: variant 1 hides the base (`showsBottom`).
         MobDef {
             kind: EntityKind::EndCrystal,
@@ -2784,6 +2809,13 @@ const DEFAULT_SKINS: [(&str, bool); 18] = [
 pub(crate) fn end_crystal_transform() -> glam::Mat4 {
     glam::Mat4::from_translation(glam::Vec3::new(0.0, 2.0 * 1.501, 0.0))
         * glam::Mat4::from_scale(glam::Vec3::new(-2.0, -2.0, 2.0))
+}
+
+/// A non-living renderer's model frame from pomme's living-model one (y
+/// flipped, rebased 1.501 up): the model drawn as it's built.
+pub(crate) fn unliving_model_frame() -> glam::Mat4 {
+    glam::Mat4::from_translation(glam::Vec3::new(0.0, 1.501, 0.0))
+        * glam::Mat4::from_scale(glam::Vec3::new(-1.0, -1.0, 1.0))
 }
 
 /// The default skin of vanilla's wide Steve, as a player `variant_index`.

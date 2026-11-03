@@ -359,6 +359,7 @@ pub struct GameState {
     pub end_portals: std::collections::HashSet<BlockPos>,
     pub end_crystals: crate::entity::end_crystal::EndCrystalStore,
     pub thrown_items: crate::entity::thrown_item::ThrownItemStore,
+    pub arrows: crate::entity::arrow::ArrowStore,
     pub particle_store: crate::particle::ParticleStore,
     /// `WeatherEffectRenderer.rainSoundTime`: ticks since the last rain sound.
     pub rain_sound_time: i32,
@@ -540,6 +541,7 @@ impl GameState {
             end_portals: Default::default(),
             end_crystals: Default::default(),
             thrown_items: Default::default(),
+            arrows: Default::default(),
             rain_sound_time: 0,
             particle_store: {
                 let (grass, foliage, dry_foliage) = mesh_dispatcher.colormaps();
@@ -2710,6 +2712,11 @@ pub fn update_game(
             .tick(&game.chunk_store, game.block_registry.block_state_table());
         game.end_crystals.tick();
         game.thrown_items.tick();
+        game.arrows
+            .tick(crate::physics::collision::CollisionWorld::new(
+                &game.chunk_store,
+                game.block_registry.block_state_table(),
+            ));
         game.block_entity_anim.tick();
         crate::app::core::tick_moving_pistons(game);
         game.title.tick();
@@ -4563,6 +4570,32 @@ pub fn update_game(
                     false,
                     0,
                 ),
+                ..Default::default()
+            });
+        }
+    }
+
+    // Arrows (`ArrowRenderer`): turned to their flight, from vanilla's own
+    // model layer.
+    if !benchmark_running {
+        for arrow in game.arrows.arrows.values() {
+            let feet = arrow
+                .prev_position
+                .lerp(arrow.position, partial_tick as f64);
+            let y_rot = lerp_angle(arrow.prev_y_rot, arrow.y_rot, partial_tick);
+            let x_rot = arrow.prev_x_rot + (arrow.x_rot - arrow.prev_x_rot) * partial_tick;
+            entity_renders.push(EntityRenderInfo {
+                position: feet,
+                entity_kind: arrow.kind,
+                head_y_rot_deg: 180.0,
+                body_y_rot_deg: 180.0,
+                variant_index: u32::from(arrow.tipped),
+                body_transform: Some(
+                    glam::Mat4::from_rotation_y((y_rot - 90.0).to_radians())
+                        * glam::Mat4::from_rotation_z(x_rot.to_radians())
+                        * crate::renderer::pipelines::entity_renderer::unliving_model_frame(),
+                ),
+                light: entity_light(&world_light, arrow.kind, feet, false, 0),
                 ..Default::default()
             });
         }

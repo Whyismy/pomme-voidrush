@@ -1,3 +1,4 @@
+pub mod arrow;
 pub mod components;
 pub mod dimensions;
 pub mod display;

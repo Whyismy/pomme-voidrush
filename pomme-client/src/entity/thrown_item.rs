@@ -15,6 +15,8 @@ pub struct ThrownItem {
     pub kind: EntityKind,
     pub position: Position,
     pub prev_position: Position,
+    /// Where the server last put it, which its relative moves build on.
+    server_position: Position,
     pub velocity: DVec3,
     /// The model key of the stack it carries (`EntityItemData`), else its
     /// kind's default item.
@@ -92,6 +94,7 @@ impl ThrownItemStore {
                 kind,
                 position,
                 prev_position: position,
+                server_position: position,
                 velocity,
                 model: None,
                 stack: None,
@@ -116,12 +119,14 @@ impl ThrownItemStore {
 
     pub fn move_delta(&mut self, id: i32, delta: DVec3) {
         if let Some(item) = self.items.get_mut(&id) {
-            item.position = (DVec3::from(item.position) + delta).into();
+            item.server_position = (DVec3::from(item.server_position) + delta).into();
+            item.position = item.server_position;
         }
     }
 
     pub fn teleport(&mut self, id: i32, position: Position) {
         if let Some(item) = self.items.get_mut(&id) {
+            item.server_position = position;
             item.position = position;
         }
     }
