@@ -1,0 +1,45 @@
+# Riding a tamed, saddled horse: the rider sits in the saddle (the horse's
+# passenger attachment), and this client drives the horse (vanilla's
+# travelRidden), sending move_vehicle, which the server accepts.
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/gamemode survival"
+
+[[step]]
+chat = "/effect give @s minecraft:resistance infinite 4 true"
+
+[[step]]
+chat = "/tp @s 580.5 -60 580.5 0 10"
+
+[[step]]
+wait_ms = 1000
+
+[[step]]
+chat = "/kill @e[type=horse]"
+
+[[step]]
+chat = "/execute at @s run summon minecraft:horse ~ ~ ~2 {Tame:1b,Variant:0,equipment:{saddle:{id:\"minecraft:saddle\",count:1}},Rotation:[0f,0f]}"
+
+[[step]]
+wait_ms = 500
+
+[[step]]
+chat = "/ride @s mount @e[type=horse,limit=1,sort=nearest]"
+
+[[step]]
+press = { action = "key.togglePerspective" }
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+screenshot = "mounted"

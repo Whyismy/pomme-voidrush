@@ -272,6 +272,9 @@ pub struct GameState {
     /// Vehicle we are the controlling (first) passenger of, from
     /// `SetPassengers` (vanilla `getControlledVehicle`).
     pub controlled_vehicle_id: Option<i32>,
+    /// A released ride jump waiting for the horse to touch the ground
+    /// (`AbstractHorse.playerJumpPendingScale`).
+    pub ridden_jump_pending: f32,
     /// Vehicle we are any passenger of (vanilla `getVehicle`).
     pub riding_vehicle_id: Option<i32>,
     /// Smoothed vignette darkness (vanilla `Hud.vignetteBrightness`).
@@ -615,6 +618,7 @@ impl GameState {
             last_saving_indicator_value: 0.0,
             xp_display_start_tick: i64::MIN,
             controlled_vehicle_id: None,
+            ridden_jump_pending: 0.0,
             riding_vehicle_id: None,
             vignette_brightness: 1.0,
             interaction: InteractionState::new(),
@@ -671,6 +675,13 @@ impl GameState {
             vis_task: None,
             chunk_occlusion_enabled: true,
         }
+    }
+
+    /// Whether this client drives entity `id` (vanilla
+    /// `isLocalInstanceAuthoritative` for a vehicle): a saddled equine the
+    /// local player controls. The server's moves for it are ignored.
+    pub fn drives_vehicle(&self, id: i32) -> bool {
+        self.controlled_vehicle_id == Some(id) && self.riding_jumpable_vehicle()
     }
 
     /// Vanilla `LocalPlayer.jumpableVehicle() != null`: controlling a saddled

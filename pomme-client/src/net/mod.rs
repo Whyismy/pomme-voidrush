@@ -538,6 +538,13 @@ pub enum NetworkEvent {
         index: u8,
         value: MetaValue,
     },
+    /// Vanilla `ClientboundMoveVehiclePacket`: the server puts the vehicle
+    /// the client drives back where it says.
+    VehicleMoved {
+        position: glam::DVec3,
+        y_rot: f32,
+        x_rot: f32,
+    },
     EntityPose {
         id: i32,
         is_crouching: bool,

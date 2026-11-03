@@ -48,6 +48,21 @@ pub fn encode_stab() -> Vec<u8> {
     buf
 }
 
+/// Vanilla `ServerboundMoveVehiclePacket`: where the vehicle the client
+/// drives now is (a ridden horse), its rotation and whether it's on the
+/// ground. azalea's lacks the ground flag 1.21.4 added.
+pub fn encode_move_vehicle(position: DVec3, y_rot: f32, x_rot: f32, on_ground: bool) -> Vec<u8> {
+    let mut buf = Vec::new();
+    write_varint(&mut buf, game_serverbound_id("move_vehicle"));
+    for v in [position.x, position.y, position.z] {
+        buf.extend_from_slice(&v.to_be_bytes());
+    }
+    buf.extend_from_slice(&y_rot.to_be_bytes());
+    buf.extend_from_slice(&x_rot.to_be_bytes());
+    buf.push(on_ground as u8);
+    buf
+}
+
 /// Vanilla 26.2 `ServerboundPickItemFromBlockPacket`: packed BlockPos then
 /// whether Ctrl requested block-entity/component data.
 pub fn encode_pick_item_from_block(x: i32, y: i32, z: i32, include_data: bool) -> Vec<u8> {

@@ -2744,8 +2744,10 @@ impl AppCore {
                     dz,
                     on_ground,
                 } => {
-                    game.entity_store
-                        .move_living_delta(id, dx, dy, dz, on_ground);
+                    if !game.drives_vehicle(id) {
+                        game.entity_store
+                            .move_living_delta(id, dx, dy, dz, on_ground);
+                    }
                     game.item_entity_store.move_delta(id, dx, dy, dz, on_ground);
                     game.thrown_items.move_delta(id, dvec3(dx, dy, dz));
                     game.falling_blocks
@@ -2767,10 +2769,14 @@ impl AppCore {
                     x_rot_deg,
                     on_ground,
                 } => {
-                    game.entity_store
-                        .move_living_delta(id, dx, dy, dz, on_ground);
-                    game.entity_store
-                        .rotate_living(id, y_rot_deg, x_rot_deg, on_ground);
+                    if !game.drives_vehicle(id) {
+                        game.entity_store
+                            .move_living_delta(id, dx, dy, dz, on_ground);
+                    }
+                    if !game.drives_vehicle(id) {
+                        game.entity_store
+                            .rotate_living(id, y_rot_deg, x_rot_deg, on_ground);
+                    }
                     game.item_entity_store.move_delta(id, dx, dy, dz, on_ground);
                     game.thrown_items.move_delta(id, dvec3(dx, dy, dz));
                     game.falling_blocks
@@ -2792,8 +2798,10 @@ impl AppCore {
                     x_rot_deg,
                     on_ground,
                 } => {
-                    game.entity_store
-                        .rotate_living(id, y_rot_deg, x_rot_deg, on_ground);
+                    if !game.drives_vehicle(id) {
+                        game.entity_store
+                            .rotate_living(id, y_rot_deg, x_rot_deg, on_ground);
+                    }
                     game.display_store.rotate(id, y_rot_deg, x_rot_deg);
                 }
                 NetworkEvent::EntityMotion { id, velocity } => {
@@ -2820,9 +2828,13 @@ impl AppCore {
                     x_rot_deg,
                     on_ground,
                 } => {
-                    game.entity_store.teleport_living(id, position, on_ground);
-                    game.entity_store
-                        .rotate_living(id, y_rot_deg, x_rot_deg, on_ground);
+                    if !game.drives_vehicle(id) {
+                        game.entity_store.teleport_living(id, position, on_ground);
+                    }
+                    if !game.drives_vehicle(id) {
+                        game.entity_store
+                            .rotate_living(id, y_rot_deg, x_rot_deg, on_ground);
+                    }
                     if let Some(velocity) = velocity {
                         game.entity_store.set_living_motion(id, velocity);
                     }
@@ -3010,6 +3022,22 @@ impl AppCore {
                 } => {
                     game.entity_store.set_crouching(id, is_crouching);
                     game.entity_store.set_pose(id, pose);
+                }
+                NetworkEvent::VehicleMoved {
+                    position,
+                    y_rot,
+                    x_rot,
+                } => {
+                    if let Some(id) = game.controlled_vehicle_id
+                        && game.drives_vehicle(id)
+                        && let Some(horse) = game.entity_store.living.get_mut(&id)
+                    {
+                        horse.position = position.into();
+                        horse.prev_position = horse.position;
+                        horse.look_dir =
+                            crate::entity::components::LookDirection::new(y_rot, x_rot);
+                        horse.velocity = glam::DVec3::ZERO;
+                    }
                 }
                 NetworkEvent::SetCamera { id } => {
                     if id == game.player.entity_id {
@@ -3745,8 +3773,11 @@ impl AppCore {
             }
             if p.was_jump_pressed && !jump_held {
                 p.jump_riding_ticks = -10;
-                // Vanilla also calls vehicle.onPlayerJump() for client horse
-                // physics; pomme has no vehicle physics, the server moves us.
+                // `AbstractHorse.onPlayerJump`: the horse jumps from the
+                // client's own physics next time it's on the ground.
+                game.ridden_jump_pending = crate::physics::ridden::jump_pending_scale(
+                    (p.jump_riding_scale * 100.0).floor() as i32,
+                );
                 use azalea_protocol::packets::game::s_player_command as cmd;
                 connection
                     .packet_tx
@@ -3884,6 +3915,32 @@ impl AppCore {
             game.interaction.slow_due_to_using_item(),
             vehicle,
         );
+        // A saddled horse under the local player moves by this client's
+        // physics (vanilla `travelRidden`), and the server hears where.
+        if let Some(id) = game.controlled_vehicle_id
+            && game.drives_vehicle(id)
+            && let Some(horse) = game.entity_store.living.get_mut(&id)
+        {
+            crate::physics::ridden::tick(
+                horse,
+                game.player.look_dir,
+                game.player.move_forward,
+                game.player.move_strafe,
+                &mut game.ridden_jump_pending,
+                crate::physics::collision::CollisionWorld::new(
+                    &game.chunk_store,
+                    game.block_registry.block_state_table(),
+                ),
+            );
+            connection
+                .packet_tx
+                .send_raw(pomme_protocol::wire::encode_move_vehicle(
+                    *horse.position,
+                    horse.look_dir.y_rot_deg(),
+                    horse.look_dir.x_rot_deg(),
+                    horse.on_ground,
+                ));
+        }
         // `Entity.rideTick`: a passenger moves with its vehicle, not itself.
         if let Some(seat) = game.riding_seat() {
             game.player.position = seat.into();

@@ -940,7 +940,7 @@ pub struct LivingEntity {
     rotate_speed: f32,
     interp_target: Position,
     interp_look_dir: LookDirection,
-    interp_steps: i32,
+    pub(crate) interp_steps: i32,
     interp_head_y_rot_deg: f32,
     interp_head_y_rot_steps: i32,
 }
@@ -1000,6 +1000,13 @@ pub fn passenger_attachment_height(entity: &LivingEntity) -> f64 {
     let attachment = match entity.entity_type {
         EntityKind::Ravager => 2.2625 * age * scale,
         EntityKind::Zombie | EntityKind::PiglinBrute => 2.0125 * age * scale,
+        // `EntityTypes`' `passengerAttachments`: a rider sits in the saddle.
+        EntityKind::Horse => 1.44375 * age * scale,
+        EntityKind::Donkey => 1.1125 * age * scale,
+        EntityKind::Mule => 1.2125 * age * scale,
+        EntityKind::SkeletonHorse | EntityKind::ZombieHorse => 1.31875 * age * scale,
+        EntityKind::Llama | EntityKind::TraderLlama => 1.37 * age * scale,
+        EntityKind::Pig => 0.86875 * age * scale,
         _ => dims.height,
     };
     f64::from(attachment)
