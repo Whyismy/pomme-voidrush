@@ -2589,6 +2589,86 @@ fn entity_tooltip_lines(value: &serde_json::Value, bindings: &KeyBindings) -> Ve
     lines
 }
 
+/// The server's enchantment registry in protocol-id order, so tooltips can
+/// name a stack's enchantments.
+static ENCHANTMENT_NAMES: std::sync::RwLock<Vec<String>> = std::sync::RwLock::new(Vec::new());
+
+/// Keeps the enchantment names from the registries the server synced.
+pub(crate) fn set_enchantment_names(names: Vec<String>) {
+    *ENCHANTMENT_NAMES
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = names;
+}
+
+/// `item` as the JSON [`item_tooltip_lines`] reads. Enchantments are keyed by
+/// registry entries, which serde can't write as JSON keys, so they go in by
+/// name instead (a server's glinting items carry one, often hidden).
+pub(crate) fn stack_tooltip_value(item: &azalea_inventory::ItemStack) -> Option<serde_json::Value> {
+    use azalea_inventory::components::{Enchantments, StoredEnchantments};
+    use azalea_registry::DataRegistry;
+    use azalea_registry::builtin::DataComponentKind;
+
+    let azalea_inventory::ItemStack::Present(data) = item else {
+        return serde_json::to_value(item).ok();
+    };
+    let enchantments = data
+        .component_patch
+        .get::<Enchantments>()
+        .map(|e| &e.levels);
+    let stored = data
+        .component_patch
+        .get::<StoredEnchantments>()
+        .map(|e| &e.enchantments);
+    if enchantments.is_none() && stored.is_none() {
+        return serde_json::to_value(item).ok();
+    }
+    let mut plain = data.clone();
+    for kind in [
+        DataComponentKind::Enchantments,
+        DataComponentKind::StoredEnchantments,
+    ] {
+        // SAFETY: `None` marks the component removed; there's no value whose
+        // kind could mismatch.
+        unsafe { plain.component_patch.unchecked_insert_component(kind, None) };
+    }
+    let mut value = serde_json::to_value(azalea_inventory::ItemStack::Present(plain)).ok()?;
+    let names = ENCHANTMENT_NAMES
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let by_name = |levels: &std::collections::HashMap<azalea_registry::data::Enchantment, i32>| {
+        let mut sorted: Vec<_> = levels.iter().collect();
+        sorted.sort_by_key(|(enchantment, _)| enchantment.protocol_id());
+        serde_json::Value::Object(
+            sorted
+                .into_iter()
+                .map(|(enchantment, level)| {
+                    let id = enchantment.protocol_id();
+                    let name = names
+                        .get(id as usize)
+                        .cloned()
+                        .unwrap_or_else(|| format!("minecraft:enchantment_{id}"));
+                    (name, serde_json::Value::from(*level))
+                })
+                .collect(),
+        )
+    };
+    let object = value.as_object_mut()?;
+    let components = object
+        .entry("components")
+        .or_insert_with(|| serde_json::Value::Object(Default::default()))
+        .as_object_mut()?;
+    components.retain(|key, _| {
+        key != "!minecraft:enchantments" && key != "!minecraft:stored_enchantments"
+    });
+    if let Some(levels) = enchantments {
+        components.insert("minecraft:enchantments".into(), by_name(levels));
+    }
+    if let Some(levels) = stored {
+        components.insert("minecraft:stored_enchantments".into(), by_name(levels));
+    }
+    Some(value)
+}
+
 /// The stack's tooltip. `raw_components` is the item's `components` tag where
 /// the stack came as NBT, so its components keep the payloads and Java number
 /// text the JSON shape loses.

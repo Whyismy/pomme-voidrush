@@ -1286,9 +1286,11 @@ fn direct_trim_material_name(
 }
 
 fn stack_tooltip_lines(stack: &ResolvedSlotStack) -> Vec<TooltipLine> {
-    let mut lines = match serde_json::to_value(&stack.stack) {
-        Ok(value) => crate::ui::chat::item_tooltip_lines(&value, None, false),
-        Err(_) => vec![TooltipLine::new(
+    let mut lines = match crate::ui::chat::stack_tooltip_value(
+        &azalea_inventory::ItemStack::Present(stack.stack.clone()),
+    ) {
+        Some(value) => crate::ui::chat::item_tooltip_lines(&value, None, false),
+        None => vec![TooltipLine::new(
             super::common::item_display_name(&stack.stack),
             WHITE,
         )],

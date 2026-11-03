@@ -342,9 +342,9 @@ impl<'e> SlotCtx<'e> {
         if cursor_item.is_empty()
             && let Some(item @ ItemStack::Present(_)) = &self.hovered_item
         {
-            let lines = match serde_json::to_value(item) {
-                Ok(value) => crate::ui::chat::item_tooltip_lines(&value, None, false),
-                Err(_) => Vec::new(),
+            let lines = match crate::ui::chat::stack_tooltip_value(item) {
+                Some(value) => crate::ui::chat::item_tooltip_lines(&value, None, false),
+                None => Vec::new(),
             };
             if !lines.is_empty() {
                 super::common::push_tooltip_lines(

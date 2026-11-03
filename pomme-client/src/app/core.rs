@@ -2097,6 +2097,14 @@ impl AppCore {
                     game.cursor_item = item;
                 }
                 NetworkEvent::Registries(registries) => {
+                    crate::ui::chat::set_enchantment_names(
+                        registries
+                            .enchantment
+                            .map
+                            .keys()
+                            .map(ToString::to_string)
+                            .collect(),
+                    );
                     game.registries = registries;
                 }
                 NetworkEvent::DialogRegistry(registry) => {

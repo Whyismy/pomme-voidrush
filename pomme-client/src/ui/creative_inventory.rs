@@ -2,13 +2,11 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 use std::time::Instant;
 
-use azalea_inventory::components::{
-    Damage, Enchantments, EquipmentSlot, Equippable, MaxDamage, Rarity,
-};
+use azalea_inventory::components::{EquipmentSlot, Equippable};
 use azalea_inventory::default_components::get_default_component;
 use azalea_inventory::item::MaxStackSizeExt;
 use azalea_inventory::{ItemStack, ItemStackData};
-use azalea_registry::builtin::{DataComponentKind, ItemKind};
+use azalea_registry::builtin::ItemKind;
 
 use super::common::{
     self, FONT_SIZE, SLOT_LABEL_COLOR, SLOT_SIZE, SLOT_STRIDE, WHITE, hit_test, push_slot, rgb,
@@ -18,7 +16,6 @@ use super::creative_tab_data::{
     FUNCTIONAL_BLOCKS_ITEMS, INGREDIENTS_ITEMS, NATURAL_BLOCKS_ITEMS, OP_BLOCKS_ITEMS,
     REDSTONE_BLOCKS_ITEMS, SPAWN_EGGS_ITEMS, TOOLS_AND_UTILITIES_ITEMS,
 };
-use crate::lang::item_display_name;
 use crate::player::inventory::{Inventory, item_resource_name};
 use crate::renderer::PlayerPreview;
 use crate::renderer::pipelines::entity_renderer::armor_render_infos;
@@ -581,7 +578,12 @@ pub fn build_creative_inventory(
                 );
                 let hovered = push_slot(elements, slot_x, slot_y, size, scale, cursor, &item, None);
                 if hovered {
-                    push_item_tooltip(elements, &item, &tt);
+                    push_item_tooltip(
+                        elements,
+                        &item,
+                        &tt,
+                        matches!(state.tab, CreativeTab::Search),
+                    );
                     if let Some(target) = swap_target
                         && matches!(action, CreativeAction::None)
                         && let ItemStack::Present(data) = &item
@@ -999,140 +1001,7 @@ struct DragPreview {
     remainder: i32,
 }
 
-const TOOLTIP_NAME_COLOR: [f32; 4] = rgb(0xFFFFFF);
 const TOOLTIP_TAB_COLOR: [f32; 4] = rgb(0x5555FF);
-const TOOLTIP_ADVANCED_COLOR: [f32; 4] = rgb(0x555555);
-const TOOLTIP_LORE_COLOR: [f32; 4] = rgb(0xAAAAAA);
-const RARITY_UNCOMMON: [f32; 4] = rgb(0xFFFF55);
-const RARITY_RARE: [f32; 4] = rgb(0x55FFFF);
-const RARITY_EPIC: [f32; 4] = rgb(0xFF55FF);
-
-fn rarity_color(kind: ItemKind) -> [f32; 4] {
-    match get_default_component::<Rarity>(kind) {
-        Some(Rarity::Uncommon) => RARITY_UNCOMMON,
-        Some(Rarity::Rare) => RARITY_RARE,
-        Some(Rarity::Epic) => RARITY_EPIC,
-        _ => TOOLTIP_NAME_COLOR,
-    }
-}
-
-// Fixed list rather than `from_u32(0..)` so registry-ID shifts between MC
-// versions don't silently change counts.
-const TRACKED_COMPONENT_KINDS: &[DataComponentKind] = &[
-    DataComponentKind::MaxStackSize,
-    DataComponentKind::MaxDamage,
-    DataComponentKind::Damage,
-    DataComponentKind::ItemName,
-    DataComponentKind::ItemModel,
-    DataComponentKind::Lore,
-    DataComponentKind::Rarity,
-    DataComponentKind::Enchantments,
-    DataComponentKind::AttributeModifiers,
-    DataComponentKind::RepairCost,
-    DataComponentKind::EnchantmentGlintOverride,
-    DataComponentKind::Food,
-    DataComponentKind::Consumable,
-    DataComponentKind::UseRemainder,
-    DataComponentKind::UseCooldown,
-    DataComponentKind::Tool,
-    DataComponentKind::Weapon,
-    DataComponentKind::AttackRange,
-    DataComponentKind::Enchantable,
-    DataComponentKind::Equippable,
-    DataComponentKind::Repairable,
-    DataComponentKind::Glider,
-    DataComponentKind::BlocksAttacks,
-    DataComponentKind::DamageResistant,
-];
-
-fn total_component_count(data: &ItemStackData) -> usize {
-    TRACKED_COMPONENT_KINDS
-        .iter()
-        .filter(|&&kind| {
-            data.component_patch.has_kind(kind) || default_has_component(data.kind, kind)
-        })
-        .count()
-}
-
-fn default_has_component(item: ItemKind, kind: DataComponentKind) -> bool {
-    macro_rules! check {
-        ($($ck:ident => $t:ty),* $(,)?) => {
-            match kind {
-                $( DataComponentKind::$ck => get_default_component::<$t>(item).is_some(), )*
-                _ => false,
-            }
-        };
-    }
-    check! {
-        MaxStackSize => azalea_inventory::components::MaxStackSize,
-        MaxDamage => MaxDamage,
-        Damage => Damage,
-        ItemName => azalea_inventory::components::ItemName,
-        ItemModel => azalea_inventory::components::ItemModel,
-        Lore => azalea_inventory::components::Lore,
-        Rarity => Rarity,
-        Enchantments => Enchantments,
-        AttributeModifiers => azalea_inventory::components::AttributeModifiers,
-        RepairCost => azalea_inventory::components::RepairCost,
-        EnchantmentGlintOverride => azalea_inventory::components::EnchantmentGlintOverride,
-        Food => azalea_inventory::components::Food,
-        Consumable => azalea_inventory::components::Consumable,
-        UseRemainder => azalea_inventory::components::UseRemainder,
-        UseCooldown => azalea_inventory::components::UseCooldown,
-        Tool => azalea_inventory::components::Tool,
-        Weapon => azalea_inventory::components::Weapon,
-        AttackRange => azalea_inventory::components::AttackRange,
-        Enchantable => azalea_inventory::components::Enchantable,
-        Equippable => azalea_inventory::components::Equippable,
-        Repairable => azalea_inventory::components::Repairable,
-        Glider => azalea_inventory::components::Glider,
-        BlocksAttacks => azalea_inventory::components::BlocksAttacks,
-        DamageResistant => azalea_inventory::components::DamageResistant,
-    }
-}
-
-fn lore_lines(data: &ItemStackData) -> Vec<TooltipLine> {
-    let mut lines = Vec::new();
-    if let Some(damage) = data.component_patch.get::<Damage>() {
-        let max = data
-            .component_patch
-            .get::<MaxDamage>()
-            .map(|m| m.amount)
-            .or_else(|| get_default_component::<MaxDamage>(data.kind).map(|m| m.amount))
-            .unwrap_or(0);
-        if max > 0 {
-            lines.push(TooltipLine::new(
-                format!("Durability: {} / {}", max - damage.amount, max),
-                TOOLTIP_LORE_COLOR,
-            ));
-        }
-    }
-    if let Some(ench) = data.component_patch.get::<Enchantments>() {
-        for (enchantment, level) in &ench.levels {
-            lines.push(TooltipLine::new(
-                format!("{:?} {}", enchantment, roman(*level)),
-                TOOLTIP_LORE_COLOR,
-            ));
-        }
-    }
-    lines
-}
-
-fn roman(n: i32) -> &'static str {
-    match n {
-        1 => "I",
-        2 => "II",
-        3 => "III",
-        4 => "IV",
-        5 => "V",
-        6 => "VI",
-        7 => "VII",
-        8 => "VIII",
-        9 => "IX",
-        10 => "X",
-        _ => "",
-    }
-}
 
 fn tabs_containing(kind: ItemKind) -> &'static [&'static str] {
     static INDEX: OnceLock<HashMap<ItemKind, Vec<&'static str>>> = OnceLock::new();
@@ -1155,39 +1024,51 @@ fn tabs_containing(kind: ItemKind) -> &'static [&'static str] {
         .unwrap_or(EMPTY)
 }
 
-fn build_item_tooltip_lines(data: &ItemStackData, advanced: bool) -> Vec<TooltipLine> {
-    let kind = data.kind;
-    let mut lines = Vec::new();
-    lines.push(TooltipLine::new(
-        item_display_name(kind),
-        rarity_color(kind),
-    ));
-    lines.extend(lore_lines(data));
-    for &title in tabs_containing(kind) {
-        lines.push(TooltipLine::new(title.to_string(), TOOLTIP_TAB_COLOR));
+/// Vanilla `CreativeModeInventoryScreen.getTooltipFromContainerItem`: the
+/// stack's own tooltip (as every screen draws it), with the names of the tabs
+/// holding that exact stack under its name, except in a category tab's grid.
+fn build_item_tooltip_lines(
+    data: &ItemStackData,
+    advanced: bool,
+    tab_names: bool,
+) -> Vec<TooltipLine> {
+    let mut lines = match crate::ui::chat::stack_tooltip_value(&ItemStack::Present(data.clone())) {
+        Some(value) => crate::ui::chat::item_tooltip_lines(&value, None, advanced),
+        None => Vec::new(),
+    };
+    // The tabs list plain stacks, so a stack with its own components (a
+    // server's named, lored item) is in none of them.
+    if lines.is_empty() || !tab_names || data.component_patch.iter().next().is_some() {
+        return lines;
     }
-    if advanced {
-        lines.push(TooltipLine::new(
-            format!("minecraft:{}", item_resource_name(kind)),
-            TOOLTIP_ADVANCED_COLOR,
-        ));
-        lines.push(TooltipLine::new(
-            format!("{} component(s)", total_component_count(data)),
-            TOOLTIP_ADVANCED_COLOR,
-        ));
+    for (i, &title) in tabs_containing(data.kind).iter().enumerate() {
+        lines.insert(
+            1 + i,
+            TooltipLine::new(title.to_string(), TOOLTIP_TAB_COLOR),
+        );
     }
     lines
 }
 
-fn push_item_tooltip(elements: &mut Vec<MenuElement>, item: &ItemStack, tt: &TooltipCtx) {
+/// The hovered stack's tooltip; `tab_names` as [`build_item_tooltip_lines`].
+fn push_item_tooltip(
+    elements: &mut Vec<MenuElement>,
+    item: &ItemStack,
+    tt: &TooltipCtx,
+    tab_names: bool,
+) {
     if tt.carrying {
         return;
     }
     if let ItemStack::Present(data) = item {
+        let lines = build_item_tooltip_lines(data, tt.advanced, tab_names);
+        if lines.is_empty() {
+            return;
+        }
         elements.push(MenuElement::TooltipLines {
             x: tt.cursor.0,
             y: tt.cursor.1,
-            lines: build_item_tooltip_lines(data, tt.advanced),
+            lines,
             scale: FONT_SIZE * tt.gs,
             screen_w: tt.screen_w,
             screen_h: tt.screen_h,
@@ -1246,7 +1127,7 @@ fn slot_with_tooltip(
 ) -> Option<SlotHit> {
     let hovered = push_slot(elements, x, y, size, scale, tt.cursor, item, empty_sprite);
     if hovered {
-        push_item_tooltip(elements, item, tt);
+        push_item_tooltip(elements, item, tt, true);
         if let Some(slot) = slot_num {
             let click = if tt.clicked {
                 Some(ClickKind::Left)

@@ -1,0 +1,68 @@
+# The creative screen's tooltips are the stack's own, as in every other
+# screen: a server's bag (a named, lored shulker box whose enchantment glint
+# is hidden) shows its name and lore and no creative tab names; a plain stack
+# in the hotbar lists the tabs it's in under its name.
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/gamemode creative"
+
+[[step]]
+chat = "/clear @s"
+
+[[step]]
+chat = "/give @s minecraft:brown_shulker_box[minecraft:custom_name={text:'Resource Bag',color:'gold',italic:false},minecraft:lore=[{text:'Slots: 3/27',color:'gray',italic:false},{text:'Shift-click to toggle auto-collect',color:'yellow',italic:false}],minecraft:enchantments={'minecraft:luck_of_the_sea':1},minecraft:tooltip_display={hidden_components:['minecraft:enchantments']}]"
+
+[[step]]
+chat = "/give @s minecraft:oak_planks"
+
+[[step]]
+expect = { slot = 36, item = "brown_shulker_box" }
+
+[[step]]
+wait_ms = 11000
+
+[[step]]
+open_inventory = true
+
+[[step]]
+hover = { slot = 36 }
+
+[[step]]
+wait_ms = 300
+
+[[step]]
+screenshot = "bag"
+
+[[step]]
+hover = { slot = 37 }
+
+[[step]]
+wait_ms = 300
+
+[[step]]
+screenshot = "plain"
+
+# A visible enchantment, named from the server's registry.
+[[step]]
+close_menu = true
+
+[[step]]
+chat = "/give @s minecraft:diamond_sword[minecraft:enchantments={'minecraft:sharpness':3,'minecraft:looting':2}]"
+
+[[step]]
+open_inventory = true
+
+[[step]]
+hover = { slot = 38 }
+
+[[step]]
+wait_ms = 300
+
+[[step]]
+screenshot = "enchanted"
