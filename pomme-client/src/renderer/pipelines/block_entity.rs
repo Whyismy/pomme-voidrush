@@ -27,6 +27,9 @@ pub struct BlockEntityRenderInfo {
     pub lid_open: f32,
     /// Vanilla `BlockEntityRenderState.lightCoords`.
     pub light: LightLevels,
+    /// A ringing bell's `BellRenderState`: ticks since it was struck
+    /// (partial included) and the struck side's `Direction` 3D data value.
+    pub bell_shake: Option<(f32, u8)>,
 }
 
 struct TextureSlot {
@@ -119,6 +122,8 @@ const TRAPPED_CHEST_TEXTURES: &[&[&str]] = chest_textures!("trapped");
 
 const ENDER_CHEST_TEXTURES: &[&[&str]] = &[&["minecraft/textures/entity/chest/ender.png"]];
 
+const BELL_TEXTURES: &[&[&str]] = &[&["minecraft/textures/entity/bell/bell_body.png"]];
+
 const SHULKER_TEXTURES: &[&[&str]] = &[
     &["minecraft/textures/entity/shulker/shulker_white.png"],
     &["minecraft/textures/entity/shulker/shulker_orange.png"],
@@ -167,6 +172,26 @@ fn lid_anim(kind: BlockEntityKind, openness: f32) -> PartAnim {
             ..Default::default()
         },
         _ => PartAnim::default(),
+    }
+}
+
+/// Vanilla `BellModel.setupAnim`: the struck bell swings away from the
+/// side it was hit on, less and less over its 50 ticks.
+fn bell_anim(shake: Option<(f32, u8)>) -> PartAnim {
+    let Some((ticks, direction)) = shake else {
+        return PartAnim::default();
+    };
+    let swing = (ticks / std::f32::consts::PI).sin() / (4.0 + ticks / 3.0);
+    let (x_rot, z_rot) = match direction {
+        2 => (-swing, 0.0), // north
+        3 => (swing, 0.0),  // south
+        5 => (0.0, -swing), // east
+        4 => (0.0, swing),  // west
+        _ => (0.0, 0.0),
+    };
+    PartAnim {
+        rotation: vec![(0, glam::Vec3::new(x_rot, 0.0, z_rot))],
+        ..Default::default()
     }
 }
 
@@ -297,6 +322,12 @@ fn kind_definitions() -> Vec<KindDef> {
             models: vec![block_entity_model::bake_shulker_box_model()],
             tex_variants: SHULKER_TEXTURES,
             tex_size: 64,
+        },
+        KindDef {
+            kind: BlockEntityKind::Bell,
+            models: vec![block_entity_model::bake_bell_model()],
+            tex_variants: BELL_TEXTURES,
+            tex_size: 32,
         },
         KindDef {
             kind: BlockEntityKind::Sign,
@@ -473,7 +504,11 @@ impl BlockEntityPipeline {
                 }
             };
 
-            let anim = lid_anim(info.kind, info.lid_open);
+            let anim = if info.kind == BlockEntityKind::Bell {
+                bell_anim(info.bell_shake)
+            } else {
+                lid_anim(info.kind, info.lid_open)
+            };
             let part_transforms = model.compute_part_transforms(&anim);
             for (i, (start, count)) in model.part_ranges.iter().enumerate() {
                 if *count == 0 {

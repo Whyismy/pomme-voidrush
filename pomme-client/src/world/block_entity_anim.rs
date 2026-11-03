@@ -34,9 +34,28 @@ impl ContainerAnim {
     }
 }
 
+/// A struck bell (vanilla `BellBlockEntity.shaking`): its ticks since the
+/// strike and the struck side's `Direction` 3D data value.
+#[derive(Clone, Copy)]
+pub struct BellAnim {
+    pub ticks: i32,
+    pub direction: u8,
+}
+
+impl BellAnim {
+    /// `BellBlockEntity.tick` stops the shake at 50 ticks.
+    const DURATION: i32 = 50;
+
+    /// `BellRenderer.extractRenderState`'s `ticks + partialTicks`.
+    pub fn shake(&self, partial_tick: f32) -> (f32, u8) {
+        (self.ticks as f32 + partial_tick, self.direction)
+    }
+}
+
 #[derive(Default)]
 pub struct BlockEntityAnimStore {
     containers: HashMap<BlockPos, ContainerAnim>,
+    bells: HashMap<BlockPos, BellAnim>,
     /// Blocks pistons are moving, simulated client-side as in vanilla.
     pub pistons: crate::world::piston::MovingPistons,
 }
@@ -49,6 +68,26 @@ impl BlockEntityAnimStore {
             // keep the final closing tick so it still lerps to zero.
             anim.opening || anim.openness > 0.0 || anim.prev_openness > 0.0
         });
+        self.bells.retain(|_, bell| {
+            bell.ticks += 1;
+            bell.ticks < BellAnim::DURATION
+        });
+    }
+
+    /// Vanilla `BellBlockEntity.triggerEvent(1, direction)`: the bell starts
+    /// its shake over.
+    pub fn ring_bell(&mut self, pos: BlockPos, direction: u8) {
+        self.bells.insert(
+            pos,
+            BellAnim {
+                ticks: 0,
+                direction,
+            },
+        );
+    }
+
+    pub fn bell(&self, pos: &BlockPos) -> Option<&BellAnim> {
+        self.bells.get(pos)
     }
 
     /// Set the open-viewer count for a container. >0 starts opening, 0 starts
@@ -64,6 +103,8 @@ impl BlockEntityAnimStore {
 
     pub fn drop_chunk(&mut self, chunk_x: i32, chunk_z: i32) {
         self.containers
+            .retain(|p, _| p.x.div_euclid(16) != chunk_x || p.z.div_euclid(16) != chunk_z);
+        self.bells
             .retain(|p, _| p.x.div_euclid(16) != chunk_x || p.z.div_euclid(16) != chunk_z);
         self.pistons.drop_chunk(chunk_x, chunk_z);
     }

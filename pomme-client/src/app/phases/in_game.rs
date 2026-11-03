@@ -4296,14 +4296,18 @@ pub fn update_game(
                 let (radius, strength) = crate::entity::shadow::of_living(e);
 
                 let name = || scoreboard_name(&game.tab_list, e.uuid, e.player_uuid);
+                let seen = visibility(e.is_invisible, &name);
+                // `ArmorStandRenderer.getRenderType`: a hidden marker has no
+                // render type, so not even its glowing outline draws.
+                let drawn = !(e.is_armor_stand_marker() && seen == Visibility::Hidden);
                 EntityRenderInfo {
                     position: interp_pos + extras.render_offset,
                     outline_color: outline(
-                        e.is_glowing,
+                        e.is_glowing && drawn,
                         e.entity_type == EntityKind::Player,
                         &name,
                     ),
-                    visibility: visibility(e.is_invisible, &name),
+                    visibility: seen,
                     head_only: false,
                     armor_stand_pose: e.armor_stand_pose,
                     pack_shadow: if game.riding_vehicle_id == Some(entity_id) {
@@ -4899,6 +4903,10 @@ pub fn update_game(
                     variant,
                     lid_open,
                     light,
+                    bell_shake: game
+                        .block_entity_anim
+                        .bell(pos)
+                        .map(|bell| bell.shake(partial_tick)),
                 })
             })
             .collect()
@@ -6156,17 +6164,47 @@ fn add_entity_flames(
     let camera = renderer.camera_render_position();
     let anchor = renderer.camera_anchor();
     let full_bright = LightLevels::new(15, 15).lane();
-    for e in game.entity_store.living.values() {
-        if !e.is_on_fire || e.is_invisible || fire_immune(e.entity_type) {
-            continue;
-        }
-        let dims = crate::entity::living_entity_dimensions(e);
-        let scale = dims.width * 1.4;
-        let feet = *e.prev_position.lerp(e.position, partial_tick as f64);
+    // Vanilla `Entity.displayFireAnimation`: on fire and not a spectator,
+    // invisible or not; the local player too while the camera shows it.
+    let first_person = renderer.is_first_person();
+    let living = game
+        .entity_store
+        .living
+        .iter()
+        .filter(|&(&id, e)| {
+            e.is_on_fire
+                && !fire_immune(e.entity_type)
+                && !(first_person && game.camera_entity == Some(id))
+        })
+        .map(|(_, e)| {
+            let dims = crate::entity::living_entity_dimensions(e);
+            (
+                *e.prev_position.lerp(e.position, partial_tick as f64),
+                dims.width,
+                dims.height,
+            )
+        });
+    let local = (game.player.on_fire
+        && !first_person
+        && game.camera_entity.is_none()
+        && !crate::player::is_spectator(game.player.game_mode))
+    .then(|| {
+        (
+            *game
+                .player
+                .prev_position
+                .lerp(game.player.position, partial_tick as f64),
+            // `EntityType.PLAYER`'s 0.6 width.
+            0.6,
+            game.player.height() as f32,
+        )
+    });
+    for (feet, width, height) in living.chain(local) {
+        let scale = width * 1.4;
         let mut toward = camera - feet;
         toward.y = 0.0;
         let toward = toward.try_normalize().unwrap_or(glam::DVec3::Z);
-        let mut left = dims.height / scale;
+        let mut left = height / scale;
         let (mut bottom, mut half_width, mut depth) = (0.0f32, 0.5f32, 0.3 - left.floor() * 0.02);
         let mut i = 0;
         while left > 0.0 {

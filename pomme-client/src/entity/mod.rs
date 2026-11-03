@@ -1036,6 +1036,20 @@ pub(crate) fn living_entity_dimensions(entity: &LivingEntity) -> EntityDimension
         dims.height = player_pose_height(entity.pose, entity.is_crouching);
     }
     dims.height *= entity.stand_height_scale();
+    // `ArmorStand.getDefaultDimensions`: a marker has no box, a small stand
+    // half of one.
+    if entity.entity_type == EntityKind::ArmorStand {
+        if entity.is_armor_stand_marker() {
+            return EntityDimensions {
+                width: 0.0,
+                height: 0.0,
+            };
+        }
+        if entity.armor_stand_flags & 0x01 != 0 {
+            dims.width *= 0.5;
+            dims.height *= 0.5;
+        }
+    }
     // `LivingEntity.getDimensions`: the whole box at the `scale` attribute.
     let scale = entity_scale(entity);
     dims.width *= scale;
@@ -1374,6 +1388,12 @@ impl LivingEntity {
     /// `PolarBear.getDefaultDimensions`' height stretch while standing. Its
     /// `tick` refreshes the dimensions before stepping the stand counter, so
     /// they hold the previous value.
+    /// `ArmorStand.isMarker` (`DATA_CLIENT_FLAGS` bit 0x10): no box, and
+    /// never picked by the crosshair.
+    pub fn is_armor_stand_marker(&self) -> bool {
+        self.entity_type == EntityKind::ArmorStand && self.armor_stand_flags & 0x10 != 0
+    }
+
     fn stand_height_scale(&self) -> f32 {
         if self.entity_type == EntityKind::PolarBear {
             1.0 + self.prev_stand_anim / 6.0

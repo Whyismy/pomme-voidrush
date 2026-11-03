@@ -163,6 +163,54 @@ fn bake_chest_layer(
     BakedEntityModel::new(parts, vertices, part_ranges).with_convention(ModelConvention::BlockYUp)
 }
 
+/// Vanilla `BellModel`: the bell's body hanging in its frame (the frame is
+/// the block's own model), its lip a child that swings with it. Texture is
+/// 32x32 `entity/bell/bell_body.png`.
+pub fn bake_bell_model() -> BakedEntityModel {
+    // (name, pivot, parent, cube origin, cube size, texture offset)
+    let cubes = [
+        (
+            "bell_body",
+            Vec3::new(8.0, 12.0, 8.0),
+            None,
+            Vec3::new(-3.0, -6.0, -3.0),
+            Vec3::new(6.0, 7.0, 6.0),
+            (0, 0),
+        ),
+        (
+            "bell_base",
+            Vec3::new(-8.0, -12.0, -8.0),
+            Some(0),
+            Vec3::new(4.0, 4.0, 4.0),
+            Vec3::new(8.0, 2.0, 8.0),
+            (0, 13),
+        ),
+    ];
+    let mut vertices = Vec::new();
+    let mut part_ranges = Vec::new();
+    let mut parts = Vec::new();
+    for (name, offset, parent, origin, size, tex_offset) in cubes {
+        let start = vertices.len() as u32;
+        let cube = ModelCube {
+            origin,
+            size,
+            tex_offset,
+            deformation: 0.0,
+            mirror: false,
+        };
+        generate_cube_vertices(&cube, 32, 32, FACE_ALL, false, &mut vertices);
+        part_ranges.push((start, vertices.len() as u32 - start));
+        parts.push(EntityPart {
+            name: name.into(),
+            offset,
+            default_rotation: Vec3::ZERO,
+            cubes: Vec::new(),
+            parent,
+        });
+    }
+    BakedEntityModel::new(parts, vertices, part_ranges).with_convention(ModelConvention::BlockYUp)
+}
+
 /// Chest models in variant order [single, double-left, double-right], from
 /// vanilla `ChestModel::createSingleBodyLayer` / `createDoubleBodyLeftLayer` /
 /// `createDoubleBodyRightLayer`.

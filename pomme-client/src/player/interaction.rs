@@ -1657,6 +1657,7 @@ fn opens_menu(id: &str) -> bool {
             | "ender_chest"
             | "barrel"
     ) || id.ends_with("shulker_box")
+        || id.ends_with("copper_chest")
         || id.ends_with("anvil")
 }
 
@@ -2055,11 +2056,16 @@ fn nearest_entity_hit(
     entities: &EntityStore,
     pickables: &[Pickable],
 ) -> Option<EntityHitResult> {
-    let living = entities.living.iter().map(|(&id, entity)| {
-        let dims = living_entity_dimensions(entity);
-        let position: DVec3 = entity.position.into();
-        (id, dims.make_bounding_box(position), position, true)
-    });
+    // `ArmorStand.isPickable`: never a marker.
+    let living = entities
+        .living
+        .iter()
+        .filter(|(_, entity)| !entity.is_armor_stand_marker())
+        .map(|(&id, entity)| {
+            let dims = living_entity_dimensions(entity);
+            let position: DVec3 = entity.position.into();
+            (id, dims.make_bounding_box(position), position, true)
+        });
     let others = pickables
         .iter()
         .map(|p| (p.id, p.aabb, p.position, p.swing_on_use));

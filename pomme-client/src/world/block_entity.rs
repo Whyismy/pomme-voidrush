@@ -31,7 +31,13 @@ pub fn rendered_kind(name: &str) -> Option<BlockEntityKind> {
     }
 }
 
-/// Kinds [`rendered_kind`] synthesizes entries for; used to detect entries
+/// Blocks that get a client entry from their state alone: [`rendered_kind`]'s,
+/// and the bell, whose body the pipeline draws over its frame's block model.
+fn synthesized_kind(name: &str) -> Option<BlockEntityKind> {
+    rendered_kind(name).or_else(|| (name == "bell").then_some(BlockEntityKind::Bell))
+}
+
+/// Kinds [`synthesized_kind`] synthesizes entries for; used to detect entries
 /// gone stale when the block at their position stops mapping to them.
 fn is_rendered(kind: BlockEntityKind) -> bool {
     matches!(
@@ -40,6 +46,7 @@ fn is_rendered(kind: BlockEntityKind) -> bool {
             | BlockEntityKind::TrappedChest
             | BlockEntityKind::EnderChest
             | BlockEntityKind::ShulkerBox
+            | BlockEntityKind::Bell
     )
 }
 
@@ -54,7 +61,7 @@ pub fn sync_block_entity(
     block_state_data: &BlockStateData,
 ) {
     let id = block_state_data.id();
-    if let Some(kind) = rendered_kind(id) {
+    if let Some(kind) = synthesized_kind(id) {
         if map.get(&pos).is_none_or(|e| e.kind != kind) {
             map.insert(
                 pos,

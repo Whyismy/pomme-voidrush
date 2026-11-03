@@ -2529,6 +2529,10 @@ impl AppCore {
                         for (pos, state) in std::mem::take(&mut level.destroyed) {
                             block_break_effect(&self.audio, game, pos, state);
                         }
+                    } else if action_id == 1
+                        && game.block_registry.block_state_data(state).id() == "bell"
+                    {
+                        game.block_entity_anim.ring_bell(pos, action_parameter);
                     } else if action_id == 1 {
                         // Chest/shulker: the open-viewer count.
                         game.block_entity_anim.set_open_count(pos, action_parameter);
