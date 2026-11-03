@@ -243,7 +243,19 @@ pub struct RenderTimings {
 /// A block display's item-pipeline mesh key and tint palette.
 type BlockDisplayMesh = (Arc<str>, Arc<[u32]>);
 
+/// Between a player-head icon's model key and its skin's key: the icon
+/// draws that skin (`player_head~skin:<uuid>`).
+const HEAD_SKIN_MARK: &str = "~skin:";
+
+/// The mesh a player-head model `base` draws its skins with.
+fn head_skin_mesh(base: &str) -> String {
+    format!("{base}~skin")
+}
+
 pub struct Renderer {
+    /// Player-head skins the GUI wanted this frame and doesn't have yet,
+    /// for the app to fetch ([`Self::take_wanted_head_skins`]).
+    wanted_head_skins: Vec<(uuid::Uuid, pomme_protocol::entity_data::Profile)>,
     ctx: rhi::backend::Context,
     swapchain: rhi::backend::Swapchain,
     camera: Camera,
@@ -619,6 +631,7 @@ impl Renderer {
             particle_pipeline,
             cloud_pipeline,
             gui_item_pipeline,
+            wanted_head_skins: Vec::new(),
             gui_item_atlas,
             font_options,
             pending_reload: None,
@@ -1923,6 +1936,36 @@ impl Renderer {
         self.item_entity_pipeline.mesh_info(name)
     }
 
+    /// Player-head skins the GUI asked for since the last call.
+    pub fn take_wanted_head_skins(
+        &mut self,
+    ) -> Vec<(uuid::Uuid, pomme_protocol::entity_data::Profile)> {
+        std::mem::take(&mut self.wanted_head_skins)
+    }
+
+    /// A player-head model `base`'s mesh in its skin's own space, drawn
+    /// with each stack's skin in place of the atlas.
+    fn ensure_head_skin_mesh(&mut self, base: &str) {
+        let name = head_skin_mesh(base);
+        if self.item_entity_pipeline.mesh_info(&name).is_some() {
+            return;
+        }
+        let Some(model) = self.render_assets.get_item_model(base) else {
+            return;
+        };
+        let head = crate::world::block::model::TextureId::intern(
+            crate::world::block::model::PLAYER_HEAD_TEXTURE,
+        );
+        let mut model = model.clone();
+        model.quads.retain(|quad| quad.texture == head);
+        self.item_entity_pipeline.ensure_mesh(
+            &self.ctx.device,
+            &name,
+            &model,
+            &crate::renderer::chunk::atlas::AtlasUVMap::whole_texture(),
+        );
+    }
+
     pub fn ensure_item_mesh(&mut self, name: &str) -> pipelines::item_entity::ItemMeshInfo {
         if let Some(info) = self.item_entity_pipeline.mesh_info(name) {
             return info;
@@ -2328,6 +2371,20 @@ impl Renderer {
                         item_stack.as_ref(),
                         owner_team_color,
                     );
+                    // `PlayerHeadSpecialRenderer`: a head with a profile
+                    // draws its skin once it's here.
+                    if self.render_assets.is_player_head_model(item_name)
+                        && let Some(profile) = item_stack
+                            .as_ref()
+                            .and_then(crate::entity::heads::stack_profile)
+                    {
+                        let key = crate::entity::heads::skin_key(&profile);
+                        if self.entity_renderer.player_skin_set(&key).is_some() {
+                            *item_name = format!("{item_name}{HEAD_SKIN_MARK}{key}");
+                        } else if !self.wanted_head_skins.iter().any(|(k, _)| *k == key) {
+                            self.wanted_head_skins.push((key, profile));
+                        }
+                    }
                     add_item(item_name, item_tints);
                 }
                 // Vanilla `ClientBundleTooltip` draws its contents with the
@@ -2378,11 +2435,20 @@ impl Renderer {
                 .set_atlas_px(self.gui_item_atlas.atlas_px());
         }
 
+        // A player head's icon draws its head in skin space.
+        let head_meshes: Vec<String> = unique_items
+            .values()
+            .filter_map(|(name, _)| name.split_once(HEAD_SKIN_MARK))
+            .map(|(base, _)| base.to_owned())
+            .collect();
+        for base in head_meshes {
+            self.ensure_head_skin_mesh(&base);
+        }
         // A banner stack's icon draws a mesh built for its pattern layers.
         let banner_stacks: Vec<String> = unique_items
             .values()
             .map(|(name, _)| name)
-            .filter(|name| name.contains('~'))
+            .filter(|name| name.contains('~') && !name.contains(HEAD_SKIN_MARK))
             .cloned()
             .collect();
         for name in banner_stacks {
@@ -2439,6 +2505,26 @@ impl Renderer {
                 }
                 bake.set_scissor_rect(self.gui_item_atlas.scissor_rect(&job.slot));
                 let (sx, sy) = self.gui_item_atlas.slot_origin_pixels(&job.slot);
+                if let Some((base, key)) = job.name.split_once(HEAD_SKIN_MARK) {
+                    let skin = key
+                        .parse::<uuid::Uuid>()
+                        .ok()
+                        .and_then(|key| self.entity_renderer.player_skin_set(&key));
+                    if let Some(skin) = skin {
+                        self.gui_item_pipeline.bake_to_slot_with_texture(
+                            &bake,
+                            frame,
+                            &self.item_entity_pipeline,
+                            sx,
+                            sy,
+                            self.gui_item_atlas.slot_px(),
+                            &head_skin_mesh(base),
+                            job.display,
+                            skin,
+                        );
+                    }
+                    continue;
+                }
                 self.gui_item_pipeline.bake_to_slot(
                     &bake,
                     frame,

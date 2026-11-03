@@ -79,6 +79,22 @@ impl AtlasUVMap {
         }
     }
 
+    /// A map that puts every texture across the whole of one texture, for a
+    /// mesh drawn with a texture of its own (a player head's skin).
+    pub fn whole_texture() -> Self {
+        let whole = AtlasRegion {
+            u_min: 0.0,
+            v_min: 0.0,
+            u_max: 1.0,
+            v_max: 1.0,
+            pixel_rect: [0, 0, 64, 64],
+            sprite: 0,
+            opaque: false,
+            translucent: false,
+        };
+        Self::new(HashMap::new(), HashMap::new(), Vec::new(), whole)
+    }
+
     pub fn get_region(&self, name: &str) -> AtlasRegion {
         self.regions.get(name).copied().unwrap_or(self.missing)
     }

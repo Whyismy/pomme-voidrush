@@ -110,6 +110,9 @@ pub struct BlockRenderAssets {
     /// Item models with a banner's flag, which take a stack's patterns
     /// ([`crate::banner`]).
     banner_models: std::collections::HashSet<String>,
+    /// Item models drawn as a player head, whose stacks draw their own skin
+    /// in the GUI.
+    player_head_models: std::collections::HashSet<String>,
     /// Every banner pattern texture in the jar and the packs, for the atlas
     /// (stacks name them, no model does).
     banner_pattern_textures: Vec<String>,
@@ -230,6 +233,12 @@ impl BlockRenderAssets {
             .map(|(key, _)| key.clone())
             .collect();
         let banner_pattern_textures = banner_pattern_textures(jar_assets_dir, packs);
+        let player_head = model::TextureId::intern(model::PLAYER_HEAD_TEXTURE);
+        let player_head_models = item_models
+            .iter()
+            .filter(|(_, model)| model.quads.iter().any(|quad| quad.texture == player_head))
+            .map(|(key, _)| key.clone())
+            .collect();
 
         Self {
             textures,
@@ -244,6 +253,7 @@ impl BlockRenderAssets {
             item_display_transforms,
             item_tint_sources,
             banner_models,
+            player_head_models,
             banner_pattern_textures,
         }
     }
@@ -265,6 +275,10 @@ impl BlockRenderAssets {
     /// `CustomModelDataProperty` and `Charge` selects), if one is baked.
     /// The model `key` draws in the GUI: its GUI variant where its
     /// definition has one ([`model::gui_model_key`]), else itself.
+    pub fn is_player_head_model(&self, key: &str) -> bool {
+        self.player_head_models.contains(key)
+    }
+
     pub fn gui_model_key(&self, key: &str) -> String {
         let (key, layers) = key.split_at(key.find('~').unwrap_or(key.len()));
         let gui = model::gui_model_key(key);

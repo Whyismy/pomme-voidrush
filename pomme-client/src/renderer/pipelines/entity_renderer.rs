@@ -3119,6 +3119,11 @@ impl EntityRenderer {
         );
     }
 
+    /// The texture group of the skin kept under `uuid`, once it's loaded.
+    pub fn player_skin_set(&self, uuid: &uuid::Uuid) -> Option<rhi::backend::BindGroup> {
+        self.player_skins.get(uuid).map(|skin| skin.set)
+    }
+
     pub fn remove_player_skin(&mut self, device: &rhi::backend::Device, uuid: &uuid::Uuid) {
         if let Some(skin) = self.player_skins.remove(uuid) {
             free_player_skin_texture(device, skin);

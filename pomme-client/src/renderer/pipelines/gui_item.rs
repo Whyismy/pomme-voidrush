@@ -124,6 +124,36 @@ impl GuiItemPipeline {
         pass.draw(vertex_count, 1, 0, instance);
     }
 
+    /// [`Self::bake_to_slot`] sampling `texture` (a texture group in the
+    /// atlas's layout) in place of the atlas.
+    #[allow(clippy::too_many_arguments)]
+    pub fn bake_to_slot_with_texture(
+        &mut self,
+        pass: &rhi::backend::RenderPassEncoder,
+        frame: usize,
+        item_entity: &ItemEntityPipeline,
+        slot_x_px: u32,
+        slot_y_px: u32,
+        slot_size_px: u32,
+        item_name: &str,
+        display: DisplayTransform,
+        texture: rhi::backend::BindGroup,
+    ) {
+        pass.set_bind_group(1, texture);
+        self.bake_to_slot(
+            pass,
+            frame,
+            item_entity,
+            slot_x_px,
+            slot_y_px,
+            slot_size_px,
+            item_name,
+            display,
+            &[],
+        );
+        pass.set_bind_group(1, self.shared.atlas_set());
+    }
+
     pub fn destroy(&mut self, device: &rhi::backend::Device) {
         self.pipeline.destroy(device);
         self.shared.destroy(device);

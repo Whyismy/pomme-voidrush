@@ -1,0 +1,51 @@
+# Heads and skulls in the inventory (vanilla's `head` and `player_head`
+# special item models): each mob's skull in its texture, a player head
+# without a profile as Steve, and one with a profile in its own skin.
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/gamemode survival"
+
+[[step]]
+chat = "/clear @s"
+
+[[step]]
+chat = "/give @s skeleton_skull"
+
+[[step]]
+chat = "/give @s wither_skeleton_skull"
+
+[[step]]
+chat = "/give @s zombie_head"
+
+[[step]]
+chat = "/give @s creeper_head"
+
+[[step]]
+chat = "/give @s piglin_head"
+
+[[step]]
+chat = "/give @s dragon_head"
+
+[[step]]
+chat = "/give @s player_head"
+
+[[step]]
+chat = "/give @s player_head[profile={properties:[{name:\"textures\",value:\"eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvMjkyMDA5YTQ5MjViNThmMDJjNzdkYWRjM2VjZWYwN2VhNGM3NDcyZjY0ZTBmZGMzMmNlNTUyMjQ4OTM2MjY4MCJ9fX0=\"}]}]"
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+open_inventory = true
+
+[[step]]
+wait_ms = 11000
+
+[[step]]
+screenshot = "inventory"

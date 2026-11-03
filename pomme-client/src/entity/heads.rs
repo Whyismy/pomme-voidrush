@@ -31,6 +31,11 @@ pub fn item_profile(stack: &ItemStack) -> Option<Profile> {
     let ItemStack::Present(data) = stack else {
         return None;
     };
+    stack_profile(data)
+}
+
+/// [`item_profile`] for a present stack.
+pub fn stack_profile(data: &azalea_inventory::ItemStackData) -> Option<Profile> {
     if data.kind != azalea_registry::builtin::ItemKind::PlayerHead {
         return None;
     }

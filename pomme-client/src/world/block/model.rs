@@ -1030,6 +1030,7 @@ pub fn bake_item_models(
                         SpecialModel::Banner { .. } => {
                             (exported_data::STANDING_BANNER, banner_texture.to_owned())
                         }
+                        SpecialModel::Head { kind, texture } => (kind.layer(), texture.clone()),
                     };
                     let mut baked = bake_exported_item(layer, &texture);
                     // `BannerRenderer.renderPatterns`: the flag, then the base
@@ -1314,6 +1315,69 @@ enum SpecialModel {
     Banner {
         color: u32,
     },
+    /// `SkullSpecialRenderer` and `PlayerHeadSpecialRenderer`: a head or
+    /// skull in its texture (`entity/...`); a player head's stack draws its
+    /// own skin in the GUI ([`PLAYER_HEAD_TEXTURE`] marks the model).
+    Head {
+        kind: HeadKind,
+        texture: String,
+    },
+}
+
+/// The default skin a player head draws (vanilla `DefaultPlayerSkin`), and
+/// the texture that marks a player-head item model.
+pub const PLAYER_HEAD_TEXTURE: &str = "entity/player/wide/steve";
+
+/// Vanilla `SkullBlock.Types`, each with its model layer and texture
+/// (`SkullBlockRenderer.SKIN_BY_TYPE`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum HeadKind {
+    Skeleton,
+    WitherSkeleton,
+    Zombie,
+    Creeper,
+    Piglin,
+    Dragon,
+    Player,
+}
+
+impl HeadKind {
+    fn of(name: &str) -> Option<Self> {
+        Some(match strip_mc_prefix(name) {
+            "skeleton" => Self::Skeleton,
+            "wither_skeleton" => Self::WitherSkeleton,
+            "zombie" => Self::Zombie,
+            "creeper" => Self::Creeper,
+            "piglin" => Self::Piglin,
+            "dragon" => Self::Dragon,
+            "player" => Self::Player,
+            _ => return None,
+        })
+    }
+
+    fn layer(self) -> &'static [crate::renderer::entity_model::exported::ExportedPart] {
+        match self {
+            Self::Skeleton => exported_data::SKELETON_SKULL,
+            Self::WitherSkeleton => exported_data::WITHER_SKELETON_SKULL,
+            Self::Zombie => exported_data::ZOMBIE_HEAD,
+            Self::Creeper => exported_data::CREEPER_HEAD,
+            Self::Piglin => exported_data::PIGLIN_HEAD,
+            Self::Dragon => exported_data::DRAGON_SKULL,
+            Self::Player => exported_data::PLAYER_HEAD,
+        }
+    }
+
+    fn texture(self) -> &'static str {
+        match self {
+            Self::Skeleton => "entity/skeleton/skeleton",
+            Self::WitherSkeleton => "entity/skeleton/wither_skeleton",
+            Self::Zombie => "entity/zombie/zombie",
+            Self::Creeper => "entity/creeper/creeper",
+            Self::Piglin => "entity/piglin/piglin",
+            Self::Dragon => "entity/enderdragon/dragon",
+            Self::Player => PLAYER_HEAD_TEXTURE,
+        }
+    }
 }
 
 /// The banner pattern every flag draws first, in the banner's base colour;
@@ -1327,6 +1391,20 @@ impl SpecialModel {
             "shield" => Some(Self::Shield),
             "trident" => Some(Self::Trident),
             "conduit" => Some(Self::Conduit),
+            "player_head" => Some(Self::Head {
+                kind: HeadKind::Player,
+                texture: PLAYER_HEAD_TEXTURE.into(),
+            }),
+            "head" => {
+                let kind = HeadKind::of(model.get("kind")?.as_str()?)?;
+                // `SkullSpecialRenderer.Unbaked`'s texture override, under
+                // `textures/entity/`.
+                let texture = match model.get("texture").and_then(serde_json::Value::as_str) {
+                    Some(path) => format!("entity/{}", strip_mc_prefix(path)),
+                    None => kind.texture().to_owned(),
+                };
+                Some(Self::Head { kind, texture })
+            }
             "banner" => Some(Self::Banner {
                 color: crate::banner::dye_rgb_named(
                     model
@@ -1368,6 +1446,11 @@ impl SpecialModel {
                 Mat4::from_translation(Vec3::new(0.5, 1.4995, 0.5))
                     * flip
                     * Mat4::from_scale(Vec3::splat(0.9995))
+            }
+            // `SkullBlockRenderer.renderSkull` with no facing.
+            Self::Head { .. } => {
+                Mat4::from_translation(Vec3::new(0.5, 0.0, 0.5))
+                    * Mat4::from_scale(Vec3::new(-1.0, -1.0, 1.0))
             }
         }
     }

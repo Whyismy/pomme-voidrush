@@ -353,6 +353,10 @@ impl ItemPipelineShared {
         );
     }
 
+    pub(super) fn atlas_set(&self) -> rhi::backend::BindGroup {
+        self.atlas_set
+    }
+
     pub(super) fn rebind_atlas(&mut self, device: &rhi::backend::Device, atlas: &TextureAtlas) {
         self.atlas_set.replace(
             device,

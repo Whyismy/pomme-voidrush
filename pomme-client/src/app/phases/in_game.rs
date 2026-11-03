@@ -4778,6 +4778,9 @@ pub fn update_game(
         )
     };
 
+    for (key, profile) in gfx.renderer.take_wanted_head_skins() {
+        core.queue_profile_skin(key, &profile);
+    }
     let display_start = Instant::now();
     let DisplayRenders {
         items: display_items,
