@@ -12,6 +12,10 @@
   </p>
 </p>
 
+> **VoidPomme** is Void Rush's fork of Pomme, by Whyismy. Its changes are GPL-3.0 with an
+> attribution term: forks must keep the credit "Based on VoidPomme by Whyismy". See
+> [NOTICE-VOIDPOMME.md](NOTICE-VOIDPOMME.md).
+
 ---
 
 Pomme contains no Mojang code, and joins vanilla servers from 1.20 through 26.3.
