@@ -289,6 +289,10 @@ pub struct Renderer {
     /// Whether first person shows the burning overlay this frame
     /// ([`Self::set_screen_fire`]).
     screen_fire: bool,
+    /// The Bedrock UI sprites' folder once they're on disk, and the packs
+    /// the GUI sprites were last built with, for rebuilding the sprite atlas.
+    bedrock_ui_dir: Option<PathBuf>,
+    sprite_packs: Option<crate::resource_pack::ResourcePackManager>,
     weather_pipeline: WeatherPipeline,
     particle_pipeline: ParticlePipeline,
     cloud_pipeline: CloudPipeline,
@@ -609,6 +613,8 @@ impl Renderer {
             display_assets_generation: 0,
             held_item_pipeline,
             screen_fire: false,
+            bedrock_ui_dir: Some(bedrock_ui_dir.to_path_buf()),
+            sprite_packs: None,
             weather_pipeline,
             particle_pipeline,
             cloud_pipeline,
@@ -1624,10 +1630,12 @@ impl Renderer {
     ) {
         // Whatever was preparing is for an older stack.
         self.pending_reload = None;
+        self.sprite_packs = Some(packs.clone());
         let prepared = prepare_assets(
             packs,
             &self.jar_assets_dir,
             &self.asset_index,
+            self.bedrock_ui_dir.as_deref(),
             font_options,
             self.menu_pipeline.font_layer_limit(),
         );
@@ -1644,8 +1652,10 @@ impl Renderer {
         font_options: FontOptions,
     ) {
         let packs = packs.clone();
+        self.sprite_packs = Some(packs.clone());
         let jar_assets_dir = self.jar_assets_dir.clone();
         let asset_index = self.asset_index.clone();
+        let bedrock_ui_dir = self.bedrock_ui_dir.clone();
         let layer_limit = self.menu_pipeline.font_layer_limit();
         self.pending_reload = std::thread::Builder::new()
             .name("asset-reload".into())
@@ -1654,6 +1664,7 @@ impl Renderer {
                     &packs,
                     &jar_assets_dir,
                     &asset_index,
+                    bedrock_ui_dir.as_deref(),
                     font_options,
                     layer_limit,
                 )
@@ -1702,6 +1713,7 @@ impl Renderer {
             custom_sky,
             celestial,
             armor,
+            sprites,
             fonts,
             font_options,
             item_meshes,
@@ -1741,6 +1753,9 @@ impl Renderer {
         self.entity_renderer
             .apply_armor_assets(&self.ctx.device, armor);
         lap_done("armor");
+        self.menu_pipeline
+            .apply_sprite_atlas(&self.ctx.device, sprites);
+        lap_done("sprites");
         self.font_options = font_options;
         match fonts {
             Ok(fonts) => {
@@ -1812,11 +1827,13 @@ impl Renderer {
         if self.menu_pipeline.has_sprite(SpriteId::BedrockTitle) {
             return;
         }
+        self.bedrock_ui_dir = Some(bedrock_ui_dir.to_path_buf());
         self.menu_pipeline.reload_sprite_atlas(
             &self.ctx.device,
             &self.jar_assets_dir,
             &self.asset_index,
             Some(bedrock_ui_dir),
+            self.sprite_packs.as_ref(),
         );
     }
 
@@ -2901,6 +2918,7 @@ struct PreparedAssets {
     custom_sky: Vec<pipelines::sky::PreparedSkyLayer>,
     celestial: pipelines::sky::PreparedCelestial,
     armor: pipelines::entity_renderer::PreparedArmor,
+    sprites: pipelines::menu_overlay::PreparedSprites,
     fonts: Result<(crate::ui::font::GlyphMap, crate::ui::font::GlyphAtlasPixels), String>,
     font_options: FontOptions,
     item_meshes: Vec<pipelines::item_entity::PreparedItemMesh>,
@@ -2916,6 +2934,7 @@ fn prepare_assets(
     packs: &crate::resource_pack::ResourcePackManager,
     jar_assets_dir: &Path,
     asset_index: &Option<AssetIndex>,
+    bedrock_ui_dir: Option<&Path>,
     font_options: FontOptions,
     font_layer_limit: u32,
 ) -> PreparedAssets {
@@ -2926,6 +2945,14 @@ fn prepare_assets(
             scope.spawn(|| pipelines::sky::prepare_celestial(jar_assets_dir, asset_index, packs));
         let armor = scope.spawn(|| {
             pipelines::entity_renderer::prepare_armor_assets(jar_assets_dir, asset_index, packs)
+        });
+        let sprites = scope.spawn(|| {
+            pipelines::menu_overlay::prepare_sprite_atlas(
+                jar_assets_dir,
+                asset_index,
+                bedrock_ui_dir,
+                Some(packs),
+            )
         });
         let fonts = scope.spawn(|| {
             crate::ui::font::GlyphMap::load(
@@ -2969,6 +2996,7 @@ fn prepare_assets(
                 .join()
                 .expect("preparing the sun and moon panicked"),
             armor: armor.join().expect("preparing the equipment panicked"),
+            sprites: sprites.join().expect("preparing the GUI sprites panicked"),
             fonts: fonts.join().expect("preparing the fonts panicked"),
             render_assets,
             atlas,

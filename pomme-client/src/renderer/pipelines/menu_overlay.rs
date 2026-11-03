@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::assets::{AssetIndex, resolve_asset_path};
+use crate::assets::{AssetIndex, resolve_asset_path, resolve_asset_path_with_packs};
 use crate::renderer::{MAX_FRAMES_IN_FLIGHT, packing, rhi, shader, util};
 use crate::ui::font::{FontSources, GLYPH_ATLAS_SIZE, GlyphAtlasPixels, GlyphInfo, GlyphMap};
 use crate::ui::text::{InlineObject, PREFIX_CODE, TextSpan, font_spans};
@@ -374,6 +374,7 @@ impl MenuGeometry {
             font_sources.jar_assets_dir,
             font_sources.asset_index,
             bedrock_ui_dir,
+            Some(font_sources.packs),
         );
         let (mc_glyph_map, glyphs) = match GlyphMap::load(font_sources, font_layer_limit) {
             Ok((map, pixels)) => (Some(map), Some(pixels)),
@@ -1897,8 +1898,19 @@ impl MenuOverlayPipeline {
         jar_assets_dir: &Path,
         asset_index: &Option<AssetIndex>,
         bedrock_ui_dir: Option<&Path>,
+        packs: Option<&crate::resource_pack::ResourcePackManager>,
     ) {
-        let (atlas, sprites) = build_sprite_atlas(jar_assets_dir, asset_index, bedrock_ui_dir);
+        let prepared = prepare_sprite_atlas(jar_assets_dir, asset_index, bedrock_ui_dir, packs);
+        self.apply_sprite_atlas(device, prepared);
+    }
+
+    /// Swaps in a sprite atlas [`prepare_sprite_atlas`] built.
+    pub(crate) fn apply_sprite_atlas(
+        &mut self,
+        device: &rhi::backend::Device,
+        prepared: PreparedSprites,
+    ) {
+        let PreparedSprites { atlas, sprites } = prepared;
         device.wait_idle();
         std::mem::replace(&mut self.sprite.texture, sprite_texture(device, &sprites))
             .destroy(device);
@@ -3124,11 +3136,58 @@ fn bedrock_nine_slice(dir: &Path, stem: &str) -> f32 {
         .map_or(0.0, |size| size as f32)
 }
 
+/// The GUI sprite atlas, built with no GPU work ([`prepare_sprite_atlas`]).
+pub(crate) struct PreparedSprites {
+    atlas: SpriteAtlas,
+    sprites: AtlasImage,
+}
+
+/// Decodes and packs the GUI sprites, the packs' over the jar's, off the
+/// render thread.
+pub(crate) fn prepare_sprite_atlas(
+    jar_assets_dir: &Path,
+    asset_index: &Option<AssetIndex>,
+    bedrock_ui_dir: Option<&Path>,
+    packs: Option<&crate::resource_pack::ResourcePackManager>,
+) -> PreparedSprites {
+    let (atlas, sprites) = build_sprite_atlas(jar_assets_dir, asset_index, bedrock_ui_dir, packs);
+    PreparedSprites { atlas, sprites }
+}
+
+/// A GUI texture the packs may replace, and how many of its pixels make one
+/// of vanilla's: a pack's art may be finer (Void Rush's is twice the size),
+/// so crops and nine-slice borders, in vanilla's pixels, scale by it.
+fn resolve_gui_texture(
+    jar_assets_dir: &Path,
+    asset_index: &Option<AssetIndex>,
+    packs: Option<&crate::resource_pack::ResourcePackManager>,
+    asset_key: &str,
+) -> (std::path::PathBuf, f32) {
+    let jar = resolve_asset_path(jar_assets_dir, asset_index, asset_key);
+    let path = resolve_asset_path_with_packs(jar_assets_dir, asset_index, asset_key, packs);
+    if path == jar {
+        return (path, 1.0);
+    }
+    let scale = match (
+        image::image_dimensions(&path),
+        image::image_dimensions(&jar),
+    ) {
+        (Ok((width, _)), Ok((jar_width, _))) if jar_width > 0 && width >= jar_width => {
+            width as f32 / jar_width as f32
+        }
+        _ => 1.0,
+    };
+    (path, scale)
+}
+
 fn build_sprite_atlas(
     jar_assets_dir: &Path,
     asset_index: &Option<AssetIndex>,
     bedrock_ui_dir: Option<&Path>,
+    packs: Option<&crate::resource_pack::ResourcePackManager>,
 ) -> (SpriteAtlas, AtlasImage) {
+    // Each pack sprite's scale over vanilla's ([`resolve_gui_texture`]).
+    let mut scales: HashMap<SpriteId, f32> = HashMap::new();
     let sprites: &[(SpriteId, &str, f32)] = &[
         (
             SpriteId::Hotbar,
@@ -4108,12 +4167,13 @@ fn build_sprite_atlas(
         .chain(boss_bar_sprites)
         .chain(heart_sprites)
     {
-        let path = resolve_asset_path(jar_assets_dir, asset_index, &asset_key);
+        let (path, scale) = resolve_gui_texture(jar_assets_dir, asset_index, packs, &asset_key);
         match crate::assets::load_image(&path) {
             Ok(img) => {
                 let rgba = img.to_rgba8();
                 let w = rgba.width();
                 let h = rgba.height();
+                scales.insert(id, scale);
                 images.push((id, rgba.into_raw(), w, h, border));
             }
             Err(e) => {
@@ -4361,11 +4421,14 @@ fn build_sprite_atlas(
             16,
         ),
     ] {
-        let path = resolve_asset_path(jar_assets_dir, asset_index, path);
+        let (path, scale) = resolve_gui_texture(jar_assets_dir, asset_index, packs, path);
         match crate::assets::load_image(&path) {
             Ok(img) => {
                 let rgba = img.to_rgba8();
-                let (src_x, src_y) = src;
+                // The crop is in vanilla's pixels; a finer pack sheet scales it.
+                let scaled = |v: u32| (v as f32 * scale).round() as u32;
+                let (src_x, src_y) = (scaled(src.0), scaled(src.1));
+                let (max_w, max_h) = (scaled(max_w), scaled(max_h));
                 let full_w = rgba.width();
                 let crop_w = max_w.min(full_w.saturating_sub(src_x));
                 let crop_h = max_h.min(rgba.height().saturating_sub(src_y));
@@ -4377,6 +4440,7 @@ fn build_sprite_atlas(
                     cropped[dst_off..dst_off + row_bytes]
                         .copy_from_slice(&rgba.as_raw()[src_off..src_off + row_bytes]);
                 }
+                scales.insert(id, scale);
                 images.push((id, cropped, crop_w, crop_h, 0.0));
             }
             Err(e) => {
@@ -4393,12 +4457,14 @@ fn build_sprite_atlas(
                 let asset_key = format!(
                     "minecraft/textures/gui/sprites/container/creative_inventory/tab_{row_name}_{state_name}_{col}.png"
                 );
-                let path = resolve_asset_path(jar_assets_dir, asset_index, &asset_key);
+                let (path, scale) =
+                    resolve_gui_texture(jar_assets_dir, asset_index, packs, &asset_key);
                 match crate::assets::load_image(&path) {
                     Ok(img) => {
                         let rgba = img.to_rgba8();
                         let w = rgba.width();
                         let h = rgba.height();
+                        scales.insert(id, scale);
                         images.push((id, rgba.into_raw(), w, h, 0.0));
                     }
                     Err(e) => {
@@ -4533,8 +4599,9 @@ fn build_sprite_atlas(
                 v0: y as f32 * inv,
                 u1: (x + w) as f32 * inv,
                 v1: (y + h) as f32 * inv,
-                src_w: *w as f32,
-                src_h: *h as f32,
+                // In vanilla's pixels, which the nine-slice borders are in.
+                src_w: *w as f32 / scales.get(id).copied().unwrap_or(1.0),
+                src_h: *h as f32 / scales.get(id).copied().unwrap_or(1.0),
                 nine_slice_border: *border,
             },
         );
