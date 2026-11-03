@@ -7,8 +7,8 @@
 AppId={{22F91093-7D94-4FA4-9045-1F5CBA3D82D5}
 AppName=Pomme
 AppVersion={#AppVersion}
-AppPublisher=PommeMC
-AppPublisherURL=https://github.com/PommeMC/Client
+AppPublisher=Whyismy
+AppPublisherURL=https://github.com/Whyismy/pomme-voidrush
 DefaultDirName={localappdata}\Programs\Pomme
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest

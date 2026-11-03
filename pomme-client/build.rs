@@ -29,11 +29,15 @@ fn main() {
         println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path");
     }
 
-    // The exe's own icon, for Explorer, the taskbar and shortcuts.
+    // The exe's own icon, for Explorer, the taskbar and shortcuts, and Void Rush's build
+    // details for its Properties tab.
     #[cfg(windows)]
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         winresource::WindowsResource::new()
             .set_icon("assets/icon.ico")
+            .set("CompanyName", "Whyismy")
+            .set("ProductName", "VoidPomme")
+            .set("FileDescription", "VoidPomme")
             .compile()
             .expect("failed to embed the exe icon");
     }
