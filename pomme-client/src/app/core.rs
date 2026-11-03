@@ -3003,8 +3003,13 @@ impl AppCore {
                     }
                     game.display_store.apply_display_data(id, index, value);
                 }
-                NetworkEvent::EntityPose { id, is_crouching } => {
+                NetworkEvent::EntityPose {
+                    id,
+                    is_crouching,
+                    pose,
+                } => {
                     game.entity_store.set_crouching(id, is_crouching);
+                    game.entity_store.set_pose(id, pose);
                 }
                 NetworkEvent::SetCamera { id } => {
                     if id == game.player.entity_id {

@@ -915,6 +915,8 @@ pub struct LivingEntity {
     pub no_ai: bool,
     /// Creeper charged/powered flag — shows the blue aura overlay.
     pub powered: bool,
+    /// `Entity.DATA_POSE`'s id; a player's box follows it.
+    pub pose: u32,
     /// A creeper's fuse (vanilla `Creeper.swell`, ticked on the client from
     /// `DATA_SWELL_DIR` and `DATA_IS_IGNITED`) and last tick's.
     pub creeper_swell: i32,
@@ -965,6 +967,17 @@ pub(crate) fn baby_dimensions(kind: EntityKind, width: f32, height: f32) -> (f32
 /// this, so a wrong height sinks or floats the whole rig.
 // TODO: the other `passengerAttachments` overrides and the horizontal and
 // multi-seat ones (camels, boats, minecarts).
+/// Vanilla `Player.POSES`' heights: gliding, swimming and spin attacks are
+/// 0.6 tall, sneaking 1.5, sleeping and dying 0.2.
+pub fn player_pose_height(pose: u32, crouching: bool) -> f32 {
+    match pose {
+        1 | 3 | 4 => 0.6,
+        2 | 7 => 0.2,
+        _ if crouching || pose == 5 => 1.5,
+        _ => 1.8,
+    }
+}
+
 /// Vanilla `Creeper.maxSwell` (its `Fuse`, which clients don't get).
 pub const CREEPER_MAX_SWELL: i32 = 30;
 
@@ -1009,6 +1022,10 @@ pub(crate) fn living_entity_dimensions(entity: &LivingEntity) -> EntityDimension
     }
     if entity.is_baby {
         (dims.width, dims.height) = baby_dimensions(entity.entity_type, dims.width, dims.height);
+    }
+    // `Player.POSES`: a player's box in each pose.
+    if entity.entity_type == EntityKind::Player {
+        dims.height = player_pose_height(entity.pose, entity.is_crouching);
     }
     dims.height *= entity.stand_height_scale();
     // `LivingEntity.getDimensions`: the whole box at the `scale` attribute.
@@ -1208,6 +1225,7 @@ impl LivingEntity {
             aggressive: false,
             no_ai: false,
             powered: false,
+            pose: 0,
             creeper_swell: 0,
             prev_creeper_swell: 0,
             creeper_swell_dir: -1,
@@ -2292,6 +2310,12 @@ impl EntityStore {
             }
             (EntityKind::GlowSquid, 18, Int(t)) => entity.dark_ticks = t,
             _ => {}
+        }
+    }
+
+    pub fn set_pose(&mut self, id: i32, pose: u32) {
+        if let Some(entity) = self.living.get_mut(&id) {
+            entity.pose = pose;
         }
     }
 

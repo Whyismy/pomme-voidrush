@@ -2663,10 +2663,17 @@ pub fn update_game(
         {
             let living = &game.entity_store.living;
             let positions = &game.entity_positions;
+            // The top of the local player's box in its pose and at its
+            // scale (vanilla seats passengers there).
             let player = (
                 game.player.entity_id,
                 game.player.position,
-                game.player.eye_height,
+                (game.player.height()
+                    * game
+                        .player
+                        .attributes
+                        .value(crate::attribute::AttributeKind::Scale)
+                        .unwrap_or(1.0)) as f32,
             );
             game.display_store
                 .tick(|vehicle| display_seat(vehicle, living, positions, player));
@@ -6359,9 +6366,8 @@ fn display_seat(
     positions: &HashMap<i32, Position>,
     player: (i32, Position, f32),
 ) -> Option<glam::DVec3> {
-    let (player_id, player_position, _) = player;
+    let (player_id, player_position, height) = player;
     if vehicle == player_id {
-        let height = crate::entity::dimensions::EntityDimensions::of(EntityKind::Player).height;
         return Some(*player_position + glam::dvec3(0.0, f64::from(height), 0.0));
     }
     if let Some(entity) = living.get(&vehicle) {

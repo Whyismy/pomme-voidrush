@@ -541,6 +541,8 @@ pub enum NetworkEvent {
     EntityPose {
         id: i32,
         is_crouching: bool,
+        /// `Entity.DATA_POSE`'s id (`Pose`).
+        pose: u32,
     },
     /// Vanilla `handleSetCamera`: view the world from entity `id`, which is
     /// the local player's own id when spectating ends.

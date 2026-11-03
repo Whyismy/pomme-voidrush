@@ -151,6 +151,7 @@ fn send_data_value(
         (6, Value::Pose(pose)) => NetworkEvent::EntityPose {
             id,
             is_crouching: *pose == CROUCHING,
+            pose: *pose,
         },
         // LivingEntity.SLEEPING_POS_ID
         (14, Value::OptionalBlockPos(pos)) => NetworkEvent::EntitySleepingPos {
@@ -359,7 +360,7 @@ mod tests {
             &events[..],
             [
                 NetworkEvent::EntityItemData { id: 7, count: 2, item_name, .. },
-                NetworkEvent::EntityPose { id: 7, is_crouching: true },
+                NetworkEvent::EntityPose { id: 7, is_crouching: true, pose: 5 },
                 NetworkEvent::EntityData { id: 7, index: 0, value: MetaValue::Byte(2) },
             ] if item_name == "stone"
         ));

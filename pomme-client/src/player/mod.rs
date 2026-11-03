@@ -242,6 +242,8 @@ pub struct LocalPlayer {
     pub glowing: bool,
     /// The shared fire flag.
     pub on_fire: bool,
+    /// The shared fall-flying flag (0x80): gliding, as the server says.
+    pub fall_flying: bool,
     /// The shared invisible flag.
     pub invisible: bool,
     /// The physical SWIMMING pose, chosen by `Player.updatePlayerPose`.
@@ -351,6 +353,7 @@ impl LocalPlayer {
             swimming: false,
             glowing: false,
             on_fire: false,
+            fall_flying: false,
             invisible: false,
             swimming_pose: false,
             air_supply: MAX_AIR_SUPPLY,
@@ -468,6 +471,7 @@ impl LocalPlayer {
     // `setSprinting`; this server flag also drives pomme's movement speed.
     pub fn sync_shared_flags(&mut self, flags: u8) {
         self.on_fire = crate::entity::shared_flags_on_fire(flags);
+        self.fall_flying = flags & 0x80 != 0;
         self.sprinting = flags & 0x08 != 0;
         self.swimming = flags & 0x10 != 0;
         self.glowing = crate::entity::shared_flags_glowing(flags);
@@ -534,7 +538,7 @@ impl LocalPlayer {
     }
 
     pub fn height(&self) -> f64 {
-        if self.swimming_pose {
+        if self.swimming_pose || self.fall_flying {
             SWIMMING_HEIGHT
         } else if self.crouching {
             CROUCH_HEIGHT
