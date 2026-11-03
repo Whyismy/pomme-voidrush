@@ -148,6 +148,9 @@ fn water_flow_at(
     vanilla_vec3_normalize(flow)
 }
 
+/// Vanilla `getTicksRequiredToFreeze`.
+pub const FREEZE_TICKS: i32 = 140;
+
 pub struct LocalPlayer {
     pub position: Position,
     pub prev_position: Position,
@@ -166,6 +169,12 @@ pub struct LocalPlayer {
     pub camera_distance: f32,
     pub attributes: AttributeMap,
     pub hurt_time: u8,
+    /// Vanilla `invulnerableTime`: 20 ticks from a hit, while a heal still
+    /// flashes the hearts.
+    pub invulnerable_time: u8,
+    /// `Entity.DATA_TICKS_FROZEN`: powder snow's chill, the hearts freeze at
+    /// [`FREEZE_TICKS`].
+    pub ticks_frozen: i32,
     /// Vanilla `LocalPlayer.spinningEffectIntensity` (Nausea's screen warp)
     /// and last tick's.
     pub spinning_intensity: f32,
@@ -295,6 +304,8 @@ impl LocalPlayer {
             camera_distance: crate::renderer::camera::THIRD_PERSON_DISTANCE,
             attributes: AttributeMap::player(),
             hurt_time: 0,
+            invulnerable_time: 0,
+            ticks_frozen: 0,
             spinning_intensity: 0.0,
             prev_spinning_intensity: 0.0,
             hurt_dir: 0.0,
@@ -487,6 +498,12 @@ impl LocalPlayer {
 
     pub fn mark_hurt(&mut self) {
         self.hurt_time = HURT_DURATION;
+        self.invulnerable_time = 20;
+    }
+
+    /// Vanilla `isFullyFrozen`.
+    pub fn fully_frozen(&self) -> bool {
+        self.ticks_frozen >= FREEZE_TICKS
     }
 
     pub fn animate_hurt(&mut self, yaw: f32) {
@@ -498,12 +515,15 @@ impl LocalPlayer {
         if self.hurt_time > 0 {
             self.hurt_time -= 1;
         }
+        self.invulnerable_time = self.invulnerable_time.saturating_sub(1);
     }
 
     /// Login and respawn build a fresh vanilla `LocalPlayer`, so hurt state
     /// does not survive a life.
     pub fn reset_hurt_state(&mut self) {
         self.hurt_time = 0;
+        self.invulnerable_time = 0;
+        self.ticks_frozen = 0;
         self.hurt_dir = 0.0;
         self.flash_on_set_health = false;
     }

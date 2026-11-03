@@ -1,0 +1,77 @@
+# Status the player sees on themself: the first-person flames while burning,
+# and the hearts poison, wither and freezing tint, flashing when hit.
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/gamemode survival"
+
+[[step]]
+chat = "/effect clear @s"
+
+[[step]]
+chat = "/effect give @s minecraft:resistance infinite 4 true"
+
+[[step]]
+chat = "/tp @s 300.5 -60 300.5 0 0"
+
+[[step]]
+wait_ms = 10000
+
+[[step]]
+chat = "/setblock 300 -60 300 minecraft:fire"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "burning"
+
+[[step]]
+chat = "/setblock 300 -60 300 minecraft:air"
+
+[[step]]
+chat = "/effect give @s minecraft:poison 60 0 true"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "poisoned"
+
+[[step]]
+chat = "/effect clear @s minecraft:poison"
+
+[[step]]
+chat = "/effect give @s minecraft:wither 60 0 true"
+
+[[step]]
+chat = "/effect give @s minecraft:absorption 60 0 true"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "withered"
+
+[[step]]
+chat = "/effect clear @s"
+
+[[step]]
+chat = "/effect give @s minecraft:regeneration 60 1 true"
+
+[[step]]
+chat = "/damage @s 6 minecraft:generic"
+
+[[step]]
+wait_ms = 150
+
+[[step]]
+screenshot = "hit_blink"

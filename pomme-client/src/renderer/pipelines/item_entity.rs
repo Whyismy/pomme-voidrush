@@ -544,6 +544,51 @@ impl ItemEntityPipeline {
         );
     }
 
+    /// Vanilla `ScreenEffectRenderer.renderFire`'s two quads of the burning
+    /// `fire_1` sprite, in the hand pass's space: a unit square half a block
+    /// ahead, one each side, turned 10 degrees inward.
+    pub fn ensure_fire_overlay_mesh(&mut self, device: &rhi::backend::Device, uv_map: &AtlasUVMap) {
+        if self.meshes.contains_key(FIRE_OVERLAY_MESH) || !uv_map.has_region("fire_1") {
+            return;
+        }
+        let region = uv_map.get_region("fire_1");
+        let (u0, u1, v0, v1) = (region.u_min, region.u_max, region.v_min, region.v_max);
+        let corners = [
+            ([-0.5, -0.5], [u1, v1]),
+            ([0.5, -0.5], [u0, v1]),
+            ([0.5, 0.5], [u0, v0]),
+            ([-0.5, 0.5], [u1, v0]),
+        ];
+        let normal = pack_normal(glam::Vec3::Z);
+        let mut vertices = Vec::new();
+        for side in [-1.0f32, 1.0] {
+            let matrix = glam::Mat4::from_translation(glam::Vec3::new(-side * 0.24, -0.3, 0.0))
+                * glam::Mat4::from_rotation_y((side * 10.0f32).to_radians());
+            for i in [0, 1, 2, 2, 3, 0] {
+                let ([x, y], tex_coords) = corners[i];
+                vertices.push(ItemVertex {
+                    position: matrix
+                        .transform_point3(glam::Vec3::new(x, y, -0.5))
+                        .to_array(),
+                    tex_coords,
+                    light_tint: crate::renderer::chunk::mesher::pack_light_tint(
+                        1.0,
+                        crate::renderer::chunk::mesher::PACKED_WHITE_SHIFTED,
+                    ),
+                    normal,
+                    tint_index: NO_ITEM_TINT,
+                });
+            }
+        }
+        self.insert_mesh(
+            device,
+            FIRE_OVERLAY_MESH,
+            &vertices,
+            true,
+            region.translucent,
+        );
+    }
+
     /// A plain textured cube (a block with no baked model), centred like the
     /// baked meshes; a tinted face takes palette slot 0.
     pub fn ensure_cube_mesh(
@@ -730,6 +775,9 @@ fn cardinal_normal(positions: &[[f32; 3]; 4]) -> glam::Vec3 {
 }
 
 const NO_ITEM_TINT: u32 = u32::MAX;
+
+/// The mesh [`ItemEntityPipeline::ensure_fire_overlay_mesh`] makes.
+pub const FIRE_OVERLAY_MESH: &str = "pomme:fire_overlay";
 
 fn tint_index_or_none(index: Option<u32>) -> u32 {
     index.unwrap_or(NO_ITEM_TINT)

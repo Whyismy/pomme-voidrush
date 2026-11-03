@@ -286,6 +286,9 @@ pub struct Renderer {
     /// lookups know to redo theirs.
     display_assets_generation: u32,
     held_item_pipeline: pipelines::held_item::HeldItemPipeline,
+    /// Whether first person shows the burning overlay this frame
+    /// ([`Self::set_screen_fire`]).
+    screen_fire: bool,
     weather_pipeline: WeatherPipeline,
     particle_pipeline: ParticlePipeline,
     cloud_pipeline: CloudPipeline,
@@ -605,6 +608,7 @@ impl Renderer {
             item_display_resolvers: HashMap::new(),
             display_assets_generation: 0,
             held_item_pipeline,
+            screen_fire: false,
             weather_pipeline,
             particle_pipeline,
             cloud_pipeline,
@@ -1213,6 +1217,16 @@ impl Renderer {
     pub fn set_hurt(&mut self, hurt_time: u8, hurt_dir: f32, damage_tilt_strength: f32) {
         self.camera
             .set_hurt(hurt_time, hurt_dir, damage_tilt_strength);
+    }
+
+    /// Vanilla `ScreenEffectRenderer`: a burning player sees flames over the
+    /// bottom of the view in first person.
+    pub fn set_screen_fire(&mut self, on_fire: bool) {
+        self.screen_fire = on_fire;
+        if on_fire {
+            self.item_entity_pipeline
+                .ensure_fire_overlay_mesh(&self.ctx.device, &self.atlas.uv_map);
+        }
     }
 
     /// The camera-facing right and up axes (see `Camera::billboard_axes`).
@@ -2600,7 +2614,7 @@ impl Renderer {
                             })
                         })
                         .collect();
-                    if !hands.is_empty() {
+                    if !hands.is_empty() || self.screen_fire {
                         self.held_item_pipeline.update_and_draw(
                             &self.ctx.device,
                             &mut pass,
@@ -2613,6 +2627,7 @@ impl Renderer {
                             hand_pose,
                             *hand_light,
                             sky.cardinal_light,
+                            self.screen_fire,
                         );
                     }
                 }

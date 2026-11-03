@@ -2957,6 +2957,12 @@ impl AppCore {
                             game.silent_entities.remove(&id);
                         }
                     }
+                    if index == 7
+                        && id == game.player.entity_id
+                        && let crate::entity::MetaValue::Int(ticks) = value
+                    {
+                        game.player.ticks_frozen = ticks;
+                    }
                     if let crate::entity::MetaValue::Byte(flags) = value {
                         if id == game.player.entity_id {
                             match index {

@@ -190,6 +190,7 @@ pub struct GameState {
     pub death_screen_open: bool,
     pub show_death_screen: bool,
     pub hardcore: bool,
+    pub heart_blink: hud::HeartBlink,
     /// The login packet's `onlineMode`: the tab list shows player heads.
     pub online_mode: bool,
     pub death_message: String,
@@ -562,6 +563,7 @@ impl GameState {
             death_screen_open: false,
             show_death_screen: true,
             hardcore: false,
+            heart_blink: Default::default(),
             online_mode: false,
             death_message: String::new(),
             death_screen_ticks: 0,
@@ -3203,6 +3205,24 @@ pub fn update_game(
                 &|t, s| gfx.renderer.menu_text_width(t, s),
             );
         }
+        let flash = game.heart_blink.update(
+            game.player.health,
+            game.tick_count,
+            game.player.invulnerable_time > 0,
+        );
+        let hearts = hud::HeartLook {
+            kind: hud::HeartLook::for_player(&game.player.effects, game.player.fully_frozen()),
+            hardcore: game.hardcore,
+            flash,
+            regen_index: game.player.effects.has("regeneration").then(|| {
+                let max = game
+                    .player
+                    .max_health
+                    .max(game.player.health.ceil())
+                    .max(flash.display_health as f32);
+                (game.tick_count % (max + 5.0).ceil() as u64) as i32
+            }),
+        };
         hud::build_hud(
             &mut elements,
             sw,
@@ -3231,6 +3251,7 @@ pub fn update_game(
             &|spans, s| gfx.renderer.menu_spans_width(spans, s),
             &game.scoreboard,
             &game.player.effects,
+            &hearts,
             &game.boss_bars,
             gfx.renderer.is_first_person(),
             debug.as_ref(),
@@ -4905,6 +4926,9 @@ pub fn update_game(
             .set_terrain_format(game.mesh_dispatcher.format());
         game.rebuild_meshes();
     }
+    gfx.renderer.set_screen_fire(
+        game.player.on_fire && !crate::player::is_spectator(game.player.game_mode),
+    );
     let render_start = Instant::now();
     let rendered = gfx.renderer.render_world(
         game.block_registry.render_view(),

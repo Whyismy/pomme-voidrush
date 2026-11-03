@@ -7,7 +7,7 @@ use super::common::{FONT_SIZE, TextWidthFn, WHITE, push_item_icon};
 use crate::entity::wrap_degrees;
 use crate::mob_effect::ActiveMobEffects;
 use crate::position::BlockPos;
-use crate::renderer::pipelines::menu_overlay::{MenuElement, SpriteId};
+use crate::renderer::pipelines::menu_overlay::{HeartKind, MenuElement, SpriteId, heart_sprite};
 use crate::ui::boss_bar::BossBarState;
 use crate::ui::text::TextSpan;
 use crate::world::waypoints::{LocatorDot, PitchDirection, WaypointStyleId};
@@ -636,6 +636,7 @@ pub fn build_hud(
     spans_width_fn: super::common::SpansWidthFn<'_>,
     scoreboard: &Scoreboard,
     effects: &ActiveMobEffects,
+    hearts: &HeartLook,
     boss_bars: &BossBarState,
     first_person: bool,
     debug: Option<&DebugInfo<'_>>,
@@ -817,7 +818,12 @@ pub fn build_hud(
     let is_survival = crate::player::is_survival(game_mode);
     if is_survival {
         let absorption_halves = absorption.ceil().max(0.0) as i32;
-        let layout = heart_layout(max_health, health, absorption_halves);
+        let layout = heart_layout(
+            max_health,
+            health,
+            hearts.flash.display_health,
+            absorption_halves,
+        );
         build_hearts(
             elements,
             hotbar_x,
@@ -825,6 +831,7 @@ pub fn build_hud(
             &layout,
             health,
             absorption_halves,
+            hearts,
             &mut hud_rng,
             gs,
         );
@@ -1442,10 +1449,15 @@ struct HeartLayout {
     row_height: i32,
 }
 
-/// Vanilla `Hud.extractPlayerHealth` layout math.
-fn heart_layout(max_health: f32, health: f32, absorption_halves: i32) -> HeartLayout {
-    // TODO: also max with displayHealth once the damage-flash blink exists.
-    let max_health = max_health.max(health.ceil());
+/// Vanilla `Hud.extractPlayerHealth` layout math: the hearts span the most
+/// of max health, health and the health still blinking.
+fn heart_layout(
+    max_health: f32,
+    health: f32,
+    display_health: i32,
+    absorption_halves: i32,
+) -> HeartLayout {
+    let max_health = max_health.max(health.ceil()).max(display_health as f32);
     let health_containers = (max_health as f64 / 2.0).ceil() as i32;
     let rows = ((max_health + absorption_halves as f32) / 2.0 / 10.0).ceil() as i32;
     HeartLayout {
@@ -1453,6 +1465,77 @@ fn heart_layout(max_health: f32, health: f32, absorption_halves: i32) -> HeartLa
         absorption_containers: (absorption_halves as f64 / 2.0).ceil() as i32,
         rows,
         row_height: (10 - (rows - 2)).max(3),
+    }
+}
+
+/// Vanilla `Hud`'s health flash: a hurt (or, while still invulnerable,
+/// healed) player's hearts blink, the health they had showing in the
+/// blinking sprites until a second passes without change.
+#[derive(Default)]
+pub struct HeartBlink {
+    last_health: i32,
+    display_health: i32,
+    last_health_time: Option<std::time::Instant>,
+    blink_until: u64,
+}
+
+impl HeartBlink {
+    /// The frame's step of `extractPlayerHealth`'s bookkeeping; `invulnerable`
+    /// is the player's `invulnerableTime > 0`.
+    pub fn update(&mut self, health: f32, tick: u64, invulnerable: bool) -> HeartFlash {
+        let health = health.ceil() as i32;
+        let blink = self.blink_until > tick && (self.blink_until - tick) / 3 % 2 == 1;
+        let now = std::time::Instant::now();
+        if health != self.last_health && invulnerable {
+            self.last_health_time = Some(now);
+            self.blink_until = tick + if health < self.last_health { 20 } else { 10 };
+        }
+        if self
+            .last_health_time
+            .is_none_or(|time| now.duration_since(time).as_millis() > 1000)
+        {
+            self.display_health = health;
+            self.last_health_time = Some(now);
+        }
+        self.last_health = health;
+        HeartFlash {
+            blink,
+            display_health: self.display_health,
+        }
+    }
+}
+
+/// [`HeartBlink::update`]'s result.
+#[derive(Clone, Copy, Default)]
+pub struct HeartFlash {
+    pub blink: bool,
+    pub display_health: i32,
+}
+
+/// How the player's hearts look (vanilla `HeartType.forPlayer` and the
+/// world's hardcore flag), and their flash.
+#[derive(Clone, Copy)]
+pub struct HeartLook {
+    pub kind: HeartKind,
+    pub hardcore: bool,
+    pub flash: HeartFlash,
+    /// Regeneration's wave: the heart index lifted this tick.
+    pub regen_index: Option<i32>,
+}
+
+impl HeartLook {
+    /// Vanilla `HeartType.forPlayer`: poison, then wither, then being
+    /// fully frozen tint the hearts.
+    pub fn for_player(effects: &ActiveMobEffects, fully_frozen: bool) -> HeartKind {
+        if effects.has("poison") {
+            HeartKind::Poisoned
+        } else if effects.has("wither") {
+            HeartKind::Withered
+        } else if fully_frozen {
+            HeartKind::Frozen
+        } else {
+            HeartKind::Normal
+        }
     }
 }
 
@@ -1471,20 +1554,25 @@ fn build_hearts(
     layout: &HeartLayout,
     health: f32,
     absorption_halves: i32,
+    look: &HeartLook,
     rng: &mut crate::util::JavaRandom,
     gs: f32,
 ) {
     let icon_size = ICON_SIZE * gs;
     let current_health = health.ceil().max(0.0) as i32;
+    let display_health = look.flash.display_health;
+    let blink = look.flash.blink;
     let max_health_halves = layout.health_containers * 2;
+    let sprite = |kind, blinking, half| heart_sprite(kind, look.hardcore, half, blinking);
     for i in (0..layout.health_containers + layout.absorption_containers).rev() {
         let x = (x_left + (i % 10 * 8) as f32 * gs).round();
         let mut y_off = -(i / 10 * layout.row_height);
         if current_health + absorption_halves <= 4 {
             y_off += rng.next_int(2);
         }
-        // TODO: regen wave (i < health_containers && i == heart_offset_index
-        // => y_off -= 2) once mob effects are tracked.
+        if i < layout.health_containers && Some(i) == look.regen_index {
+            y_off -= 2;
+        }
         let y = (y_row_bottom - icon_size + y_off as f32 * gs).round();
         let mut push = |sprite| {
             elements.push(MenuElement::Image {
@@ -1496,28 +1584,25 @@ fn build_hearts(
                 tint: WHITE,
             });
         };
-        // TODO: blinking container / hardcore variants.
-        push(SpriteId::HeartContainer);
+        push(sprite(HeartKind::Container, blink, false));
         let halves = i * 2;
         if i >= layout.health_containers {
-            // TODO: WITHERED replaces ABSORBING under the wither effect.
             let ah = halves - max_health_halves;
             if ah < absorption_halves {
-                push(if ah + 1 == absorption_halves {
-                    SpriteId::HeartAbsorbingHalf
+                // Wither blackens the absorption hearts too.
+                let kind = if look.kind == HeartKind::Withered {
+                    HeartKind::Withered
                 } else {
-                    SpriteId::HeartAbsorbingFull
-                });
+                    HeartKind::Absorbing
+                };
+                push(sprite(kind, false, ah + 1 == absorption_halves));
             }
         }
-        // TODO: blinking old-health overlay; poisoned/withered/frozen/hardcore
-        // heart types.
+        if blink && halves < display_health {
+            push(sprite(look.kind, true, halves + 1 == display_health));
+        }
         if halves < current_health {
-            push(if halves + 1 == current_health {
-                SpriteId::HeartHalf
-            } else {
-                SpriteId::HeartFull
-            });
+            push(sprite(look.kind, false, halves + 1 == current_health));
         }
     }
 }

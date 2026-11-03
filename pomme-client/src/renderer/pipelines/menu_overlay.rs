@@ -2647,6 +2647,48 @@ pub enum MenuElement {
     },
 }
 
+/// Vanilla `Hud.HeartType`: which set of `hud/heart/` sprites a heart draws
+/// from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum HeartKind {
+    Container,
+    Normal,
+    Poisoned,
+    Withered,
+    Absorbing,
+    Frozen,
+}
+
+impl HeartKind {
+    const ALL: [Self; 6] = [
+        Self::Container,
+        Self::Normal,
+        Self::Poisoned,
+        Self::Withered,
+        Self::Absorbing,
+        Self::Frozen,
+    ];
+
+    /// Its sprites' name before the `hardcore`/`full`/`half` parts.
+    fn prefix(self) -> &'static str {
+        match self {
+            Self::Container => "container",
+            Self::Normal => "",
+            Self::Poisoned => "poisoned",
+            Self::Withered => "withered",
+            Self::Absorbing => "absorbing",
+            Self::Frozen => "frozen",
+        }
+    }
+}
+
+/// A heart's sprite (vanilla `HeartType.getSprite`); a container has no half.
+pub fn heart_sprite(kind: HeartKind, hardcore: bool, half: bool, blinking: bool) -> SpriteId {
+    SpriteId::Heart(
+        (kind as u8) << 3 | u8::from(hardcore) << 2 | u8::from(half) << 1 | u8::from(blinking),
+    )
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SpriteId {
     Hotbar,
@@ -2661,6 +2703,8 @@ pub enum SpriteId {
     HeartVehicleContainer,
     HeartVehicleFull,
     HeartVehicleHalf,
+    /// A `hud/heart/` sprite, packed by [`heart_sprite`].
+    Heart(u8),
     FoodEmpty,
     FoodFull,
     FoodHalf,
@@ -4028,12 +4072,41 @@ fn build_sprite_atlas(
         );
         boss_bar_sprite(SpriteId::BossBarNotchedProgress(i as u8), name, "progress");
     }
+    let heart_sprites = HeartKind::ALL.into_iter().flat_map(|kind| {
+        (0..8u8).filter_map(move |bits| {
+            let (hardcore, half, blinking) = (bits & 4 != 0, bits & 2 != 0, bits & 1 != 0);
+            if kind == HeartKind::Container && half {
+                return None;
+            }
+            let mut name = String::from(kind.prefix());
+            if hardcore {
+                name += if name.is_empty() {
+                    "hardcore"
+                } else {
+                    "_hardcore"
+                };
+            }
+            if kind != HeartKind::Container {
+                name += if name.is_empty() { "" } else { "_" };
+                name += if half { "half" } else { "full" };
+            }
+            if blinking {
+                name += "_blinking";
+            }
+            Some((
+                heart_sprite(kind, hardcore, half, blinking),
+                format!("minecraft/textures/gui/sprites/hud/heart/{name}.png"),
+                0.0,
+            ))
+        })
+    });
     let mut images: Vec<(SpriteId, Vec<u8>, u32, u32, f32)> = Vec::new();
     for (id, asset_key, border) in sprites
         .iter()
         .map(|&(id, key, border)| (id, key.to_string(), border))
         .chain(effect_icons)
         .chain(boss_bar_sprites)
+        .chain(heart_sprites)
     {
         let path = resolve_asset_path(jar_assets_dir, asset_index, &asset_key);
         match crate::assets::load_image(&path) {

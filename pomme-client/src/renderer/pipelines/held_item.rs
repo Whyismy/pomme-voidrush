@@ -115,6 +115,7 @@ impl HeldItemPipeline {
         hand_pose: Mat4,
         light: LightLevels,
         cardinal_light: CardinalLightType,
+        fire_overlay: bool,
     ) {
         let uniform = CameraUniform::with_view_proj(hand::projection(aspect, hud_fov) * bob)
             .with_cardinal_light(cardinal_light);
@@ -122,7 +123,7 @@ impl HeldItemPipeline {
 
         let tint_count = hands.iter().map(|hand| hand.item.item_tints.len()).sum();
         self.shared
-            .begin_frame(device, frame, hands.len(), tint_count);
+            .begin_frame(device, frame, hands.len() + 1, tint_count);
         self.shared.bind(pass, frame, self.pipeline);
         for hand in hands {
             let item = hand.item;
@@ -153,6 +154,22 @@ impl HeldItemPipeline {
                 Mat3::from_mat4(hand_pose),
                 light.lane(),
                 &item.item_tints,
+                0,
+            );
+            pass.set_vertex_buffer(0, buffer);
+            pass.draw(vertex_count, 1, 0, instance);
+        }
+        // Vanilla draws the burning overlay after the hands, in a pose
+        // without the view bobbing, at full brightness.
+        if fire_overlay
+            && let Some((buffer, vertex_count)) = meshes.mesh_handle(item_entity::FIRE_OVERLAY_MESH)
+        {
+            let instance = self.shared.push_item(
+                frame,
+                &bob.inverse(),
+                Mat3::IDENTITY,
+                LightLevels::new(15, 15).lane(),
+                &[],
                 0,
             );
             pass.set_vertex_buffer(0, buffer);
