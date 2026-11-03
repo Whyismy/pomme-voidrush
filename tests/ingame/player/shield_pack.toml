@@ -1,0 +1,70 @@
+# A Void Rush pack shield (vanilla's shield with the pack's frame model
+# over it, switching to the `_blocking` models while raised), seen in first
+# and third person, lowered and raised. Run with the pack served
+# (POMME_INGAME_SERVER_PROPERTIES resource-pack=...).
+
+[[step]]
+wait_ms = 4000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/gamemode survival"
+
+[[step]]
+chat = "/tp @s 760.5 -60 760.5 0 0"
+
+[[step]]
+wait_ms = 1000
+
+[[step]]
+chat = "/item replace entity @s weapon.mainhand with diamond_sword"
+
+[[step]]
+chat = "/item replace entity @s weapon.offhand with shield[custom_model_data={strings:[\"shield_1\"]}]"
+
+[[step]]
+look_at = [760.5, -58.4, 770.5]
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+screenshot = "fp_lowered"
+
+[[step]]
+mouse_down = "right"
+
+[[step]]
+wait_ms = 800
+
+[[step]]
+screenshot = "fp_raised"
+
+[[step]]
+mouse_up = "right"
+
+[[step]]
+press = { action = "key.togglePerspective" }
+
+[[step]]
+press = { action = "key.togglePerspective" }
+
+[[step]]
+wait_ms = 500
+
+[[step]]
+screenshot = "front_lowered"
+
+[[step]]
+mouse_down = "right"
+
+[[step]]
+wait_ms = 800
+
+[[step]]
+screenshot = "front_raised"
+
+[[step]]
+mouse_up = "right"

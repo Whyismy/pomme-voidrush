@@ -281,6 +281,9 @@ pub struct EntityRenderInfo {
     pub attack_time: f32,
     /// The swing is a stab (the main hand's `swing_animation`, a spear's).
     pub attack_stabs: bool,
+    /// Vanilla `ArmPose.BLOCK`: the arm raising a shield, `true` for the
+    /// right one.
+    pub blocking_arm: Option<bool>,
     /// Skip frustum/distance culling (the 3rd-person self entity, which sits at
     /// the camera and must never blink out).
     pub skip_cull: bool,
@@ -377,6 +380,7 @@ impl Default for EntityRenderInfo {
             age_in_ticks: 0.0,
             attack_time: 0.0,
             attack_stabs: false,
+            blocking_arm: None,
             skip_cull: false,
             outline_color: None,
             visibility: Visibility::Visible,
@@ -3376,6 +3380,7 @@ impl EntityRenderer {
                 info.is_passenger,
                 info.attack_time,
                 info.attack_stabs,
+                info.blocking_arm,
             ),
             AnimationType::Enderman => entity_model::compute_enderman_anim(
                 model,

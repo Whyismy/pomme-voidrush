@@ -1530,7 +1530,7 @@ impl Renderer {
         overlay: Vec<MenuElement>,
         swing_progress: [f32; 2],
         use_anim: [Option<pipelines::held_item::UseAnim>; 2],
-        held_items: [Option<(String, azalea_inventory::ItemStackData)>; 2],
+        held_items: [Option<(String, azalea_inventory::ItemStackData, bool)>; 2],
         main_hand_right: bool,
         hand_light: LightLevels,
         shown_hands: HandRenderSelection,
@@ -1557,12 +1557,20 @@ impl Renderer {
         self.entity_renderer
             .ensure_trims(&self.ctx.device, entities);
         let held_items = held_items.map(|held| {
-            held.map(|(name, stack)| {
+            held.map(|(name, stack, in_use)| {
                 let model = self.render_assets.stack_model_key(&name, &stack);
+                let model = if in_use {
+                    self.render_assets.in_use_model_key(&model)
+                } else {
+                    model
+                };
                 let item_tints =
                     self.render_assets
                         .item_tint_palette(&model, Some(&stack), player_team_color);
                 let has_3d_model = self.ensure_item_mesh(&model).is_block_model;
+                // FIRST_PERSON_RIGHT_HAND / FIRST_PERSON_LEFT_HAND.
+                let first_person = [4, 3]
+                    .map(|context| self.render_assets.baked_display_transform(&model, context));
                 pipelines::held_item::HeldItemInfo {
                     name,
                     model,
@@ -1570,6 +1578,8 @@ impl Renderer {
                     has_3d_model,
                     charged_crossbow: crate::player::interaction::is_charged_crossbow(&stack),
                     stabs: crate::player::interaction::swing_animation(Some(&stack)).0,
+                    // FIRST_PERSON_RIGHT_HAND / FIRST_PERSON_LEFT_HAND.
+                    first_person,
                 }
             })
         });

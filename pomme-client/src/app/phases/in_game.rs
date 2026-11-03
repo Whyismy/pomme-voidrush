@@ -4446,6 +4446,19 @@ pub fn update_game(
                             .and_then(|stack| stack.as_present()),
                     )
                     .0,
+                    blocking_arm: e
+                        .using_hand
+                        .filter(|&hand| {
+                            let slot = if hand == 0 {
+                                azalea_inventory::components::EquipmentSlot::Mainhand
+                            } else {
+                                azalea_inventory::components::EquipmentSlot::Offhand
+                            };
+                            e.equipment(slot)
+                                .and_then(|stack| stack.as_present())
+                                .is_some_and(crate::player::interaction::blocks_attacks)
+                        })
+                        .map(|hand| hand == 0),
                     skip_cull: false,
                     shadow: ShadowCaster {
                         position: *interp_pos,
@@ -4710,6 +4723,12 @@ pub fn update_game(
                     .as_present(),
             )
             .0,
+            blocking_arm: game
+                .interaction
+                .blocking()
+                .then(|| game.interaction.using_hand())
+                .flatten()
+                .map(|hand| hand == crate::player::interaction::HANDS[0]),
             skip_cull: true,
             // Players drop their render offset before the shadow.
             shadow: ShadowCaster {
@@ -4981,14 +5000,16 @@ pub fn update_game(
     let held_items = if benchmark_running {
         [None, None]
     } else {
-        let held = |stack: &azalea_inventory::ItemStack| match stack {
+        let using = game.interaction.using_hand();
+        let held = |stack: &azalea_inventory::ItemStack, hand| match stack {
             azalea_inventory::ItemStack::Present(data) => {
                 let name = crate::player::inventory::item_resource_name(data.kind);
-                (name != "air").then(|| (name, data.clone()))
+                (name != "air").then(|| (name, data.clone(), using == Some(hand)))
             }
             _ => None,
         };
-        [held(main_stack), held(inventory.offhand())]
+        let [main, off] = crate::player::interaction::HANDS;
+        [held(main_stack, main), held(inventory.offhand(), off)]
     };
     // Last element pushed: vanilla draws the saving indicator on its own
     // stratum above screens, with the GUI hidden (F1) included.
@@ -5988,7 +6009,16 @@ fn build_held_items(
             }
             _ => continue,
         };
-        for (stack, right) in hands.into_iter().zip([true, false]) {
+        // The hand in use (0 main, 1 off): the local player's own use, or
+        // what the server says another entity is using.
+        let using = match info.entity_id {
+            Some(id) => game.entity_store.living.get(&id).and_then(|e| e.using_hand),
+            None => game
+                .interaction
+                .using_hand()
+                .map(|hand| u8::from(hand != crate::player::interaction::HANDS[0])),
+        };
+        for ((stack, right), hand) in hands.into_iter().zip([true, false]).zip([0u8, 1]) {
             let Some(stack) = stack else {
                 continue;
             };
@@ -5997,6 +6027,11 @@ fn build_held_items(
             };
             let name = crate::player::inventory::item_resource_name(stack.kind);
             let model = renderer.render_assets().stack_model_key(&name, stack);
+            let model = if using == Some(hand) {
+                renderer.render_assets().in_use_model_key(&model)
+            } else {
+                model
+            };
             renderer.ensure_item_mesh(&model);
             let tints: Arc<[u32]> = renderer
                 .render_assets()

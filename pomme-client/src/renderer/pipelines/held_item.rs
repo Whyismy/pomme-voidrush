@@ -23,6 +23,10 @@ pub struct HeldItemInfo {
     pub charged_crossbow: bool,
     /// The item's swing is a stab (a spear's `swing_animation`).
     pub stabs: bool,
+    /// The baked model's own first-person transforms, right hand then left
+    /// (packs and the stack's model included); `None` falls back to the
+    /// item definition's.
+    pub first_person: [Option<DisplayTransform>; 2],
 }
 
 /// One first-person hand holding an item (vanilla `submitArmWithItem` for a
@@ -134,9 +138,12 @@ impl HeldItemPipeline {
             };
             let default = default_first_person(item.has_3d_model, hand.right_arm);
             let display = if hand.right_arm {
-                self.right_display.resolve(&item.name, default)
+                item.first_person[0]
+                    .unwrap_or_else(|| self.right_display.resolve(&item.name, default))
             } else {
-                self.left_display.resolve(&item.name, default).mirrored()
+                item.first_person[1]
+                    .unwrap_or_else(|| self.left_display.resolve(&item.name, default))
+                    .mirrored()
             };
             let invert = hand::arm_invert(hand.right_arm);
             let mut arm = match hand.use_anim {

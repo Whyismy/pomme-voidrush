@@ -275,6 +275,17 @@ impl BlockRenderAssets {
     /// `CustomModelDataProperty` and `Charge` selects), if one is baked.
     /// The model `key` draws in the GUI: its GUI variant where its
     /// definition has one ([`model::gui_model_key`]), else itself.
+    /// `model`'s variant for a stack in use ([`model::using_model_key`]),
+    /// or `model` itself where nothing changes while it's used.
+    pub fn in_use_model_key(&self, model: &str) -> String {
+        let key = model::using_model_key(model);
+        if self.item_models.contains_key(&key) {
+            key
+        } else {
+            model.to_owned()
+        }
+    }
+
     pub fn is_player_head_model(&self, key: &str) -> bool {
         self.player_head_models.contains(key)
     }
@@ -400,6 +411,20 @@ impl BlockRenderAssets {
         self.item_ground_transforms
             .get(crate::banner::base_key(name))
             .copied()
+    }
+
+    /// A baked item model's own transform for display context `context`,
+    /// packs included; `None` where its model chain has none.
+    pub(crate) fn baked_display_transform(
+        &self,
+        name: &str,
+        context: u8,
+    ) -> Option<model::DisplayTransform> {
+        self.item_display_transforms
+            .get(crate::banner::base_key(name))?
+            .get(context as usize)
+            .copied()
+            .flatten()
     }
 
     /// A baked item model's transform for display context `context`

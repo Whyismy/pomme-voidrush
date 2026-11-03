@@ -1158,6 +1158,14 @@ pub fn bake_item_models(
         {
             bake(&gui_model_key(item_name), &node_model_parts_in(root, true));
         }
+        if let Some(root) = json.get("model")
+            && has_using_variant(component_default_branch(root))
+        {
+            let parts = node_model_parts_using(root);
+            if !parts.is_empty() {
+                bake(&using_model_key(item_name), &parts);
+            }
+        }
         for (charge, node) in charge_type_cases(&json) {
             let mut parts = Vec::new();
             collect_parts_from_node(node, None, &mut parts);
@@ -1170,6 +1178,12 @@ pub fn bake_item_models(
                 bake(&key, &parts);
                 if has_gui_variant(node) {
                     bake(&gui_model_key(&key), &node_model_parts_in(node, true));
+                }
+                if has_using_variant(node) {
+                    let parts = node_model_parts_using(node);
+                    if !parts.is_empty() {
+                        bake(&using_model_key(&key), &parts);
+                    }
                 }
             }
         }
@@ -1821,6 +1835,32 @@ fn default_stack_branch(node: &serde_json::Value) -> &serde_json::Value {
     display_branch(node, false)
 }
 
+/// The key a model's in-use variant bakes under, where its definition draws
+/// something else while the item is used (a `minecraft:using_item`
+/// condition: a raised shield, a drawn bow).
+pub fn using_model_key(key: &str) -> String {
+    format!("{key}#using")
+}
+
+/// Whether item-model node `node` draws differently while its item is used.
+fn has_using_variant(node: &serde_json::Value) -> bool {
+    match node {
+        serde_json::Value::Object(map) => {
+            (node_type(node) == Some("condition") && node_property(node) == Some("using_item"))
+                || map.values().any(has_using_variant)
+        }
+        serde_json::Value::Array(items) => items.iter().any(has_using_variant),
+        _ => false,
+    }
+}
+
+/// The parts a stack in use draws for item-model node `node`.
+fn node_model_parts_using(node: &serde_json::Value) -> Vec<ModelPart> {
+    let mut parts = Vec::new();
+    collect_parts_from_node_in(display_branch(node, false), None, &mut parts, true);
+    parts
+}
+
 /// The key a model's GUI variant bakes under, where its definition draws
 /// something else in the GUI (a `display_context` select's `gui` case).
 pub fn gui_model_key(key: &str) -> String {
@@ -2007,6 +2047,17 @@ fn collect_parts_from_node(
     parent_transform: Option<Mat4>,
     parts: &mut Vec<ModelPart>,
 ) {
+    collect_parts_from_node_in(node, parent_transform, parts, false);
+}
+
+/// [`collect_parts_from_node`] for a stack in use (`using`), which draws the
+/// `on_true` of each `minecraft:using_item` condition (a raised shield).
+fn collect_parts_from_node_in(
+    node: &serde_json::Value,
+    parent_transform: Option<Mat4>,
+    parts: &mut Vec<ModelPart>,
+    using: bool,
+) {
     let own_transform = match node.get("transformation") {
         Some(value) => match parse_item_transformation(value) {
             Some(transform) => Some(transform),
@@ -2025,7 +2076,7 @@ fn collect_parts_from_node(
         Some("composite") => {
             if let Some(models) = node.get("models").and_then(|m| m.as_array()) {
                 for child in models {
-                    collect_parts_from_node(child, transform, parts);
+                    collect_parts_from_node_in(child, transform, parts, using);
                 }
             }
         }
@@ -2044,10 +2095,16 @@ fn collect_parts_from_node(
             }
         }
         // A plain stack is in no condition (not in use, not cast, no
-        // component), so it draws the `on_false` branch.
+        // component), so it draws the `on_false` branch; one in use draws
+        // a `using_item` condition's `on_true`.
         Some("condition") => {
-            if let Some(branch) = node.get("on_false") {
-                collect_parts_from_node(branch, transform, parts);
+            let side = if using && node_property(node) == Some("using_item") {
+                "on_true"
+            } else {
+                "on_false"
+            };
+            if let Some(branch) = node.get(side) {
+                collect_parts_from_node_in(branch, transform, parts, using);
             }
         }
         Some("special") => {

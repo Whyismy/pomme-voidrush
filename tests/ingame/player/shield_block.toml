@@ -1,0 +1,85 @@
+# Raising a shield (offhand, with a sword in the main hand) blocks a hit
+# from in front: vanilla `startUsingItem` on the offhand once the main
+# hand's sword passes, held until the button is let go. Each hit comes from
+# a point in front (`/damage ... at`), so there's no knockback.
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/gamemode survival"
+
+[[step]]
+chat = "/gamerule natural_health_regeneration false"
+
+[[step]]
+chat = "/difficulty normal"
+
+[[step]]
+chat = "/tp @s 760.5 -60 760.5 0 0"
+
+[[step]]
+wait_ms = 1000
+
+[[step]]
+chat = "/item replace entity @s weapon.mainhand with diamond_sword"
+
+[[step]]
+chat = "/item replace entity @s weapon.offhand with shield"
+
+[[step]]
+look_at = [760.5, -58.4, 763.5]
+
+[[step]]
+expect = { player = { health = 20.0 } }
+
+[[step]]
+chat = "/damage @s 4 minecraft:mob_attack at 760.5 -59 763.5"
+
+[[step]]
+wait_ms = 1000
+
+[[step]]
+expect = { player = { health = 16.0 } }
+
+[[step]]
+mouse_down = "right"
+
+[[step]]
+wait_ms = 800
+
+[[step]]
+press = { action = "key.togglePerspective" }
+
+[[step]]
+wait_ms = 300
+
+[[step]]
+screenshot = "raised"
+
+[[step]]
+chat = "/damage @s 4 minecraft:mob_attack at 760.5 -59 763.5"
+
+[[step]]
+wait_ms = 1000
+
+[[step]]
+expect = { player = { health = 16.0 } }
+
+[[step]]
+mouse_up = "right"
+
+[[step]]
+wait_ms = 500
+
+[[step]]
+chat = "/damage @s 4 minecraft:mob_attack at 760.5 -59 763.5"
+
+[[step]]
+wait_ms = 1000
+
+[[step]]
+expect = { player = { health = 12.0 } }

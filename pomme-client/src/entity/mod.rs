@@ -808,6 +808,9 @@ pub struct LivingEntity {
     /// The entity it rides (`SetPassengers`); the server stops sending a
     /// passenger's position, so the client seats it (`positionRider`).
     pub vehicle: Option<i32>,
+    /// Vanilla `DATA_LIVING_ENTITY_FLAGS`: the hand whose item is in use
+    /// (0 main, 1 off), if any.
+    pub using_hand: Option<u8>,
     /// Dye id, wolf/cat collars (vanilla default red).
     pub collar_color: u8,
     pub is_interested: bool,
@@ -1203,6 +1206,7 @@ impl LivingEntity {
             is_glowing: false,
             is_on_fire: false,
             vehicle: None,
+            using_hand: None,
             collar_color: 14,
             is_interested: false,
             anger_end_time: -1,
@@ -2219,6 +2223,9 @@ impl EntityStore {
                 entity.is_sprinting = f & 0x08 != 0;
                 entity.is_invisible = shared_flags_invisible(f);
                 entity.is_glowing = shared_flags_glowing(f);
+            }
+            (_, 8, Byte(f)) => {
+                entity.using_hand = (f & 0x01 != 0).then_some(u8::from(f & 0x02 != 0));
             }
             (_, 9, Float(h)) => entity.health = h,
             // Mob flags byte: bit 0x04 = aggressive. Players aren't mobs;

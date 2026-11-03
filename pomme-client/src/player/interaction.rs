@@ -328,6 +328,18 @@ impl InteractionState {
 
     /// Vanilla `ItemInHandRenderer`'s attack value: `getAttackAnim` for the
     /// swinging arm's hand, 0 for the other.
+    /// The hand whose item is in use (vanilla `getUsedItemHand`).
+    pub fn using_hand(&self) -> Option<InteractionHand> {
+        self.using_item.as_ref().map(|active| active.hand)
+    }
+
+    /// Whether the item in use blocks (`ArmPose.BLOCK`: a raised shield).
+    pub fn blocking(&self) -> bool {
+        self.using_item
+            .as_ref()
+            .is_some_and(|active| active.held && active.anim == ItemUseAnimation::BlockKind)
+    }
+
     /// Vanilla `LivingEntity.attackAnim`: above 0 while an arm swings.
     pub fn attack_anim(&self) -> f32 {
         self.attack_anim
@@ -1841,6 +1853,11 @@ fn hand_render_selection(
 /// The use a held-and-released item starts (vanilla `getUseAnimation` and
 /// `getUseDuration`), or `None` for one that acts at once: a loaded
 /// crossbow shoots on the click.
+/// Whether `stack` blocks while used (vanilla `BLOCKS_ATTACKS`).
+pub(crate) fn blocks_attacks(stack: &ItemStackData) -> bool {
+    stack_component::<BlocksAttacks>(stack).is_some()
+}
+
 fn held_use(stack: &ItemStackData) -> Option<(ItemUseAnimation, i32)> {
     if stack_component::<BlocksAttacks>(stack).is_some() {
         return Some((ItemUseAnimation::BlockKind, 72_000));

@@ -4012,6 +4012,7 @@ pub fn compute_humanoid_anim(
     is_passenger: bool,
     attack_time: f32,
     stab: bool,
+    blocking_arm: Option<bool>,
 ) -> PartAnim {
     use std::f32::consts::PI;
     let mut anim = PartAnim::default();
@@ -4090,6 +4091,21 @@ pub fn compute_humanoid_anim(
                 0.0,
             ),
             _ => continue,
+        };
+        // `HumanoidModel.poseRightArm` / `poseLeftArm` with `ArmPose.BLOCK`:
+        // the arm raises the shield across the body.
+        let rot = match (part.name.as_str(), blocking_arm) {
+            ("right_arm", Some(true)) => Vec3::new(
+                rot.x * 0.5 - 0.942_477_9,
+                -std::f32::consts::FRAC_PI_6,
+                rot.z,
+            ),
+            ("left_arm", Some(false)) => Vec3::new(
+                rot.x * 0.5 - 0.942_477_9,
+                std::f32::consts::FRAC_PI_6,
+                rot.z,
+            ),
+            _ => rot,
         };
         // `HumanoidModel.setupAnim`: a passenger's arms reach forward and
         // its legs sit out in front, splayed.
