@@ -117,6 +117,8 @@ pub struct OptionSet {
     pub brightness: Option<f32>,
     /// A shader pack's name in `shaderpacks/`, or `""` for none.
     pub shader_pack: Option<String>,
+    /// Chunk Builders: Low (`true`) or Max.
+    pub low_chunk_builders: Option<bool>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]

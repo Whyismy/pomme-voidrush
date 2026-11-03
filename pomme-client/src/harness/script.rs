@@ -834,6 +834,7 @@ mod tests {
                 menu_background_blur: None,
                 brightness: None,
                 shader_pack: None,
+                low_chunk_builders: None,
             }))
         );
         assert_eq!(

@@ -312,6 +312,11 @@ impl MainMenu {
         } else {
             "Entity Shadows: OFF"
         };
+        let chunk_builders_label = if self.low_chunk_builders {
+            "Chunk Builders: Low"
+        } else {
+            "Chunk Builders: Max"
+        };
         let (blur_label, blur_frac) = self.menu_background_blur_slider();
         let brightness = brightness_label(self.brightness);
         let rows: Vec<OptRow> = vec![
@@ -327,7 +332,7 @@ impl MainMenu {
             // TODO: static stub, not wired (see mesher::enqueue).
             OptRow::Pair("Prioritize Chunk Updates: None", &sd),
             OptRow::Pair("Smooth Lighting: ON", &clouds_label),
-            OptRow::PairLeft(&cd),
+            OptRow::Pair(&cd, chunk_builders_label),
             OptRow::Pair("Particles: All", "Mipmap Levels: 4"),
             OptRow::Pair(entity_shadows_label, "Entity Distance: 100%"),
             OptRow::Pair(&blur_label, "Cloud Range: 128"),
@@ -1492,6 +1497,10 @@ impl MainMenu {
                         self.entity_shadows = !self.entity_shadows;
                         self.save_settings(key_bindings);
                     }
+                    if label.starts_with("Chunk Builders:") {
+                        self.low_chunk_builders = !self.low_chunk_builders;
+                        self.save_settings(key_bindings);
+                    }
                     if label.starts_with("Show Online Status:") {
                         self.show_online_status = !self.show_online_status;
                         self.save_settings(key_bindings);
@@ -2473,6 +2482,26 @@ mod tests {
         MenuInput {
             tab: true,
             ..Default::default()
+        }
+    }
+
+    #[test]
+    fn chunk_builders_toggles_between_max_and_low_and_saves() {
+        let dir =
+            std::env::temp_dir().join(format!("pomme-chunk-builders-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&dir).unwrap();
+        let _cleanup = scopeguard::guard((), |_| {
+            let _ = std::fs::remove_dir_all(&dir);
+        });
+        let mut grid = Grid::new("Chunk Builders: Max", "Other");
+        grid.menu.settings_dir = dir.clone();
+        for low in [true, false] {
+            assert!(grid.frame(&click(300.0)).clicked_button);
+            assert_eq!(grid.menu.low_chunk_builders, low);
+            let saved: Settings =
+                serde_json::from_str(&std::fs::read_to_string(dir.join("options.json")).unwrap())
+                    .unwrap();
+            assert_eq!(saved.low_chunk_builders, low);
         }
     }
 

@@ -804,6 +804,9 @@ impl BufferPool {
     }
 }
 
+/// Mesher threads the Chunk Builders option's Low setting keeps working.
+pub const LOW_CHUNK_BUILDERS: usize = 2;
+
 pub struct MeshDispatcher {
     result_rx: crossbeam_channel::Receiver<ChunkMeshData>,
     result_tx: crossbeam_channel::Sender<ChunkMeshData>,
@@ -836,6 +839,14 @@ pub struct MeshDispatcher {
 }
 
 impl MeshDispatcher {
+    /// The Chunk Builders option: `low` meshes on [`LOW_CHUNK_BUILDERS`]
+    /// threads, so a load burst takes a fraction of the CPU (chunks fill in
+    /// slower); otherwise on every worker (half the cores).
+    pub fn set_low_chunk_builders(&self, low: bool) {
+        self.queue
+            .set_active(if low { LOW_CHUNK_BUILDERS } else { usize::MAX });
+    }
+
     /// [`Self::new`] with the grass, foliage and dry-foliage colormaps loaded
     /// from the assets (and resource packs).
     #[allow(clippy::too_many_arguments)]
@@ -912,7 +923,7 @@ impl MeshDispatcher {
             .map(|n| (n.get() / 2).clamp(2, 16))
             .unwrap_or(2);
         let mut workers = Vec::with_capacity(worker_count);
-        for _ in 0..worker_count {
+        for index in 0..worker_count {
             let queue = Arc::clone(&queue);
             let claimed = Arc::clone(&claimed);
             workers.push(
@@ -920,7 +931,7 @@ impl MeshDispatcher {
                     .name("chunk-mesher".into())
                     .spawn(move || {
                         lower_current_thread_priority();
-                        queue.run_worker(&claimed)
+                        queue.run_worker(index, &claimed)
                     })
                     .expect("spawn chunk-mesher thread"),
             );
@@ -1325,6 +1336,9 @@ struct MeshQueue {
     published: AtomicU64,
     available: Condvar,
     closed: AtomicBool,
+    /// How many workers may mesh (the Chunk Builders option); the rest
+    /// sleep until it rises.
+    active: AtomicUsize,
 }
 
 impl MeshQueue {
@@ -1337,7 +1351,20 @@ impl MeshQueue {
             published: AtomicU64::new(0),
             available: Condvar::new(),
             closed: AtomicBool::new(false),
+            active: AtomicUsize::new(usize::MAX),
         }
+    }
+
+    /// Lets the first `count` workers mesh; a raised limit wakes the rest.
+    fn set_active(&self, count: usize) {
+        let count = count.max(1);
+        if self.active.swap(count, Ordering::AcqRel) == count {
+            return;
+        }
+        // Under the lock, so a worker between its check and its wait sees it.
+        let guard = self.batch.lock().unwrap();
+        drop(guard);
+        self.available.notify_all();
     }
 
     fn publish(&self, jobs: Vec<Arc<PendingJob>>) {
@@ -1363,8 +1390,9 @@ impl MeshQueue {
         self.available.notify_all();
     }
 
-    fn run_worker(&self, claimed: &ChunkRing<AtomicU64>) {
+    fn run_worker(&self, index: usize, claimed: &ChunkRing<AtomicU64>) {
         let mut seen = u64::MAX;
+        let enabled = || index < self.active.load(Ordering::Acquire);
         loop {
             let batch = {
                 let mut current = self.batch.lock().unwrap();
@@ -1373,7 +1401,7 @@ impl MeshQueue {
                         return;
                     }
                     let published = self.published.load(Ordering::Acquire);
-                    if published != seen || !current.exhausted() {
+                    if enabled() && (published != seen || !current.exhausted()) {
                         seen = published;
                         break Arc::clone(&current);
                     }
@@ -1381,6 +1409,7 @@ impl MeshQueue {
                 }
             };
             while self.published.load(Ordering::Acquire) == seen
+                && enabled()
                 && let Some(job) = batch.take()
             {
                 // Each generation meshes once: the first worker to raise the

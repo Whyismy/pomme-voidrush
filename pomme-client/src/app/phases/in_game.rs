@@ -4778,6 +4778,8 @@ pub fn update_game(
         )
     };
 
+    game.mesh_dispatcher
+        .set_low_chunk_builders(core.menu.low_chunk_builders);
     for (key, profile) in gfx.renderer.take_wanted_head_skins() {
         core.queue_profile_skin(key, &profile);
     }

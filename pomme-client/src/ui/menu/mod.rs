@@ -65,6 +65,9 @@ struct Settings {
     vignette: bool,
     #[serde(default = "default_true")]
     entity_shadows: bool,
+    /// Chunk Builders: Low (two mesher threads) instead of Max.
+    #[serde(default)]
+    low_chunk_builders: bool,
     #[serde(default = "default_true")]
     show_autosave_indicator: bool,
     #[serde(default = "default_true")]
@@ -241,6 +244,7 @@ impl Default for Settings {
             show_autosave_indicator: true,
             vignette: true,
             entity_shadows: true,
+            low_chunk_builders: false,
             vsync: true,
             max_framerate: 120,
             framerate_to_800: true,
@@ -758,6 +762,7 @@ pub struct MainMenu {
     pub show_autosave_indicator: bool,
     pub vignette: bool,
     pub entity_shadows: bool,
+    pub low_chunk_builders: bool,
     pub vsync: bool,
     pub max_framerate: u32,
     pub show_online_status: bool,
@@ -920,6 +925,7 @@ impl MainMenu {
             show_autosave_indicator: settings.show_autosave_indicator,
             vignette: settings.vignette,
             entity_shadows: settings.entity_shadows,
+            low_chunk_builders: settings.low_chunk_builders,
             vsync: settings.vsync,
             max_framerate: settings.max_framerate,
             show_online_status: settings.show_online_status,
@@ -1167,6 +1173,7 @@ impl MainMenu {
                 show_autosave_indicator: self.show_autosave_indicator,
                 vignette: self.vignette,
                 entity_shadows: self.entity_shadows,
+                low_chunk_builders: self.low_chunk_builders,
                 vsync: self.vsync,
                 max_framerate: self.max_framerate,
                 framerate_to_800: true,

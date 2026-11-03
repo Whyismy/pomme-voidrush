@@ -1,0 +1,50 @@
+# Chunk Builders: a load burst (teleports into unloaded terrain) meshes on
+# every worker at Max, on two at Low. Run with a CPU sampler watching the
+# client's chunk-mesher threads; the scene itself checks the world loads
+# either way.
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/gamemode spectator"
+
+[[step]]
+option = { low_chunk_builders = false }
+
+[[step]]
+chat = "/tp @s 5000 -40 5000"
+
+[[step]]
+wait_ms = 6000
+
+[[step]]
+chat = "/tp @s 10000 -40 10000"
+
+[[step]]
+wait_ms = 6000
+
+[[step]]
+option = { low_chunk_builders = true }
+
+[[step]]
+chat = "/tp @s -5000 -40 -5000"
+
+[[step]]
+wait_ms = 6000
+
+[[step]]
+chat = "/tp @s -10000 -40 -10000"
+
+[[step]]
+wait_ms = 6000
+
+[[step]]
+expect = { terrain = "settled" }
+timeout_ms = 30000
+
+[[step]]
+option = { low_chunk_builders = false }
