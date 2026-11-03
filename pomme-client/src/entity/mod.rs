@@ -915,6 +915,12 @@ pub struct LivingEntity {
     pub no_ai: bool,
     /// Creeper charged/powered flag — shows the blue aura overlay.
     pub powered: bool,
+    /// A creeper's fuse (vanilla `Creeper.swell`, ticked on the client from
+    /// `DATA_SWELL_DIR` and `DATA_IS_IGNITED`) and last tick's.
+    pub creeper_swell: i32,
+    pub prev_creeper_swell: i32,
+    pub creeper_swell_dir: i32,
+    pub creeper_ignited: bool,
     /// Arm-swing animation timer, counts down from `SWING_DURATION` to 0
     /// (driven by the server `Animate` packet). Drives the zombie attack
     /// swing.
@@ -959,6 +965,16 @@ pub(crate) fn baby_dimensions(kind: EntityKind, width: f32, height: f32) -> (f32
 /// this, so a wrong height sinks or floats the whole rig.
 // TODO: the other `passengerAttachments` overrides and the horizontal and
 // multi-seat ones (camels, boats, minecarts).
+/// Vanilla `Creeper.maxSwell` (its `Fuse`, which clients don't get).
+pub const CREEPER_MAX_SWELL: i32 = 30;
+
+/// Vanilla `Creeper.getSwelling`: how far along the fuse is, 0 to about 1.07.
+pub fn creeper_swelling(entity: &LivingEntity, partial_tick: f32) -> f32 {
+    let swell = entity.prev_creeper_swell as f32
+        + (entity.creeper_swell - entity.prev_creeper_swell) as f32 * partial_tick;
+    swell / (CREEPER_MAX_SWELL - 2) as f32
+}
+
 pub fn passenger_attachment_height(entity: &LivingEntity) -> f64 {
     let dims = living_entity_dimensions(entity);
     let scale = entity_scale(entity);
@@ -1192,6 +1208,10 @@ impl LivingEntity {
             aggressive: false,
             no_ai: false,
             powered: false,
+            creeper_swell: 0,
+            prev_creeper_swell: 0,
+            creeper_swell_dir: -1,
+            creeper_ignited: false,
             swing_time: 0,
             flapping: 1.0,
             target_squish: 0.0,
@@ -2161,7 +2181,9 @@ impl EntityStore {
                 entity.wool_color = Some(w & 0x0F);
                 entity.is_sheared = w & 0x10 != 0;
             }
+            (EntityKind::Creeper, 16, Int(dir)) => entity.creeper_swell_dir = dir,
             (EntityKind::Creeper, 17, Bool(b)) => entity.powered = b,
+            (EntityKind::Creeper, 18, Bool(b)) => entity.creeper_ignited = b,
             (EntityKind::Enderman, 17, Bool(b)) => entity.is_creepy = b,
             // Zombie-family underwater conversion / zombie villager curing.
             (EntityKind::Zombie | EntityKind::Husk | EntityKind::Drowned, 18, Bool(b))
@@ -2490,6 +2512,16 @@ impl EntityStore {
         let thundering = self.thundering;
         for (&id, entity) in &mut self.living {
             entity.tick_interpolation();
+            // `Creeper.tick` (the client's half): the fuse runs while the
+            // creeper's swelling, the server ignites it.
+            if entity.entity_type == EntityKind::Creeper && entity.health > 0.0 {
+                entity.prev_creeper_swell = entity.creeper_swell;
+                if entity.creeper_ignited {
+                    entity.creeper_swell_dir = 1;
+                }
+                entity.creeper_swell =
+                    (entity.creeper_swell + entity.creeper_swell_dir).clamp(0, CREEPER_MAX_SWELL);
+            }
             // A scared armadillo's body control skips its client tick.
             if !(entity.entity_type == EntityKind::Armadillo && entity.armadillo.is_scared()) {
                 entity.tick_body_rotation();

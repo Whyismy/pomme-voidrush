@@ -1,0 +1,61 @@
+# A sealed room underground, lit only by lanterns (hanging and standing):
+# their block light reaches the walls, as Void Rush's mines need.
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/time set 18000"
+
+[[step]]
+chat = "/gamemode spectator"
+
+[[step]]
+chat = "/tp @s 500.5 -60 500.5"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+chat = "/fill 490 -64 490 510 -50 510 minecraft:stone"
+
+[[step]]
+chat = "/fill 494 -60 494 506 -55 506 minecraft:air"
+
+[[step]]
+chat = "/setblock 500 -55 503 minecraft:iron_chain"
+
+[[step]]
+chat = "/setblock 500 -56 503 minecraft:lantern[hanging=true]"
+
+[[step]]
+chat = "/setblock 497 -60 502 minecraft:lantern"
+
+[[step]]
+chat = "/tp @s 500.5 -58.5 495.5 0 10"
+
+[[step]]
+wait_ms = 4000
+
+[[step]]
+screenshot = "mine"
+
+# Far enough away that the chunks unload, then back: the lanterns' light
+# now comes in the chunk packets.
+[[step]]
+chat = "/tp @s 2500.5 -50 2500.5"
+
+[[step]]
+wait_ms = 5000
+
+[[step]]
+chat = "/tp @s 500.5 -58.5 495.5 0 10"
+
+[[step]]
+wait_ms = 5000
+
+[[step]]
+screenshot = "mine_reloaded"

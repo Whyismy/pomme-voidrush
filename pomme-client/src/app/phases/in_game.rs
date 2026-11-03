@@ -4341,6 +4341,18 @@ pub fn update_game(
                     head_y_offset: extras.head_y_offset,
                     head_x_rot_deg_override: extras.head_x_rot_deg_override,
                     has_red_overlay: has_red_overlay(e.hurt_time, e.death_time),
+                    // `CreeperRenderer.getWhiteOverlayProgress`: every other
+                    // tenth of the fuse flashes white.
+                    white_overlay: if e.entity_type == EntityKind::Creeper {
+                        let swelling = crate::entity::creeper_swelling(e, partial_tick);
+                        if (swelling * 10.0) as i32 % 2 == 0 {
+                            0.0
+                        } else {
+                            swelling.clamp(0.5, 1.0)
+                        }
+                    } else {
+                        0.0
+                    },
                     // The dragon dies hovering, not falling over.
                     death_time: if e.entity_type == EntityKind::EnderDragon {
                         0.0
@@ -5355,6 +5367,7 @@ fn emit_item_copies(
             tints: tints.clone(),
             model_matrix: base * copy_offset * ground_transform,
             light,
+            white_flash: false,
         });
     };
 
@@ -5654,6 +5667,7 @@ fn build_display_renders(
                     tints,
                     model_matrix,
                     light,
+                    white_flash: false,
                 });
             }
             DisplayKind::Item => {
@@ -5753,6 +5767,7 @@ fn build_display_renders(
                     tints: cached.tints.clone(),
                     model_matrix,
                     light,
+                    white_flash: false,
                 });
             }
             DisplayKind::Text => {
@@ -5827,13 +5842,14 @@ fn build_falling_blocks(
         };
         // The baked meshes are centred on the block.
         let centre = *feet + glam::DVec3::Y * 0.5;
-        // `TntRenderer`: primed TNT swells over its last 10 ticks.
-        // TODO: its white flash every 5 ticks (`renderWhiteSolidBlock`).
-        let swell = block.fuse.map_or(1.0, |fuse| {
-            let left = fuse as f32 - partial_tick + 1.0;
+        // `TntRenderer`: primed TNT swells over its last 10 ticks, and
+        // flashes white for five ticks in every ten (`isLit`).
+        let left = block.fuse.map(|fuse| fuse as f32 - partial_tick + 1.0);
+        let swell = left.map_or(1.0, |left| {
             let g = (1.0 - left / 10.0).clamp(0.0, 1.0).powi(4);
             1.0 + g * 0.3
         });
+        let white_flash = left.is_some_and(|left| left >= 0.0 && (left / 5.0) as i32 % 2 == 0);
         out.push(ItemRenderInfo {
             item_name,
             outline_color: None,
@@ -5847,6 +5863,7 @@ fn build_falling_blocks(
                 false,
                 0,
             ),
+            white_flash,
         });
     }
 }
@@ -5924,6 +5941,7 @@ fn build_held_items(
                 tints,
                 model_matrix,
                 light: info.light,
+                white_flash: false,
             });
         }
         // Vanilla `CustomHeadLayer`: a worn item that isn't armour (with an
@@ -5970,6 +5988,7 @@ fn build_held_items(
                 * glam::Mat4::from_scale(glam::Vec3::new(0.625, -0.625, -0.625))
                 * transform,
             light: info.light,
+            white_flash: false,
         });
     }
 }
@@ -6024,6 +6043,7 @@ fn build_thrown_items(
                 * facing
                 * ground,
             light: entity_light(world_light, item.kind, position, false, 0),
+            white_flash: false,
         });
     }
 }
@@ -6682,11 +6702,25 @@ fn entity_extras(
             hop_elapsed_secs: e.hop_anim_start.map(|s| anim_clock_secs(e, s, alpha)),
             ..Default::default()
         },
-        // Charged-creeper aura overlay (slot 0) only when powered.
-        EntityKind::Creeper if e.powered => EntityExtras {
-            overlay_tints: SLOT0_TINTS,
-            ..Default::default()
-        },
+        // `CreeperRenderer.scale`: a swelling creeper fattens with a
+        // shudder; its charged aura (slot 0) shows only when powered.
+        EntityKind::Creeper => {
+            let swelling = crate::entity::creeper_swelling(e, alpha);
+            let wobble = 1.0 + (swelling * 100.0).sin() * swelling * 0.01;
+            let g = swelling.clamp(0.0, 1.0).powi(4);
+            let wide = (1.0 + g * 0.4) * wobble;
+            let tall = (1.0 + g * 0.1) / wobble;
+            EntityExtras {
+                overlay_tints: if e.powered {
+                    SLOT0_TINTS
+                } else {
+                    Default::default()
+                },
+                body_transform: (swelling > 0.0)
+                    .then(|| glam::Mat4::from_scale(glam::Vec3::new(wide, tall, wide))),
+                ..Default::default()
+            }
+        }
         _ => EntityExtras::default(),
     }
 }

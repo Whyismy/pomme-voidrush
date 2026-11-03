@@ -1,0 +1,53 @@
+# The lantern-lit room in a world with no skylight (the Nether): block light
+# alone lights it, from the server's chunk light and the client's own.
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/gamemode spectator"
+
+[[step]]
+chat = "/execute in minecraft:the_nether run tp @s 500.5 60 500.5"
+
+[[step]]
+wait_ms = 3000
+
+[[step]]
+chat = "/fill 490 52 490 510 66 510 minecraft:netherrack"
+
+[[step]]
+chat = "/fill 494 56 494 506 61 506 minecraft:air"
+
+[[step]]
+chat = "/setblock 500 60 503 minecraft:lantern[hanging=true]"
+
+[[step]]
+chat = "/setblock 497 56 502 minecraft:lantern"
+
+[[step]]
+chat = "/tp @s 500.5 57.5 495.5 0 10"
+
+[[step]]
+wait_ms = 4000
+
+[[step]]
+screenshot = "nether_mine"
+
+[[step]]
+chat = "/tp @s 2500.5 80 2500.5"
+
+[[step]]
+wait_ms = 5000
+
+[[step]]
+chat = "/tp @s 500.5 57.5 495.5 0 10"
+
+[[step]]
+wait_ms = 5000
+
+[[step]]
+screenshot = "nether_mine_reloaded"

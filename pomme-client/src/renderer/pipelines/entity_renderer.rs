@@ -196,6 +196,9 @@ pub struct EntityRenderInfo {
     pub head_y_offset: f32,
     pub head_x_rot_deg_override: Option<f32>,
     pub has_red_overlay: bool,
+    /// Vanilla `getWhiteOverlayProgress`: a swelling creeper's flash, 0 for
+    /// none.
+    pub white_overlay: f32,
     pub death_time: f32,
     /// Mob is targeting/attacking — raises zombie/skeleton arms.
     pub aggressive: bool,
@@ -321,6 +324,7 @@ impl Default for EntityRenderInfo {
             head_y_offset: 0.0,
             head_x_rot_deg_override: None,
             has_red_overlay: false,
+            white_overlay: 0.0,
             death_time: 0.0,
             aggressive: false,
             flap: 0.0,
@@ -4335,6 +4339,11 @@ fn collect_overlays<'a>(
 fn hurt_color(info: &EntityRenderInfo) -> [f32; 4] {
     if info.has_red_overlay {
         HURT_OVERLAY
+    } else if info.white_overlay > 0.0 {
+        // `OverlayTexture`'s white column `u`: the colour keeps
+        // 1 - u / 15 * 0.75 of itself.
+        let u = (info.white_overlay * 15.0) as i32 as f32;
+        [1.0, 1.0, 1.0, 1.0 - u / 15.0 * 0.75]
     } else {
         NO_OVERLAY
     }

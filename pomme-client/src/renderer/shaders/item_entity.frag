@@ -11,6 +11,7 @@ layout(location = 2) in vec4 v_tint;
 layout(location = 3) in float v_fog;
 layout(location = 4) in vec3 v_fog_color;
 layout(location = 5) flat in vec4 v_world_light;
+layout(location = 6) flat in float v_white;
 
 layout(location = 0) out vec4 out_color;
 
@@ -22,6 +23,9 @@ void main() {
     // vertex color directly. Decoding the tint a second time makes grayscale
     // tint-mask textures such as bush substantially too dark.
     vec4 tinted = color * v_tint;
+    // Vanilla's overlay: OverlayTexture's white at u = 1 keeps a quarter of
+    // the colour.
+    tinted.rgb = mix(tinted.rgb, vec3(1.0), 0.75 * v_white);
     tinted.rgb *= v_light;
     tinted *= v_world_light;
     tinted.rgb = apply_fog(tinted.rgb, v_fog, v_fog_color);

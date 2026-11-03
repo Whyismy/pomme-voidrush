@@ -45,7 +45,13 @@ pub struct ItemRenderInfo {
     pub tints: Arc<[u32]>,
     pub model_matrix: Mat4,
     pub light: LightLevels,
+    /// Vanilla's white overlay (`OverlayTexture.u(1)`): primed TNT's flash.
+    pub white_flash: bool,
 }
+
+/// The instance's outline-colour bit that asks for the white flash (the
+/// outline reads only the low 24).
+const WHITE_FLASH_BIT: u32 = 1 << 31;
 
 /// What the item-entity renderer needs to place a mesh: whether it baked from a
 /// 3D (block) model, plus its local-space bounding box used for the hover
@@ -677,7 +683,8 @@ impl ItemEntityPipeline {
                 Mat3::IDENTITY,
                 item.light.lane(),
                 &item.tints,
-                item.outline_color.unwrap_or(0),
+                item.outline_color.unwrap_or(0)
+                    | if item.white_flash { WHITE_FLASH_BIT } else { 0 },
             );
         }
 

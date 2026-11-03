@@ -25,6 +25,8 @@ layout(location = 2) out vec4 v_tint;
 layout(location = 3) out float v_fog;
 layout(location = 4) out vec3 v_fog_color;
 layout(location = 5) flat out vec4 v_world_light;
+// The white overlay (primed TNT's flash), from outline_color's top bit.
+layout(location = 6) flat out float v_white;
 
 void main() {
     vec4 world_pos = model * vec4(position, 1.0);
@@ -41,4 +43,5 @@ void main() {
     v_fog = total_fog_value(rel, fog_env, camera_pos.w, fog_color.w);
     v_fog_color = fog_color.rgb;
     v_world_light = light_lane_color(instance_light);
+    v_white = float(outline_color >> 31);
 }
