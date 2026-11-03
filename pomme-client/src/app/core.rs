@@ -3990,6 +3990,19 @@ impl AppCore {
         }
         let dx = game.player.position.x - game.player.prev_position.x;
         let dz = game.player.position.z - game.player.prev_position.z;
+        game.player_prev_body_y_rot = game.player_body_y_rot;
+        game.player_body_y_rot = match game.riding_vehicle().map(|v| v.body_y_rot_deg) {
+            // `AbstractHorse.positionRider` (and other living vehicles):
+            // the rider's body faces the way its mount does.
+            Some(vehicle_body) => vehicle_body,
+            None => crate::player::body_turn(
+                game.player_body_y_rot,
+                game.player.look_dir.y_rot_deg(),
+                dx,
+                dz,
+                game.interaction.attack_anim() > 0.0,
+            ),
+        };
         crate::entity::update_walk_animation(
             dx,
             0.0,

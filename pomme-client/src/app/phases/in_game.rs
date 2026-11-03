@@ -180,6 +180,10 @@ pub struct GameState {
     /// The biome registry's names by id, built when a shader pack needs them.
     pack_biome_names: Arc<[String]>,
     pub player_walk_pos: f32,
+    /// Vanilla `yBodyRot` for the local player, and last tick's: the body
+    /// turns after where it walks, within 50 degrees of the head.
+    pub player_body_y_rot: f32,
+    pub player_prev_body_y_rot: f32,
     pub player_walk_speed: f32,
     pub player_prev_walk_speed: f32,
     pub mesh_dispatcher: MeshDispatcher,
@@ -559,6 +563,8 @@ impl GameState {
             biome_climate: Arc::new(HashMap::new()),
             pack_biome_names: Arc::default(),
             player_walk_pos: 0.0,
+            player_body_y_rot: 0.0,
+            player_prev_body_y_rot: 0.0,
             player_walk_speed: 0.0,
             player_prev_walk_speed: 0.0,
             mesh_dispatcher,
@@ -724,7 +730,7 @@ impl GameState {
 
     /// The ridden vehicle when it is living; the living-store lookup is
     /// vanilla's `instanceof LivingEntity` gate.
-    fn riding_vehicle(&self) -> Option<&crate::entity::LivingEntity> {
+    pub fn riding_vehicle(&self) -> Option<&crate::entity::LivingEntity> {
         self.riding_vehicle_id
             .and_then(|id| self.entity_store.living.get(&id))
     }
@@ -4656,7 +4662,11 @@ pub fn update_game(
                 game.player.is_sleeping(),
                 gfx.renderer.camera_look_dir().x_rot_deg(),
             ),
-            body_y_rot_deg: interp_y_rot_deg, // TODO: proper body rotation affected by collisions
+            body_y_rot_deg: lerp_angle(
+                game.player_prev_body_y_rot,
+                game.player_body_y_rot,
+                partial_tick,
+            ),
             is_sleeping: game.player.is_sleeping(),
             sleeping_direction,
             sleeping_eye_height: crate::player::STANDING_EYE_HEIGHT,

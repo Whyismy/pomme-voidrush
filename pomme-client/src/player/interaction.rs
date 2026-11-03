@@ -328,6 +328,11 @@ impl InteractionState {
 
     /// Vanilla `ItemInHandRenderer`'s attack value: `getAttackAnim` for the
     /// swinging arm's hand, 0 for the other.
+    /// Vanilla `LivingEntity.attackAnim`: above 0 while an arm swings.
+    pub fn attack_anim(&self) -> f32 {
+        self.attack_anim
+    }
+
     pub fn swing_progress(&self, hand: InteractionHand, partial_tick: f32) -> f32 {
         if hand != self.swinging_arm {
             return 0.0;

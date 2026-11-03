@@ -855,8 +855,49 @@ impl LocalPlayer {
     }
 }
 
+/// Vanilla `LivingEntity.tick`'s body turn and `tickHeadTurn`: the body
+/// turns after the way it walked this tick (`dx`, `dz`; away from it when
+/// walking backwards), or to the head mid-swing, three tenths of the way,
+/// and never more than 50 degrees from the head (`head_y_rot`).
+pub fn body_turn(body: f32, head_y_rot: f32, dx: f64, dz: f64, swinging: bool) -> f32 {
+    use crate::entity::wrap_degrees;
+    let mut target = body;
+    if (dx * dx + dz * dz) as f32 > 0.002_500_000_2 {
+        let walk = (dz.atan2(dx) as f32).to_degrees() - 90.0;
+        let off = (wrap_degrees(head_y_rot) - walk).abs();
+        target = if 95.0 < off && off < 265.0 {
+            walk - 180.0
+        } else {
+            walk
+        };
+    }
+    if swinging {
+        target = head_y_rot;
+    }
+    let mut body = body + wrap_degrees(target - body) * 0.3;
+    let lead = wrap_degrees(head_y_rot - body);
+    if lead.abs() > 50.0 {
+        body += lead - lead.signum() * 50.0;
+    }
+    body
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_body_turns_after_the_walk_within_50_degrees_of_the_head() {
+        use super::body_turn;
+        // Standing still with the head turned 90: dragged to 50 behind it.
+        assert!((body_turn(0.0, 90.0, 0.0, 0.0, false) - 40.0).abs() < 1.0e-4);
+        // Walking south (+z, yaw 0) facing south: eases three tenths of the
+        // way from 20 to 0.
+        assert!((body_turn(20.0, 0.0, 0.0, 0.2, false) - 14.0).abs() < 1.0e-4);
+        // Walking backwards (north) while facing south: still faces south.
+        assert!(body_turn(10.0, 0.0, 0.0, -0.2, false).abs() < 7.0 + 1.0e-4);
+        // Mid-swing it turns toward the head.
+        assert!((body_turn(0.0, 30.0, 0.0, 0.0, true) - 9.0).abs() < 1.0e-4);
+    }
+
     use super::*;
 
     #[test]
