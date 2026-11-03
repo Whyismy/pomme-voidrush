@@ -1724,6 +1724,9 @@ pub struct ItemEntity {
     pub is_glowing: bool,
     velocity: DVec3,
     on_ground: bool,
+    /// `Entity.DATA_NO_GRAVITY`: Void Rush floats its drops and moves them
+    /// itself.
+    no_gravity: bool,
     /// Server-authoritative position, tracked from move/teleport packets.
     server_pos: Position,
 }
@@ -1795,6 +1798,7 @@ impl ItemEntityStore {
                 is_glowing: false,
                 velocity,
                 on_ground: false,
+                no_gravity: false,
                 server_pos: position,
             },
         );
@@ -1829,6 +1833,12 @@ impl ItemEntityStore {
     /// snap to it. Items have no interpolation handler in vanilla
     /// (`moveOrInterpolateTo` -> `setPos`); local physics predicts between
     /// packets and `prev_position` smooths the render lerp.
+    pub fn set_no_gravity(&mut self, id: i32, no_gravity: bool) {
+        if let Some(entity) = self.items.get_mut(&id) {
+            entity.no_gravity = no_gravity;
+        }
+    }
+
     pub fn move_delta(&mut self, id: i32, dx: f64, dy: f64, dz: f64, on_ground: bool) {
         if let Some(entity) = self.items.get_mut(&id) {
             entity.server_pos += DVec3::new(dx, dy, dz);
@@ -1985,7 +1995,8 @@ fn tick_item_physics(
     match fluid.kind {
         FluidKind::Water if fluid_height > 0.1 => apply_item_fluid_movement(entity, 0.99),
         FluidKind::Lava if fluid_height > 0.1 => apply_item_fluid_movement(entity, 0.95),
-        _ => entity.velocity.y -= ITEM_GRAVITY,
+        _ if !entity.no_gravity => entity.velocity.y -= ITEM_GRAVITY,
+        _ => {}
     }
 
     // Vanilla rest throttle: a settled item only re-runs collision every

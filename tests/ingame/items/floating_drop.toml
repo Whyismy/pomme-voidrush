@@ -1,0 +1,36 @@
+# Dropped items with no gravity (Void Rush floats its drops and moves them
+# itself) stay where the server puts them: one hanging in the air, one
+# resting on the ground, beside an ordinary drop.
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/gamemode spectator"
+
+[[step]]
+chat = "/kill @e[type=item]"
+
+[[step]]
+chat = "/summon minecraft:item 360.5 -58.5 365.5 {NoGravity:1b,PickupDelay:32767,Age:-32768,Item:{id:\"minecraft:diamond_sword\",count:1}}"
+
+[[step]]
+chat = "/summon minecraft:item 362.5 -60 365.5 {NoGravity:1b,PickupDelay:32767,Age:-32768,Item:{id:\"minecraft:potion\",count:1}}"
+
+[[step]]
+chat = "/summon minecraft:item 364.5 -60 365.5 {PickupDelay:32767,Age:-32768,Item:{id:\"minecraft:leather_chestplate\",count:1}}"
+
+[[step]]
+chat = "/tp @s 362.5 -58.5 361.5 0 20"
+
+[[step]]
+wait_ms = 11000
+
+[[step]]
+screenshot = "floating"

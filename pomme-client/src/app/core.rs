@@ -2984,6 +2984,7 @@ impl AppCore {
                     {
                         game.falling_blocks.set_no_gravity(id, no_gravity);
                         game.thrown_items.set_no_gravity(id, no_gravity);
+                        game.item_entity_store.set_no_gravity(id, no_gravity);
                     }
                     if index == 8
                         && let crate::entity::MetaValue::Int(fuse) = value
