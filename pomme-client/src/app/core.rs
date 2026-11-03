@@ -2696,6 +2696,9 @@ impl AppCore {
                     if entity_type == azalea_registry::builtin::EntityKind::EndCrystal {
                         game.end_crystals.spawn(id, position);
                     }
+                    if crate::entity::thrown_item::is_thrown_item(entity_type) {
+                        game.thrown_items.spawn(id, entity_type, position, velocity);
+                    }
                     game.silent_entities.remove(&id);
                     if crate::entity::is_living_mob(&entity_type) {
                         game.entity_store.spawn_living(
@@ -2734,6 +2737,7 @@ impl AppCore {
                     game.entity_store
                         .move_living_delta(id, dx, dy, dz, on_ground);
                     game.item_entity_store.move_delta(id, dx, dy, dz, on_ground);
+                    game.thrown_items.move_delta(id, dvec3(dx, dy, dz));
                     game.falling_blocks
                         .move_delta(id, dvec3(dx, dy, dz), on_ground);
                     game.interactions.move_delta(id, dvec3(dx, dy, dz));
@@ -2758,6 +2762,7 @@ impl AppCore {
                     game.entity_store
                         .rotate_living(id, y_rot_deg, x_rot_deg, on_ground);
                     game.item_entity_store.move_delta(id, dx, dy, dz, on_ground);
+                    game.thrown_items.move_delta(id, dvec3(dx, dy, dz));
                     game.falling_blocks
                         .move_delta(id, dvec3(dx, dy, dz), on_ground);
                     game.interactions.move_delta(id, dvec3(dx, dy, dz));
@@ -2789,6 +2794,7 @@ impl AppCore {
                     } else {
                         game.item_entity_store.set_motion(id, velocity);
                         game.falling_blocks.set_motion(id, velocity);
+                        game.thrown_items.set_motion(id, velocity);
                         game.entity_store.set_living_motion(id, velocity);
                     }
                 }
@@ -2815,6 +2821,10 @@ impl AppCore {
                     game.falling_blocks.teleport(id, position, velocity);
                     game.interactions.teleport(id, position);
                     game.end_crystals.teleport(id, position);
+                    game.thrown_items.teleport(id, position);
+                    if let Some(velocity) = velocity {
+                        game.thrown_items.set_motion(id, velocity);
+                    }
                     game.display_store
                         .teleport(id, *position, y_rot_deg, x_rot_deg);
                     game.entity_positions.insert(id, position);
@@ -2896,6 +2906,7 @@ impl AppCore {
                     game.falling_blocks.remove(&ids);
                     game.interactions.remove(&ids);
                     game.end_crystals.remove(&ids);
+                    game.thrown_items.remove(&ids);
                     game.display_store.remove(&ids);
                     game.name_store.remove(&ids);
                     if game.controlled_vehicle_id.is_some_and(|v| ids.contains(&v)) {
@@ -2923,6 +2934,7 @@ impl AppCore {
                     // case, an `item_model`), as the screens draw it.
                     let model = renderer.render_assets().stack_model_key(&item_name, &stack);
                     renderer.ensure_item_mesh(&model);
+                    game.thrown_items.set_item(id, model.clone(), stack.clone());
                     game.item_entity_store
                         .set_item_data(id, model, item_id, damage, count, stack);
                 }
@@ -2957,6 +2969,7 @@ impl AppCore {
                         && let crate::entity::MetaValue::Bool(no_gravity) = value
                     {
                         game.falling_blocks.set_no_gravity(id, no_gravity);
+                        game.thrown_items.set_no_gravity(id, no_gravity);
                     }
                     if index == 8
                         && let crate::entity::MetaValue::Int(fuse) = value
@@ -3258,6 +3271,7 @@ impl AppCore {
                     game.falling_blocks.clear();
                     game.interactions.clear();
                     game.end_crystals.clear();
+                    game.thrown_items.clear();
                     game.display_store.clear();
                     game.name_store.clear();
                     game.entity_positions.clear();

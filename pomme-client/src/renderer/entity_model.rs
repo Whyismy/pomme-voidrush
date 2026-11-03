@@ -8,7 +8,7 @@ mod axolotl;
 mod bee;
 mod copper_golem_anim;
 mod dolphin;
-mod exported;
+pub(crate) mod exported;
 pub(crate) mod exported_data;
 mod fox;
 mod goat;

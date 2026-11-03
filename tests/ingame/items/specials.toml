@@ -1,0 +1,50 @@
+# Special item models (vanilla's model layers): shields, a shulker box and a
+# trident in the hotbar, on fixed displays and dropped.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/clear @s"
+
+[[step]]
+chat = "/give @s minecraft:shield"
+
+[[step]]
+chat = "/give @s minecraft:red_shulker_box"
+
+[[step]]
+chat = "/give @s minecraft:trident"
+
+[[step]]
+chat = "/give @s minecraft:shulker_box"
+
+[[step]]
+chat = "/summon minecraft:item_display 178.5 -58.5 6.5 {Rotation:[180f,0f],item:{id:\"minecraft:shield\",count:1},item_display:\"fixed\"}"
+
+[[step]]
+chat = "/summon minecraft:item_display 180.5 -58.5 6.5 {Rotation:[180f,0f],item:{id:\"minecraft:red_shulker_box\",count:1},item_display:\"fixed\"}"
+
+[[step]]
+chat = "/summon minecraft:item_display 182.5 -58.5 6.5 {Rotation:[180f,0f],item:{id:\"minecraft:trident\",count:1},item_display:\"fixed\"}"
+
+[[step]]
+chat = "/summon minecraft:item 178.5 -60 3.5 {Item:{id:\"minecraft:shield\",count:1},PickupDelay:32767,Age:-32768}"
+
+[[step]]
+chat = "/summon minecraft:item 180.5 -60 3.5 {Item:{id:\"minecraft:red_shulker_box\",count:1},PickupDelay:32767,Age:-32768}"
+
+[[step]]
+chat = "/summon minecraft:item 182.5 -60 3.5 {Item:{id:\"minecraft:trident\",count:1},PickupDelay:32767,Age:-32768}"
+
+[[step]]
+chat = "/tp @s 180.5 -60 -0.5 0 15"
+
+[[step]]
+wait_ms = 4000
+
+[[step]]
+screenshot = "specials"

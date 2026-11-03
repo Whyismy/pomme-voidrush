@@ -8,6 +8,7 @@ use serde::Deserialize;
 use super::render_assets::{FaceTextures, Tint};
 use crate::assets::{AssetId, AssetIndex, resolve_asset_path_with_packs};
 use crate::renderer::chunk::mesher::Colormap;
+use crate::renderer::entity_model::exported_data;
 
 #[derive(Deserialize)]
 struct BlockstateFile {
@@ -911,17 +912,22 @@ pub fn bake_item_models(
     let mut gui_transforms: HashMap<String, DisplayTransform> = HashMap::new();
     let mut ground_transforms: HashMap<String, Mat4> = HashMap::new();
     let mut display_transforms: HashMap<String, DisplayTransforms> = HashMap::new();
-    // 26.1 moved the shield's textures into `entity/shield/`.
-    let shield_texture = [
+    // 26.1 moved the shield's and trident's textures into folders of their
+    // own; the jar says which layout it has.
+    let jar_texture = |candidates: [&'static str; 2]| {
+        candidates
+            .into_iter()
+            .find(|texture| {
+                let key = format!("minecraft/textures/{texture}.png");
+                resolve_asset_path_with_packs(jar_assets_dir, asset_index, &key, None).exists()
+            })
+            .unwrap_or(candidates[1])
+    };
+    let shield_texture = jar_texture([
         "entity/shield/shield_base_nopattern",
         "entity/shield_base_nopattern",
-    ]
-    .into_iter()
-    .find(|texture| {
-        let key = format!("minecraft/textures/{texture}.png");
-        resolve_asset_path_with_packs(jar_assets_dir, asset_index, &key, None).exists()
-    })
-    .unwrap_or("entity/shield_base_nopattern");
+    ]);
+    let trident_texture = jar_texture(["entity/trident/trident", "entity/trident"]);
     let mut tint_sources: HashMap<String, Vec<ItemTintSource>> = HashMap::new();
     let grass_colormap = Colormap::load(
         jar_assets_dir,
@@ -986,7 +992,7 @@ pub fn bake_item_models(
             // A generated flat item may have several layers. Vanilla assigns
             // tint index N to layerN, so keep every layer in order instead of
             // collapsing the item to layer0.
-            if parts.len() == 1 && !part.shield && resolved.elements.is_empty() {
+            if parts.len() == 1 && part.special.is_none() && resolved.elements.is_empty() {
                 let mut keys = Vec::new();
                 for layer in 0..5 {
                     let Some(value) = resolved.textures.get(&format!("layer{layer}")) else {
@@ -1004,10 +1010,20 @@ pub fn bake_item_models(
                 item_tints.extend(part_tints);
                 break;
             }
-            let baked = if part.shield {
-                Some(bake_shield_item_model(shield_texture))
-            } else {
-                bake_resolved_model(&resolved, 0, 0, Tint::None)
+            let baked = match &part.special {
+                Some(special) => {
+                    let (layer, texture) = match special {
+                        SpecialModel::Shield => (exported_data::SHIELD, shield_texture.to_owned()),
+                        SpecialModel::Trident => {
+                            (exported_data::TRIDENT, trident_texture.to_owned())
+                        }
+                        SpecialModel::ShulkerBox { texture } => {
+                            (exported_data::SHULKER_BOX, texture.clone())
+                        }
+                    };
+                    Some(bake_exported_item(layer, &texture))
+                }
+                None => bake_resolved_model(&resolved, 0, 0, Tint::None),
             };
             let Some(mut baked) = baked else {
                 continue;
@@ -1019,7 +1035,12 @@ pub fn bake_item_models(
                 }
             }
             item_tints.extend(part_tints);
-            if let Some(m) = part.transform {
+            // A special model's pose: the definition's own transformation
+            // (26.1 moved it there), else what its renderer applied itself.
+            let transform = part
+                .transform
+                .or_else(|| part.special.as_ref().map(SpecialModel::legacy_transform));
+            if let Some(m) = transform {
                 for quad in &mut baked.quads {
                     for p in &mut quad.positions {
                         *p = m.transform_point3(Vec3::from_array(*p)).to_array();
@@ -1221,40 +1242,95 @@ fn bake_chest_item_model(tex: &str, gui: DisplayTransform, gui_light: GuiLight) 
     }
 }
 
-/// Vanilla `ShieldSpecialRenderer` drawing `ShieldModel` (a 12x22 plate and
-/// its handle) in `entity/shield_base_nopattern`, turned by its
-/// `scale(1, -1, -1)` into the item model's space.
-// TODO: banner patterns (`shield_base` under the pattern layers) and the
-// base color.
-fn bake_shield_item_model(texture: &str) -> BakedModel {
+/// The special item models pomme draws (vanilla `SpecialModelRenderer`s),
+/// each from vanilla's own model layer.
+// TODO: banners (the flag's base colour and patterns as tinted layers) and
+// the shield's patterns.
+#[derive(Clone, Debug, PartialEq)]
+enum SpecialModel {
+    Shield,
+    Trident,
+    /// Its texture, `entity/shulker/<name>`.
+    ShulkerBox {
+        texture: String,
+    },
+}
+
+impl SpecialModel {
+    /// A `minecraft:special` node's model, if pomme draws it.
+    fn of(model: &serde_json::Value) -> Option<Self> {
+        match node_type(model)? {
+            "shield" => Some(Self::Shield),
+            "trident" => Some(Self::Trident),
+            "shulker_box" => {
+                let name = model
+                    .get("texture")
+                    .and_then(serde_json::Value::as_str)
+                    .map_or("shulker", strip_mc_prefix);
+                Some(Self::ShulkerBox {
+                    texture: format!("entity/shulker/{name}"),
+                })
+            }
+            _ => None,
+        }
+    }
+
+    /// What the renderer did to the model itself before 26.1 moved it into
+    /// the item definition's `transformation`, for definitions in the older
+    /// format (packs made for 1.21): `ShieldSpecialRenderer` and
+    /// `TridentSpecialRenderer` flip it, `ShulkerBoxRenderer` stands it in the
+    /// block, flipped, a hair inside.
+    fn legacy_transform(&self) -> Mat4 {
+        let flip = Mat4::from_scale(Vec3::new(1.0, -1.0, -1.0));
+        match self {
+            Self::Shield | Self::Trident => flip,
+            Self::ShulkerBox { .. } => {
+                Mat4::from_translation(Vec3::new(0.5, 1.4995, 0.5))
+                    * flip
+                    * Mat4::from_scale(Vec3::splat(0.9995))
+            }
+        }
+    }
+}
+
+/// A special model's geometry from vanilla's model layer, as its renderer
+/// draws it: each part through its `translateAndRotate` chain, in the item
+/// model's frame (blocks, y down as the layer is) before the special's own
+/// transform.
+fn bake_exported_item(
+    parts: &[crate::renderer::entity_model::exported::ExportedPart],
+    texture: &str,
+) -> BakedModel {
+    let mut matrices: Vec<Mat4> = Vec::with_capacity(parts.len());
     let mut quads = Vec::new();
-    // `ShieldModel.createLayer`: (texOffs, origin, size), in pixels.
-    for ((u, v), (x, y, z), (w, h, d)) in [
-        ((0.0, 0.0), (-6.0, -11.0, -2.0), (12.0, 22.0, 1.0)),
-        ((26.0, 0.0), (-1.0, -3.0, -1.0), (2.0, 6.0, 6.0)),
-    ] {
-        // The model's corners through the flip, in the block-model frame,
-        // whose x runs opposite the entity models' (as the chest's). Its
-        // origin is the item's corner: `ItemStackRenderState` translates by
-        // -0.5 before a special renderer too, and the shield's display
-        // transforms make up for it.
-        let at = |px: f32, sign: f32| sign * px / 16.0;
-        add_chest_cube(
-            &mut quads,
-            at(x, -1.0),
-            at(y, -1.0),
-            at(z, 1.0),
-            at(x + w, -1.0),
-            at(y + h, -1.0),
-            at(z + d, 1.0),
-            u,
-            v,
-            w,
-            h,
-            d,
-            texture,
-            [1.0; 6],
-        );
+    for part in parts {
+        let [x, y, z, x_rot, y_rot, z_rot, x_scale, y_scale, z_scale] = part.pose;
+        let local = Mat4::from_translation(Vec3::new(x, y, z) / 16.0)
+            * Mat4::from_euler(glam::EulerRot::ZYX, z_rot, y_rot, x_rot)
+            * Mat4::from_scale(Vec3::new(x_scale, y_scale, z_scale));
+        let matrix = match part.parent {
+            Some(parent) => matrices[usize::from(parent)] * local,
+            None => local,
+        };
+        matrices.push(matrix);
+        for quad in part.quads {
+            quads.push(BakedQuad {
+                positions: quad.corners.map(|corner| {
+                    matrix
+                        .transform_point3(Vec3::new(corner[0], corner[1], corner[2]) / 16.0)
+                        .to_array()
+                }),
+                uvs: quad.corners.map(|corner| [corner[3], corner[4]]),
+                texture: TextureId::intern(texture),
+                cullface: None,
+                tint: Tint::None,
+                tint_index: None,
+                shade_light: 1.0,
+                shade_face: None,
+                emission: 0,
+                ambient_occlusion: true,
+            });
+        }
     }
     BakedModel {
         quads,
@@ -1446,9 +1522,9 @@ struct ModelPart {
     path: String,
     transform: Option<Mat4>,
     tints: Vec<serde_json::Value>,
-    /// A special `shield` model: `path` is its `base`, which carries the
-    /// display transforms, and the mesh is [`bake_shield_item_model`]'s.
-    shield: bool,
+    /// A special model: `path` is its `base`, which carries the display
+    /// transforms, and the mesh is the special's ([`SpecialModel`]).
+    special: Option<SpecialModel>,
 }
 
 /// Model references to bake for one item. `minecraft:composite` contributes
@@ -1484,7 +1560,7 @@ fn node_model_parts_in(node: &serde_json::Value, gui: bool) -> Vec<ModelPart> {
                 .and_then(|value| value.as_array())
                 .cloned()
                 .unwrap_or_default(),
-            shield: false,
+            special: None,
         });
     } else if let Some(path) = first_model_ref(root) {
         // A special renderer's `base` carries its transforms but no tints.
@@ -1492,7 +1568,7 @@ fn node_model_parts_in(node: &serde_json::Value, gui: bool) -> Vec<ModelPart> {
             path,
             transform: None,
             tints: Vec::new(),
-            shield: false,
+            special: None,
         });
     }
     parts
@@ -1757,7 +1833,7 @@ fn collect_parts_from_node(
                         .and_then(|value| value.as_array())
                         .cloned()
                         .unwrap_or_default(),
-                    shield: false,
+                    special: None,
                 });
             }
         }
@@ -1768,17 +1844,15 @@ fn collect_parts_from_node(
                 collect_parts_from_node(branch, transform, parts);
             }
         }
-        Some("special")
-            if node
-                .get("model")
-                .is_some_and(|model| node_type(model) == Some("shield")) =>
-        {
-            if let Some(base) = node.get("base").and_then(|b| b.as_str()) {
+        Some("special") => {
+            if let Some(special) = node.get("model").and_then(SpecialModel::of)
+                && let Some(base) = node.get("base").and_then(|b| b.as_str())
+            {
                 parts.push(ModelPart {
                     path: strip_mc_prefix(base).to_string(),
                     transform,
                     tints: Vec::new(),
-                    shield: true,
+                    special: Some(special),
                 });
             }
         }
@@ -3419,10 +3493,10 @@ mod tests {
         assert_eq!(quads, 12);
         let close = |a: [f32; 3], b: [f32; 3]| a.iter().zip(b).all(|(a, b)| (a - b).abs() < 1e-5);
         assert!(
-            close(min, [-6.0 / 16.0, -11.0 / 16.0, -2.0 / 16.0]),
+            close(min, [-6.0 / 16.0, -11.0 / 16.0, -5.0 / 16.0]),
             "{min:?}"
         );
-        assert!(close(max, [6.0 / 16.0, 11.0 / 16.0, 5.0 / 16.0]), "{max:?}");
+        assert!(close(max, [6.0 / 16.0, 11.0 / 16.0, 2.0 / 16.0]), "{max:?}");
         let display = baked.display_transforms["shield"];
         assert_eq!(display[6].map(|t| t.scale), Some(Vec3::splat(0.65)));
         assert_eq!(
@@ -3433,6 +3507,102 @@ mod tests {
         let framed = custom_model_key("shield", "frame");
         assert_eq!(bounds(&framed).0, 13);
         assert_eq!(baked.display_transforms[&framed], display);
+    }
+
+    /// Audits a real pack against a real jar: every item definition the pack
+    /// overrides and every `custom_model_data` case (and its GUI variant)
+    /// must bake to something drawable, and every texture they draw must
+    /// exist. Run with `POMME_PACK_INSTANCE` (an instance dir whose
+    /// `resourcepacks/vr` is the unzipped pack) and `POMME_JAR_ASSETS`:
+    /// `cargo test -p pomme-client --lib pack_items_all_bake -- --ignored
+    /// --nocapture`.
+    #[test]
+    #[ignore = "needs a pack and a jar on disk"]
+    fn pack_items_all_bake() {
+        let env = |key: &str| std::path::PathBuf::from(std::env::var(key).expect(key));
+        let (instance, jar) = (env("POMME_PACK_INSTANCE"), env("POMME_JAR_ASSETS"));
+        let mut packs = crate::resource_pack::ResourcePackManager::new(&instance);
+        packs.enable_local_pack("vr");
+        let baked = bake_item_models(&jar, &None, Some(&packs));
+        let drawable = |key: &str| {
+            baked.models.get(key).is_some_and(|m| !m.quads.is_empty())
+                || baked
+                    .flat_texture_keys
+                    .get(key)
+                    .is_some_and(|layers| layers.iter().any(Option::is_some))
+        };
+        let mut checked = 0;
+        let mut undrawable = Vec::new();
+        for name in item_definition_names(&jar, Some(&packs)) {
+            let key = item_definition_asset_key(&name);
+            let Some(path) = packs.resolve_asset(&key) else {
+                continue;
+            };
+            let json: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+            let mut keys = vec![name.clone()];
+            if json.get("model").is_some_and(has_gui_variant) {
+                keys.push(gui_model_key(&name));
+            }
+            for (when, node) in custom_model_data_cases(&json) {
+                let case = custom_model_key(&name, when);
+                if has_gui_variant(node) {
+                    keys.push(gui_model_key(&case));
+                }
+                keys.push(case);
+            }
+            for key in keys {
+                checked += 1;
+                if !drawable(&key) {
+                    undrawable.push(key);
+                }
+            }
+        }
+        let texture_exists = |texture: &str| {
+            let key = crate::renderer::chunk::atlas::atlas_asset_path(texture);
+            crate::assets::resolve_asset_path_with_packs(&jar, &None, &key, Some(&packs)).exists()
+        };
+        let mut missing_textures: std::collections::BTreeMap<&str, Vec<String>> =
+            Default::default();
+        for (key, model) in &baked.models {
+            for quad in &model.quads {
+                let texture = quad.texture.name();
+                if !texture_exists(texture) {
+                    missing_textures
+                        .entry(texture)
+                        .or_default()
+                        .push(key.clone());
+                }
+            }
+        }
+        for (key, layers) in &baked.flat_texture_keys {
+            for texture in layers.iter().flatten() {
+                if !texture_exists(texture) {
+                    missing_textures
+                        .entry(texture.as_str())
+                        .or_default()
+                        .push(key.clone());
+                }
+            }
+        }
+        undrawable.sort();
+        println!(
+            "checked {checked} item keys; {} draw nothing:",
+            undrawable.len()
+        );
+        for key in &undrawable {
+            println!("  UNDRAWABLE {key}");
+        }
+        println!("{} textures missing:", missing_textures.len());
+        for (texture, keys) in &missing_textures {
+            let mut keys = keys.clone();
+            keys.sort();
+            keys.dedup();
+            println!(
+                "  MISSING {texture} (used by {})",
+                keys.iter().take(4).cloned().collect::<Vec<_>>().join(", ")
+            );
+        }
     }
 
     /// A `display_context` select (Void Rush's weapons): the 3D model bakes

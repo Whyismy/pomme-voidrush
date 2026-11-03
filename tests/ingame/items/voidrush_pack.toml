@@ -1,0 +1,108 @@
+# Void Rush pack gear: pack armour (equippable assets) on zombies, a baby and a
+# skeleton mage, staves and swords held and dropped, mage bolts in flight,
+# and the inventory icons.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/gamerule announce_advancements false"
+
+[[step]]
+chat = "/gamemode spectator @s"
+
+[[step]]
+chat = "/kill @e[type=!player]"
+
+[[step]]
+chat = "/summon minecraft:zombie 217.5 -60 6.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f],equipment:{head:{id:\"minecraft:diamond_helmet\",count:1,components:{\"minecraft:custom_model_data\":{strings:[\"elite_diamond_helmet\"]},\"minecraft:equippable\":{slot:\"head\",asset_id:\"voidrush:elite_diamond\"}}},chest:{id:\"minecraft:chainmail_chestplate\",count:1,components:{\"minecraft:custom_model_data\":{strings:[\"elite_chainmail_chestplate\"]},\"minecraft:equippable\":{slot:\"chest\",asset_id:\"voidrush:elite_chainmail\"}}},legs:{id:\"minecraft:iron_leggings\",count:1,components:{\"minecraft:custom_model_data\":{strings:[\"elite_iron_leggings\"]},\"minecraft:equippable\":{slot:\"legs\",asset_id:\"voidrush:elite_iron\"}}},feet:{id:\"minecraft:netherite_boots\",count:1,components:{\"minecraft:custom_model_data\":{strings:[\"elite_netherite_boots\"]},\"minecraft:equippable\":{slot:\"feet\",asset_id:\"voidrush:elite_netherite\"}}},mainhand:{id:\"minecraft:iron_sword\",count:1,components:{\"minecraft:custom_model_data\":{strings:[\"elite_sword_2\"]}}}}}"
+
+[[step]]
+chat = "/summon minecraft:zombie 220.5 -60 6.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f],equipment:{head:{id:\"minecraft:diamond_helmet\",count:1,components:{\"minecraft:custom_model_data\":{strings:[\"boss_diamond_helmet\"]},\"minecraft:equippable\":{slot:\"head\",asset_id:\"voidrush:boss_diamond\"}}},chest:{id:\"minecraft:chainmail_chestplate\",count:1,components:{\"minecraft:custom_model_data\":{strings:[\"boss_chainmail_chestplate\"]},\"minecraft:equippable\":{slot:\"chest\",asset_id:\"voidrush:boss_chainmail\"}}},legs:{id:\"minecraft:iron_leggings\",count:1,components:{\"minecraft:custom_model_data\":{strings:[\"boss_iron_leggings\"]},\"minecraft:equippable\":{slot:\"legs\",asset_id:\"voidrush:boss_iron\"}}},feet:{id:\"minecraft:netherite_boots\",count:1,components:{\"minecraft:custom_model_data\":{strings:[\"boss_netherite_boots\"]},\"minecraft:equippable\":{slot:\"feet\",asset_id:\"voidrush:boss_netherite\"}}},mainhand:{id:\"minecraft:iron_sword\",count:1,components:{\"minecraft:custom_model_data\":{strings:[\"elite_sword_3\"]}}}}}"
+
+[[step]]
+chat = "/summon minecraft:zombie 223.5 -60 6.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f],equipment:{head:{id:\"minecraft:diamond_helmet\",count:1,components:{\"minecraft:custom_model_data\":{strings:[\"void_diamond_helmet\"]},\"minecraft:equippable\":{slot:\"head\",asset_id:\"voidrush:void_diamond\"}}},chest:{id:\"minecraft:chainmail_chestplate\",count:1,components:{\"minecraft:custom_model_data\":{strings:[\"void_chainmail_chestplate\"]},\"minecraft:equippable\":{slot:\"chest\",asset_id:\"voidrush:void_chainmail\"}}},legs:{id:\"minecraft:iron_leggings\",count:1,components:{\"minecraft:custom_model_data\":{strings:[\"void_iron_leggings\"]},\"minecraft:equippable\":{slot:\"legs\",asset_id:\"voidrush:void_iron\"}}},feet:{id:\"minecraft:netherite_boots\",count:1,components:{\"minecraft:custom_model_data\":{strings:[\"void_netherite_boots\"]},\"minecraft:equippable\":{slot:\"feet\",asset_id:\"voidrush:void_netherite\"}}},mainhand:{id:\"minecraft:blaze_rod\",count:1,components:{\"minecraft:custom_model_data\":{strings:[\"elite_staff_5\"]}}}}}"
+
+[[step]]
+chat = "/summon minecraft:zombie 226.5 -60 6.5 {IsBaby:1b,NoAI:1b,Silent:1b,Rotation:[180f,0f],equipment:{head:{id:\"minecraft:diamond_helmet\",count:1,components:{\"minecraft:custom_model_data\":{strings:[\"boss_diamond_helmet\"]},\"minecraft:equippable\":{slot:\"head\",asset_id:\"voidrush:boss_diamond\"}}},chest:{id:\"minecraft:chainmail_chestplate\",count:1,components:{\"minecraft:custom_model_data\":{strings:[\"boss_chainmail_chestplate\"]},\"minecraft:equippable\":{slot:\"chest\",asset_id:\"voidrush:boss_chainmail\"}}},mainhand:{id:\"minecraft:stick\",count:1,components:{\"minecraft:custom_model_data\":{strings:[\"elite_staff_2\"]}}}}}"
+
+[[step]]
+chat = "/summon minecraft:skeleton 214.5 -60 6.5 {NoAI:1b,Silent:1b,Rotation:[180f,0f],equipment:{head:{id:\"minecraft:diamond_helmet\",count:1,components:{\"minecraft:custom_model_data\":{strings:[\"boss_diamond_helmet\"]},\"minecraft:equippable\":{slot:\"head\",asset_id:\"voidrush:boss_diamond\"}}},mainhand:{id:\"minecraft:blaze_rod\",count:1,components:{\"minecraft:custom_model_data\":{strings:[\"elite_staff_6\"]}}}}}"
+
+[[step]]
+chat = "/summon minecraft:snowball 217.5 -58 2.5 {NoGravity:1b,Item:{id:\"minecraft:snowball\",count:1,components:{\"minecraft:custom_model_data\":{strings:[\"bolt_1\"]}}}}"
+
+[[step]]
+chat = "/summon minecraft:snowball 219.5 -58 2.5 {NoGravity:1b,Item:{id:\"minecraft:snowball\",count:1,components:{\"minecraft:custom_model_data\":{strings:[\"elite_bolt_3\"]}}}}"
+
+[[step]]
+chat = "/summon minecraft:snowball 221.5 -58 2.5 {NoGravity:1b,Item:{id:\"minecraft:snowball\",count:1,components:{\"minecraft:custom_model_data\":{strings:[\"boss_bolt_4\"]}}}}"
+
+[[step]]
+chat = "/summon minecraft:snowball 223.5 -58 2.5 {NoGravity:1b,Item:{id:\"minecraft:snowball\",count:1,components:{\"minecraft:custom_model_data\":{strings:[\"void_bolt_6\"]}}}}"
+
+[[step]]
+chat = "/summon minecraft:item 217.5 -60 3.5 {Item:{id:\"minecraft:iron_sword\",count:1,components:{\"minecraft:custom_model_data\":{strings:[\"boss_sword_5\"]}}},PickupDelay:32767,Age:-32768}"
+
+[[step]]
+chat = "/summon minecraft:item 219.5 -60 3.5 {Item:{id:\"minecraft:blaze_rod\",count:1,components:{\"minecraft:custom_model_data\":{strings:[\"elite_staff_4\"]}}},PickupDelay:32767,Age:-32768}"
+
+[[step]]
+chat = "/summon minecraft:item 221.5 -60 3.5 {Item:{id:\"minecraft:bow\",count:1,components:{\"minecraft:custom_model_data\":{strings:[\"elite_bow_3\"]}}},PickupDelay:32767,Age:-32768}"
+
+[[step]]
+chat = "/summon minecraft:item 223.5 -60 3.5 {Item:{id:\"minecraft:diamond_helmet\",count:1,components:{\"minecraft:custom_model_data\":{strings:[\"boss_diamond_helmet\"]}}},PickupDelay:32767,Age:-32768}"
+
+[[step]]
+chat = "/clear @s"
+
+[[step]]
+chat = "/give @s minecraft:iron_sword[minecraft:custom_model_data={strings:[\"boss_sword_6\"]}]"
+
+[[step]]
+chat = "/give @s minecraft:blaze_rod[minecraft:custom_model_data={strings:[\"elite_staff_3\"]}]"
+
+[[step]]
+chat = "/give @s minecraft:bow[minecraft:custom_model_data={strings:[\"elite_bow_6\"]}]"
+
+[[step]]
+chat = "/give @s minecraft:chainmail_chestplate[minecraft:custom_model_data={strings:[\"void_chainmail_chestplate\"]}]"
+
+[[step]]
+chat = "/give @s minecraft:snowball[minecraft:custom_model_data={strings:[\"boss_bolt_2\"]}]"
+
+[[step]]
+chat = "/tp @s 220.5 -57.5 -4.5 0 25"
+
+[[step]]
+wait_ms = 12000
+
+[[step]]
+screenshot = "pack_gear"
+
+[[step]]
+chat = "/gamemode survival @s"
+
+[[step]]
+chat = "/effect give @s minecraft:resistance infinite 255 true"
+
+[[step]]
+chat = "/tp @s 220.5 -60 -2.5 0 10"
+
+[[step]]
+wait_ms = 11000
+
+[[step]]
+open_inventory = true
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "pack_inventory"

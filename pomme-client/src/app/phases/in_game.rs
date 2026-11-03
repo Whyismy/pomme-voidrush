@@ -354,6 +354,7 @@ pub struct GameState {
     /// found when their chunk loads and kept up as blocks change.
     pub end_portals: std::collections::HashSet<BlockPos>,
     pub end_crystals: crate::entity::end_crystal::EndCrystalStore,
+    pub thrown_items: crate::entity::thrown_item::ThrownItemStore,
     pub particle_store: crate::particle::ParticleStore,
     /// `WeatherEffectRenderer.rainSoundTime`: ticks since the last rain sound.
     pub rain_sound_time: i32,
@@ -534,6 +535,7 @@ impl GameState {
             interactions: Default::default(),
             end_portals: Default::default(),
             end_crystals: Default::default(),
+            thrown_items: Default::default(),
             rain_sound_time: 0,
             particle_store: {
                 let (grass, foliage, dry_foliage) = mesh_dispatcher.colormaps();
@@ -2687,6 +2689,7 @@ pub fn update_game(
         game.particle_store
             .tick(&game.chunk_store, game.block_registry.block_state_table());
         game.end_crystals.tick();
+        game.thrown_items.tick();
         game.block_entity_anim.tick();
         crate::app::core::tick_moving_pistons(game);
         game.title.tick();
@@ -4703,6 +4706,13 @@ pub fn update_game(
             &mut item_renders,
             core.input.selected_slot() as usize,
         );
+        build_thrown_items(
+            game,
+            &mut gfx.renderer,
+            &world_light,
+            partial_tick,
+            &mut item_renders,
+        );
     }
     if !benchmark_running {
         build_falling_blocks(
@@ -5801,6 +5811,60 @@ fn build_held_items(
                 light: info.light,
             });
         }
+    }
+}
+
+/// Vanilla `ThrownItemRenderer`: each projectile's item in its ground pose,
+/// scaled and turned to face the camera; not for its first two ticks while
+/// it's still at the thrower's eye.
+fn build_thrown_items(
+    game: &GameState,
+    renderer: &mut Renderer,
+    world_light: &crate::renderer::chunk::block_lighter::WorldLight<'_>,
+    partial_tick: f32,
+    out: &mut Vec<crate::renderer::pipelines::item_entity::ItemRenderInfo>,
+) {
+    use crate::entity::thrown_item::ThrownItem;
+    use crate::renderer::pipelines::item_entity::ItemRenderInfo;
+    let anchor = renderer.camera_anchor();
+    let eye = renderer.camera_render_position();
+    let (right, up) = renderer.billboard_axes();
+    let facing = glam::Mat4::from_cols(
+        right.extend(0.0),
+        up.extend(0.0),
+        right.cross(up).extend(0.0),
+        glam::Vec4::W,
+    );
+    for item in game.thrown_items.items.values() {
+        let position = item
+            .prev_position
+            .lerp(item.position, f64::from(partial_tick));
+        if item.age < 2 && (*position - eye).length_squared() < 12.25 {
+            continue;
+        }
+        let model = item
+            .model
+            .clone()
+            .unwrap_or_else(|| ThrownItem::default_item(item.kind).to_owned());
+        renderer.ensure_item_mesh(&model);
+        let ground = renderer
+            .render_assets()
+            .get_item_ground_transform(&model)
+            .unwrap_or_else(|| glam::Mat4::from_scale(glam::Vec3::splat(0.5)));
+        let tints: Arc<[u32]> = renderer
+            .render_assets()
+            .item_tint_palette(&model, item.stack.as_ref(), None)
+            .into();
+        out.push(ItemRenderInfo {
+            item_name: model.into(),
+            outline_color: None,
+            tints,
+            model_matrix: glam::Mat4::from_translation((*position - anchor).as_vec3())
+                * glam::Mat4::from_scale(glam::Vec3::splat(item.scale()))
+                * facing
+                * ground,
+            light: entity_light(world_light, item.kind, position, false, 0),
+        });
     }
 }
 

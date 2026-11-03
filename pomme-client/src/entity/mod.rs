@@ -10,6 +10,7 @@ pub mod interaction;
 pub mod light;
 pub mod name_tags;
 pub mod shadow;
+pub mod thrown_item;
 pub mod villager;
 
 use std::collections::HashMap;

@@ -1215,6 +1215,11 @@ impl Renderer {
             .set_hurt(hurt_time, hurt_dir, damage_tilt_strength);
     }
 
+    /// The camera-facing right and up axes (see `Camera::billboard_axes`).
+    pub fn billboard_axes(&self) -> (glam::Vec3, glam::Vec3) {
+        self.camera.billboard_axes()
+    }
+
     /// The block outline to draw this frame (see
     /// [`pipelines::hit_outline::HitOutlinePipeline::set_target`]).
     pub fn set_hit_outline(
