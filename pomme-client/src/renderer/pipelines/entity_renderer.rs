@@ -3325,6 +3325,7 @@ impl EntityRenderer {
                 info.walk_anim_pos,
                 info.walk_anim_speed,
                 info.is_crouching,
+                info.attack_time,
             ),
             AnimationType::Enderman => entity_model::compute_enderman_anim(
                 model,

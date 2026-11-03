@@ -1,0 +1,44 @@
+# Third person (F5): the camera four blocks behind the eye, framing the
+# player as vanilla does, and the player's own attack swing on its model.
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/gamemode creative"
+
+[[step]]
+chat = "/clear @s"
+
+[[step]]
+chat = "/give @s minecraft:diamond_sword"
+
+[[step]]
+chat = "/tp @s 420.5 -60 420.5 0 0"
+
+[[step]]
+press = { action = "key.togglePerspective" }
+
+[[step]]
+wait_ms = 11000
+
+[[step]]
+screenshot = "back"
+
+[[step]]
+mouse_down = "left"
+
+[[step]]
+wait_ms = 100
+
+[[step]]
+screenshot = "swing"
+
+[[step]]
+mouse_up = "left"

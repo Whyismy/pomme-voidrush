@@ -4618,6 +4618,9 @@ pub fn update_game(
                 .unwrap_or(1.0) as f32,
             has_red_overlay: has_red_overlay(game.player.hurt_time, game.player.death_time),
             death_time: render_death_time(game.player.death_time, partial_tick),
+            // Vanilla `attackTime`: the local swing shows on its own model
+            // in third person, as it does in first.
+            attack_time: swing_progress[0].max(swing_progress[1]),
             skip_cull: true,
             // Players drop their render offset before the shadow.
             shadow: ShadowCaster {

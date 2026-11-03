@@ -4001,6 +4001,7 @@ pub fn bake_witch_model() -> BakedEntityModel {
     bake_scaled(witch_parts(), VILLAGER_SCALE, 128)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn compute_humanoid_anim(
     model: &BakedEntityModel,
     head_x_rot_deg: f32,
@@ -4008,23 +4009,47 @@ pub fn compute_humanoid_anim(
     walk_pos: f32,
     walk_speed: f32,
     is_crouching: bool,
+    attack_time: f32,
 ) -> PartAnim {
+    use std::f32::consts::PI;
     let mut anim = PartAnim::default();
     let crouch_arm_rot = if is_crouching { 0.4 } else { 0.0 };
+    // Vanilla `HumanoidModel.setupAttackAnimation` (the right arm swinging):
+    // the body twists, the arms' pivots ride round with it, and the arm
+    // sweeps down and across.
+    let swing = (attack_time > 0.0).then(|| {
+        let body_y = (attack_time.sqrt() * PI * 2.0).sin() * 0.2;
+        let eased = 1.0 - (1.0 - attack_time).powi(4);
+        let head_x = head_x_rot_deg.to_radians();
+        let sweep = (eased * PI).sin() * 1.2 + (attack_time * PI).sin() * -(head_x - 0.7) * 0.75;
+        (body_y, sweep, (attack_time * PI).sin() * -0.4)
+    });
+    let (body_y, sweep, roll) = swing.unwrap_or_default();
+    if swing.is_some() {
+        for (i, part) in model.parts.iter().enumerate() {
+            // The arms' pivots, from (-5, 0) and (5, 0) round the body.
+            let offset = match part.name.as_str() {
+                "right_arm" => Vec3::new(-body_y.cos() * 5.0 + 5.0, 0.0, body_y.sin() * 5.0),
+                "left_arm" => Vec3::new(body_y.cos() * 5.0 - 5.0, 0.0, -body_y.sin() * 5.0),
+                _ => continue,
+            };
+            anim.translation.push((i, offset));
+        }
+    }
 
     for (i, part) in model.parts.iter().enumerate() {
         let rot = match part.name.as_str() {
             "head" => head_rotation(head_x_rot_deg, local_head_y_rot_deg),
-            "body" if is_crouching => Vec3::new(0.5, 0.0, 0.0),
+            "body" if is_crouching => Vec3::new(0.5, body_y, 0.0),
+            "body" if swing.is_some() => Vec3::new(0.0, body_y, 0.0),
             "right_arm" => Vec3::new(
-                (walk_pos * 0.6662 + std::f32::consts::PI).cos() * 2.0 * walk_speed * 0.5
-                    + crouch_arm_rot,
-                0.0,
-                0.0,
+                (walk_pos * 0.6662 + PI).cos() * 2.0 * walk_speed * 0.5 + crouch_arm_rot - sweep,
+                body_y * 3.0,
+                roll,
             ),
             "left_arm" => Vec3::new(
-                (walk_pos * 0.6662).cos() * 2.0 * walk_speed * 0.5 + crouch_arm_rot,
-                0.0,
+                (walk_pos * 0.6662).cos() * 2.0 * walk_speed * 0.5 + crouch_arm_rot + body_y,
+                body_y,
                 0.0,
             ),
             "right_leg" => Vec3::new((walk_pos * 0.6662).cos() * 1.4 * walk_speed, 0.0, 0.0),
