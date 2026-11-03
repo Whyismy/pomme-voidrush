@@ -1535,6 +1535,8 @@ impl Renderer {
     ) -> Result<(), RendererError> {
         // Refresh the far plane before this frame's view/projection and fog.
         self.camera.set_render_distance(render_distance);
+        self.entity_renderer
+            .ensure_trims(&self.ctx.device, entities);
         let held_items = held_items.map(|held| {
             held.map(|(name, stack)| {
                 let model = self.render_assets.stack_model_key(&name, &stack);

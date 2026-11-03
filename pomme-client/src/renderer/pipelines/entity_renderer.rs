@@ -61,6 +61,44 @@ struct EntityInstance {
 pub struct ArmorRenderInfo {
     pub asset_id: Arc<str>,
     pub dyed_color: Option<u32>,
+    pub trim: Option<ArmorTrimInfo>,
+}
+
+/// A worn piece's trim, as its sprite names it: the pattern's asset id and
+/// the palette its material uses on this armour ([`crate::trim`]).
+#[derive(Clone, Debug)]
+pub struct ArmorTrimInfo {
+    pub pattern: Arc<str>,
+    pub palette: Arc<str>,
+}
+
+impl ArmorTrimInfo {
+    /// Vanilla's trim sprite for an equipment layer type:
+    /// `<ns>:trims/entity/<layer>/<pattern>`, then the palette.
+    fn sprite(&self, layer_type: &str) -> (String, &str) {
+        let (namespace, path) = self
+            .pattern
+            .split_once(':')
+            .unwrap_or(("minecraft", &self.pattern));
+        (
+            format!("{namespace}:trims/entity/{layer_type}/{path}"),
+            &self.palette,
+        )
+    }
+
+    fn key(&self, layer_type: &str) -> String {
+        let (texture, palette) = self.sprite(layer_type);
+        format!("{texture}_{palette}")
+    }
+}
+
+/// The trim layer type an armour slot draws ([`LEGS_SLOT`] wears leggings).
+fn trim_layer_type(slot: usize) -> &'static str {
+    if slot == LEGS_SLOT {
+        "humanoid_leggings"
+    } else {
+        "humanoid"
+    }
 }
 
 fn effective_item_component<'a, T: DataComponentTrait>(item: &'a ItemStack) -> Option<Cow<'a, T>> {
@@ -89,12 +127,20 @@ pub fn armor_render_info(item: Option<&ItemStack>, slot: EquipmentSlot) -> Optio
 /// (vanilla `LlamaDecorLayer` checks only `assetId().isPresent()`).
 pub fn equipment_render_info(item: &ItemStack) -> Option<ArmorRenderInfo> {
     let equippable = effective_item_component::<Equippable>(item)?;
-    let asset_id = equippable.asset_id.as_ref()?.to_string().into();
+    let asset_id: Arc<str> = equippable.asset_id.as_ref()?.to_string().into();
     let dyed_color =
         effective_item_component::<DyedColor>(item).map(|color| color.rgb as u32 & 0x00ff_ffff);
+    let trim = item
+        .get_component::<azalea_inventory::components::Trim>()
+        .and_then(|trim| crate::trim::sprite_parts(&trim, &asset_id))
+        .map(|(pattern, palette)| ArmorTrimInfo {
+            pattern: pattern.into(),
+            palette: palette.into(),
+        });
     Some(ArmorRenderInfo {
         asset_id,
         dyed_color,
+        trim,
     })
 }
 
@@ -802,8 +848,115 @@ pub(crate) struct PreparedArmorLayer {
     dye: ArmorDye,
 }
 
-/// Every equipment definition's layers, decoded ([`prepare_armor_assets`]).
-pub(crate) type PreparedArmor = Vec<(String, [Vec<PreparedArmorLayer>; 4])>;
+/// Every equipment definition's layers, decoded, and the trim sources
+/// ([`prepare_armor_assets`]).
+pub(crate) struct PreparedArmor {
+    assets: Vec<(String, [Vec<PreparedArmorLayer>; 4])>,
+    trims: TrimSources,
+}
+
+/// Vanilla's `armor_trims` atlas sources, its `paletted_permutations`: each
+/// trim pattern's grey texture and the colour palettes materials swap in.
+#[derive(Default)]
+pub(crate) struct TrimSources {
+    /// The palette key's colours, which a permutation's replace in order.
+    key: Vec<[u8; 4]>,
+    /// Each permutation's palette by name (`iron`, `iron_darker`).
+    permutations: HashMap<String, Vec<[u8; 4]>>,
+    /// The pattern textures by sprite id
+    /// (`minecraft:trims/entity/humanoid/coast`).
+    textures: HashMap<String, (Vec<u8>, u32, u32)>,
+}
+
+impl TrimSources {
+    fn load(
+        jar_assets_dir: &Path,
+        asset_index: &Option<AssetIndex>,
+        packs: Option<&ResourcePackManager>,
+    ) -> Self {
+        let path_of = |id: &str, folder: &str, ext: &str| {
+            let (namespace, path) = id.split_once(':').unwrap_or(("minecraft", id));
+            resolve_asset_path_with_packs(
+                jar_assets_dir,
+                asset_index,
+                &format!("{namespace}/{folder}{path}.{ext}"),
+                packs,
+            )
+        };
+        let palette = |id: &str| -> Option<Vec<[u8; 4]>> {
+            let (pixels, _, _) = util::load_png(&path_of(id, "textures/", "png"))?;
+            Some(pixels.as_chunks::<4>().0.to_vec())
+        };
+        let mut sources = Self::default();
+        let Some(atlas) = std::fs::read(path_of("minecraft:armor_trims", "atlases/", "json"))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        else {
+            return sources;
+        };
+        let atlas_sources = atlas.get("sources").and_then(serde_json::Value::as_array);
+        for source in atlas_sources.into_iter().flatten() {
+            if source.get("type").and_then(serde_json::Value::as_str)
+                != Some("minecraft:paletted_permutations")
+            {
+                continue;
+            }
+            if let Some(key) = source
+                .get("palette_key")
+                .and_then(serde_json::Value::as_str)
+                .and_then(palette)
+            {
+                sources.key = key;
+            }
+            let permutations = source
+                .get("permutations")
+                .and_then(serde_json::Value::as_object);
+            for (name, id) in permutations.into_iter().flatten() {
+                if let Some(colors) = id.as_str().and_then(palette) {
+                    sources.permutations.insert(name.clone(), colors);
+                }
+            }
+            let textures = source.get("textures").and_then(serde_json::Value::as_array);
+            for id in textures
+                .into_iter()
+                .flatten()
+                .filter_map(serde_json::Value::as_str)
+            {
+                if let Some(image) = util::load_png(&path_of(id, "textures/", "png")) {
+                    let id = if id.contains(':') {
+                        id.to_owned()
+                    } else {
+                        format!("minecraft:{id}")
+                    };
+                    sources.textures.insert(id, image);
+                }
+            }
+        }
+        sources
+    }
+
+    /// Vanilla `PalettedPermutations`: the pattern with each pixel matching
+    /// a key colour in its palette's colour at that place.
+    fn sprite(&self, texture: &str, permutation: &str) -> Option<(Vec<u8>, u32, u32)> {
+        let (pixels, width, height) = self.textures.get(texture)?;
+        let palette = self.permutations.get(permutation)?;
+        let mut out = pixels.clone();
+        for pixel in out.as_chunks_mut::<4>().0 {
+            if pixel[3] == 0 {
+                continue;
+            }
+            let Some(index) = self.key.iter().position(|key| key[..3] == pixel[..3]) else {
+                continue;
+            };
+            let Some(color) = palette.get(index) else {
+                continue;
+            };
+            let alpha = u16::from(pixel[3]) * u16::from(color[3]) / 255;
+            pixel.copy_from_slice(&[color[0], color[1], color[2], alpha as u8]);
+        }
+        Some((out, *width, *height))
+    }
+}
 
 fn decode_armor_texture_layer(
     jar_assets_dir: &Path,
@@ -859,7 +1012,8 @@ pub(crate) fn prepare_armor_assets(
     let defs: Vec<_> = load_armor_asset_defs(jar_assets_dir, packs)
         .into_iter()
         .collect();
-    util::par_map(&defs, |(id, def)| {
+    let trims = TrimSources::load(jar_assets_dir, asset_index, packs);
+    let assets = util::par_map(&defs, |(id, def)| {
         let decode = |layers: &Vec<ArmorLayerDef>| -> Vec<PreparedArmorLayer> {
             layers
                 .iter()
@@ -885,7 +1039,8 @@ pub(crate) fn prepare_armor_assets(
                 decode(&def.humanoid_baby),
             ],
         )
-    })
+    });
+    PreparedArmor { assets, trims }
 }
 
 fn upload_armor_assets(
@@ -895,6 +1050,7 @@ fn upload_armor_assets(
     prepared: PreparedArmor,
 ) -> HashMap<String, ArmorAsset> {
     prepared
+        .assets
         .into_iter()
         .map(|(id, [humanoid, leggings, llama_body, humanoid_baby])| {
             let upload = |layers: Vec<PreparedArmorLayer>| -> Vec<ArmorTextureLayer> {
@@ -916,24 +1072,6 @@ fn upload_armor_assets(
             )
         })
         .collect()
-}
-
-/// Loads every equipment definition with humanoid or llama layers and
-/// uploads its textures.
-fn load_armor_assets(
-    device: &rhi::backend::Device,
-    texture_layout: rhi::backend::BindGroupLayout,
-    texture_sampler: rhi::backend::Sampler,
-    jar_assets_dir: &Path,
-    asset_index: &Option<AssetIndex>,
-    packs: &ResourcePackManager,
-) -> HashMap<String, ArmorAsset> {
-    upload_armor_assets(
-        device,
-        texture_layout,
-        texture_sampler,
-        prepare_armor_assets(jar_assets_dir, asset_index, packs),
-    )
 }
 
 fn build_armor_mesh(device: &rhi::backend::Device, model: BakedEntityModel) -> ArmorMesh {
@@ -1081,6 +1219,10 @@ pub struct EntityRenderer {
     texture_sampler_repeat: rhi::backend::Sampler,
     mobs: HashMap<EntityKind, MobEntry>,
     armor_assets: HashMap<String, ArmorAsset>,
+    trim_sources: TrimSources,
+    /// Trim sprites made so far, by [`ArmorTrimInfo::key`]; `None` where the
+    /// sources have no such sprite.
+    trim_layers: HashMap<String, Option<ArmorTextureLayer>>,
     armor_meshes: ArmorMeshes,
     player_skins: HashMap<uuid::Uuid, PlayerSkinTexture>,
     /// Vanilla's default skins ([`DEFAULT_SKINS`]), for players without
@@ -2719,14 +2861,10 @@ impl EntityRenderer {
         let texture_sampler = rhi::backend::create_sampler(device, &rhi::SamplerDesc::NEAREST);
         let texture_sampler_repeat =
             rhi::backend::create_sampler(device, &rhi::SamplerDesc::NEAREST_REPEAT);
-        let armor_assets = load_armor_assets(
-            device,
-            texture_layout,
-            texture_sampler,
-            jar_assets_dir,
-            asset_index,
-            packs,
-        );
+        let mut prepared_armor = prepare_armor_assets(jar_assets_dir, asset_index, packs);
+        let trim_sources = std::mem::take(&mut prepared_armor.trims);
+        let armor_assets =
+            upload_armor_assets(device, texture_layout, texture_sampler, prepared_armor);
         let armor_meshes = build_armor_meshes(device);
 
         let mut mobs = HashMap::new();
@@ -2809,6 +2947,8 @@ impl EntityRenderer {
             texture_sampler_repeat,
             mobs,
             armor_assets,
+            trim_sources,
+            trim_layers: HashMap::new(),
             armor_meshes,
             player_skins: HashMap::new(),
             default_skins: DEFAULT_SKINS
@@ -2835,8 +2975,57 @@ impl EntityRenderer {
         prepared: PreparedArmor,
     ) {
         destroy_armor_assets(device, &mut self.armor_assets);
+        self.destroy_trim_layers(device);
+        let mut prepared = prepared;
+        self.trim_sources = std::mem::take(&mut prepared.trims);
         self.armor_assets =
             upload_armor_assets(device, self.texture_layout, self.texture_sampler, prepared);
+    }
+
+    fn destroy_trim_layers(&mut self, device: &rhi::backend::Device) {
+        for layer in self.trim_layers.drain().filter_map(|(_, layer)| layer) {
+            layer.texture.destroy(device);
+            layer.set.destroy(device);
+        }
+    }
+
+    /// Makes the trim sprites `entities`' armour needs that aren't made yet
+    /// (vanilla's `armor_trims` atlas, built on demand).
+    pub(crate) fn ensure_trims(
+        &mut self,
+        device: &rhi::backend::Device,
+        entities: &[EntityRenderInfo],
+    ) {
+        for info in entities {
+            for (slot, armor) in info.armor.iter().enumerate() {
+                let Some(trim) = armor.as_ref().and_then(|armor| armor.trim.as_ref()) else {
+                    continue;
+                };
+                let layer_type = trim_layer_type(slot);
+                let key = trim.key(layer_type);
+                if self.trim_layers.contains_key(&key) {
+                    continue;
+                }
+                let (texture, palette) = trim.sprite(layer_type);
+                let layer =
+                    self.trim_sources
+                        .sprite(&texture, palette)
+                        .map(|(pixels, width, height)| {
+                            upload_armor_texture_layer(
+                                device,
+                                self.texture_layout,
+                                self.texture_sampler,
+                                PreparedArmorLayer {
+                                    pixels,
+                                    width,
+                                    height,
+                                    dye: ArmorDye::None,
+                                },
+                            )
+                        });
+                self.trim_layers.insert(key, layer);
+            }
+        }
     }
 
     pub fn update_camera(&mut self, frame: usize, uniform: &CameraUniform) {
@@ -3018,6 +3207,17 @@ impl EntityRenderer {
                 } else {
                     let layers = self.armor_layers(armor, slot);
                     self.push_equipment_draws(vi, v, mesh, layers, instances, &mut records);
+                    // Vanilla `EquipmentLayerRenderer`: the trim over the
+                    // layers, on the same model.
+                    if let Some(Some(trim)) = armor
+                        .trim
+                        .as_ref()
+                        .map(|trim| self.trim_layers.get(&trim.key(trim_layer_type(slot))))
+                        && let Some(trim) = trim
+                    {
+                        let layers = std::iter::once((trim.set, [1.0; 4]));
+                        self.push_equipment_draws(vi, v, mesh, layers, instances, &mut records);
+                    }
                 }
             }
         }

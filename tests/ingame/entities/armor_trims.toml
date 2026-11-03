@@ -1,0 +1,30 @@
+# Armour trims over the armour layers: a gold coast trim on diamond, iron on
+# iron (its darker palette), amethyst rib leggings and a netherite sentry
+# helmet.
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/gamemode spectator"
+
+[[step]]
+chat = "/summon minecraft:zombie 400.5 -60 405.5 {NoAI:1b,Silent:1b,Rotation:[180f,0f],equipment:{head:{id:\"minecraft:netherite_helmet\",count:1,components:{\"minecraft:trim\":{pattern:\"minecraft:sentry\",material:\"minecraft:redstone\"}}},chest:{id:\"minecraft:diamond_chestplate\",count:1,components:{\"minecraft:trim\":{pattern:\"minecraft:coast\",material:\"minecraft:gold\"}}},legs:{id:\"minecraft:iron_leggings\",count:1,components:{\"minecraft:trim\":{pattern:\"minecraft:rib\",material:\"minecraft:amethyst\"}}},feet:{id:\"minecraft:iron_boots\",count:1,components:{\"minecraft:trim\":{pattern:\"minecraft:silence\",material:\"minecraft:iron\"}}}}}"
+
+[[step]]
+chat = "/summon minecraft:zombie 402.5 -60 405.5 {NoAI:1b,Silent:1b,Rotation:[180f,0f],equipment:{chest:{id:\"minecraft:iron_chestplate\",count:1,components:{\"minecraft:trim\":{pattern:\"minecraft:wild\",material:\"minecraft:iron\"}}},legs:{id:\"minecraft:diamond_leggings\",count:1,components:{\"minecraft:trim\":{pattern:\"minecraft:wayfinder\",material:\"minecraft:emerald\"}}}}}"
+
+[[step]]
+chat = "/tp @s 401.5 -58.6 402.6 0 10"
+
+[[step]]
+wait_ms = 11000
+
+[[step]]
+screenshot = "trims"

@@ -37,6 +37,7 @@ mod singleplayer;
 #[cfg(test)]
 mod test_util;
 mod tool;
+mod trim;
 mod ui;
 mod update;
 mod user;

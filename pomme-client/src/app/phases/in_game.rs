@@ -6621,6 +6621,7 @@ fn llama_extras(e: &crate::entity::LivingEntity) -> EntityExtras {
                 "minecraft:trader_llama".into()
             },
             dyed_color: None,
+            trim: None,
         }),
         _ => None,
     };
