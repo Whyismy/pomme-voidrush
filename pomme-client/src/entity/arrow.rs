@@ -196,6 +196,7 @@ mod tests {
     #[test]
     fn rotation_turns_a_fifth_of_the_short_way() {
         assert!((lerp_rotation(0.0, 10.0) - 2.0).abs() < 1.0e-6);
-        assert!((lerp_rotation(170.0, -170.0) - 174.0).abs() < 1.0e-4);
+        // 170 to -170 crosses 180: 4 degrees on, at 174 (as -186).
+        assert!((lerp_rotation(170.0, -170.0).rem_euclid(360.0) - 174.0).abs() < 1.0e-4);
     }
 }
