@@ -1255,6 +1255,12 @@ impl Renderer {
 
     /// The block outline to draw this frame (see
     /// [`pipelines::hit_outline::HitOutlinePipeline::set_target`]).
+    /// This frame's fishing lines (vanilla `FishingHookRenderer`'s string),
+    /// as world-space segments.
+    pub fn set_fishing_lines(&mut self, lines: Vec<(glam::DVec3, glam::DVec3)>) {
+        self.hit_outline_pipeline.set_lines(lines);
+    }
+
     pub fn set_hit_outline(
         &mut self,
         target: Option<(glam::DVec3, &[crate::physics::block_shape::LocalBox])>,
@@ -1530,7 +1536,7 @@ impl Renderer {
         overlay: Vec<MenuElement>,
         swing_progress: [f32; 2],
         use_anim: [Option<pipelines::held_item::UseAnim>; 2],
-        held_items: [Option<(String, azalea_inventory::ItemStackData, bool)>; 2],
+        held_items: [Option<(String, azalea_inventory::ItemStackData, bool, bool)>; 2],
         main_hand_right: bool,
         hand_light: LightLevels,
         shown_hands: HandRenderSelection,
@@ -1557,10 +1563,12 @@ impl Renderer {
         self.entity_renderer
             .ensure_trims(&self.ctx.device, entities);
         let held_items = held_items.map(|held| {
-            held.map(|(name, stack, in_use)| {
+            held.map(|(name, stack, in_use, cast)| {
                 let model = self.render_assets.stack_model_key(&name, &stack);
                 let model = if in_use {
                     self.render_assets.in_use_model_key(&model)
+                } else if cast {
+                    self.render_assets.cast_model_key(&model)
                 } else {
                     model
                 };

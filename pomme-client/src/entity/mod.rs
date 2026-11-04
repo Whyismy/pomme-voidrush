@@ -5,6 +5,7 @@ pub mod display;
 pub mod dragon;
 pub mod end_crystal;
 pub mod falling_block;
+pub mod fishing_hook;
 pub mod glowing;
 pub mod heads;
 pub mod interaction;

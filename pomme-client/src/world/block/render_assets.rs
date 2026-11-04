@@ -292,9 +292,21 @@ impl BlockRenderAssets {
     /// `model`'s variant for a stack in use ([`model::using_model_key`]),
     /// or `model` itself where nothing changes while it's used.
     pub fn in_use_model_key(&self, model: &str) -> String {
-        // A stack's pattern layers stay on its in-use variant.
+        self.condition_model_key(model, "#using")
+    }
+
+    /// `model`'s variant for a rod whose angler has a line out
+    /// (`fishing_rod/cast`), or `model` itself.
+    pub fn cast_model_key(&self, model: &str) -> String {
+        self.condition_model_key(model, "#cast")
+    }
+
+    /// `model`'s variant under a condition's `suffix`
+    /// ([`model::CONDITION_VARIANTS`]), or `model` where it has none.
+    fn condition_model_key(&self, model: &str, suffix: &str) -> String {
+        // A stack's pattern layers stay on its variant.
         let (base, layers) = model.split_at(model.find('~').unwrap_or(model.len()));
-        let key = model::using_model_key(base);
+        let key = format!("{base}{suffix}");
         if self.item_models.contains_key(&key) {
             key + layers
         } else {
@@ -563,6 +575,10 @@ impl BlockRenderAssets {
 
 /// Every `textures/entity/banner/*.png` in the jar and the packs, as texture
 /// names (`entity/banner/border`, or namespaced outside `minecraft`).
+/// The fishing bobber's sprite, newest layout first.
+pub(crate) const FISHING_HOOK_TEXTURES: [&str; 2] =
+    ["entity/fishing/fishing_hook", "entity/fishing_hook"];
+
 /// A shield's plate texture without patterns (vanilla
 /// `NO_PATTERN_SHIELD`, in its 26.1 folder or the older place).
 pub(crate) fn is_shield_plate_texture(texture: model::TextureId) -> bool {
@@ -586,6 +602,18 @@ fn banner_pattern_textures(
         };
         for namespace in namespaces.flatten() {
             let ns = namespace.file_name().to_string_lossy().into_owned();
+            // The fishing bobber's sprite (`FishingHookRenderer`), in its
+            // 26.1 folder or the older place.
+            for sprite in FISHING_HOOK_TEXTURES {
+                if ns == "minecraft"
+                    && namespace
+                        .path()
+                        .join(format!("textures/{sprite}.png"))
+                        .is_file()
+                {
+                    names.insert(sprite.to_owned());
+                }
+            }
             // A patterned shield's base before 26.1 moved it into
             // `entity/shield/`.
             if ns == "minecraft"

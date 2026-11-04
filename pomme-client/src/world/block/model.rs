@@ -1158,12 +1158,14 @@ pub fn bake_item_models(
         {
             bake(&gui_model_key(item_name), &node_model_parts_in(root, true));
         }
-        if let Some(root) = json.get("model")
-            && has_using_variant(component_default_branch(root))
-        {
-            let parts = node_model_parts_using(root);
-            if !parts.is_empty() {
-                bake(&using_model_key(item_name), &parts);
+        for (property, suffix) in CONDITION_VARIANTS {
+            if let Some(root) = json.get("model")
+                && has_condition_variant(component_default_branch(root), property)
+            {
+                let parts = node_model_parts_holding(root, property);
+                if !parts.is_empty() {
+                    bake(&format!("{item_name}{suffix}"), &parts);
+                }
             }
         }
         for (charge, node) in charge_type_cases(&json) {
@@ -1179,10 +1181,12 @@ pub fn bake_item_models(
                 if has_gui_variant(node) {
                     bake(&gui_model_key(&key), &node_model_parts_in(node, true));
                 }
-                if has_using_variant(node) {
-                    let parts = node_model_parts_using(node);
-                    if !parts.is_empty() {
-                        bake(&using_model_key(&key), &parts);
+                for (property, suffix) in CONDITION_VARIANTS {
+                    if has_condition_variant(node, property) {
+                        let parts = node_model_parts_holding(node, property);
+                        if !parts.is_empty() {
+                            bake(&format!("{key}{suffix}"), &parts);
+                        }
                     }
                 }
             }
@@ -1835,29 +1839,41 @@ fn default_stack_branch(node: &serde_json::Value) -> &serde_json::Value {
     display_branch(node, false)
 }
 
-/// The key a model's in-use variant bakes under, where its definition draws
-/// something else while the item is used (a `minecraft:using_item`
-/// condition: a raised shield, a drawn bow).
-pub fn using_model_key(key: &str) -> String {
-    format!("{key}#using")
-}
+/// The conditions whose true side bakes a variant of its own: each
+/// property and the suffix its key takes.
+pub const CONDITION_VARIANTS: [(&str, &str); 2] = [
+    // A stack in use: a raised shield, a drawn bow.
+    ("using_item", "#using"),
+    // A fishing rod whose angler has a line out.
+    ("fishing_rod/cast", "#cast"),
+];
 
-/// Whether item-model node `node` draws differently while its item is used.
-fn has_using_variant(node: &serde_json::Value) -> bool {
+/// Whether item-model node `node` draws differently while condition
+/// `property` holds.
+fn has_condition_variant(node: &serde_json::Value, property: &str) -> bool {
     match node {
         serde_json::Value::Object(map) => {
-            (node_type(node) == Some("condition") && node_property(node) == Some("using_item"))
-                || map.values().any(has_using_variant)
+            (node_type(node) == Some("condition") && node_property(node) == Some(property))
+                || map
+                    .values()
+                    .any(|child| has_condition_variant(child, property))
         }
-        serde_json::Value::Array(items) => items.iter().any(has_using_variant),
+        serde_json::Value::Array(items) => items
+            .iter()
+            .any(|child| has_condition_variant(child, property)),
         _ => false,
     }
 }
 
-/// The parts a stack in use draws for item-model node `node`.
-fn node_model_parts_using(node: &serde_json::Value) -> Vec<ModelPart> {
+/// The parts item-model node `node` draws while condition `property` holds.
+fn node_model_parts_holding(node: &serde_json::Value, property: &str) -> Vec<ModelPart> {
     let mut parts = Vec::new();
-    collect_parts_from_node_in(display_branch(node, false), None, &mut parts, true);
+    collect_parts_from_node_in(
+        display_branch(node, false),
+        None,
+        &mut parts,
+        Some(property),
+    );
     parts
 }
 
@@ -2047,16 +2063,17 @@ fn collect_parts_from_node(
     parent_transform: Option<Mat4>,
     parts: &mut Vec<ModelPart>,
 ) {
-    collect_parts_from_node_in(node, parent_transform, parts, false);
+    collect_parts_from_node_in(node, parent_transform, parts, None);
 }
 
-/// [`collect_parts_from_node`] for a stack in use (`using`), which draws the
-/// `on_true` of each `minecraft:using_item` condition (a raised shield).
+/// [`collect_parts_from_node`] for a stack whose condition `holds` (a
+/// property such as `using_item`) is true: it draws that condition's
+/// `on_true` (a raised shield, a cast rod).
 fn collect_parts_from_node_in(
     node: &serde_json::Value,
     parent_transform: Option<Mat4>,
     parts: &mut Vec<ModelPart>,
-    using: bool,
+    holds: Option<&str>,
 ) {
     let own_transform = match node.get("transformation") {
         Some(value) => match parse_item_transformation(value) {
@@ -2076,7 +2093,7 @@ fn collect_parts_from_node_in(
         Some("composite") => {
             if let Some(models) = node.get("models").and_then(|m| m.as_array()) {
                 for child in models {
-                    collect_parts_from_node_in(child, transform, parts, using);
+                    collect_parts_from_node_in(child, transform, parts, holds);
                 }
             }
         }
@@ -2098,13 +2115,13 @@ fn collect_parts_from_node_in(
         // component), so it draws the `on_false` branch; one in use draws
         // a `using_item` condition's `on_true`.
         Some("condition") => {
-            let side = if using && node_property(node) == Some("using_item") {
+            let side = if holds.is_some() && node_property(node) == holds {
                 "on_true"
             } else {
                 "on_false"
             };
             if let Some(branch) = node.get(side) {
-                collect_parts_from_node_in(branch, transform, parts, using);
+                collect_parts_from_node_in(branch, transform, parts, holds);
             }
         }
         Some("special") => {

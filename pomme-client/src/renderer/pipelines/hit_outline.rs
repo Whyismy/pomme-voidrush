@@ -27,8 +27,10 @@ struct Push {
 
 /// `ARGB.color(102, 0, 0, 0)`.
 const OUTLINE_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 0.4];
-/// Far more than any outline shape's edges need.
-const MAX_VERTICES: usize = 6 * 256;
+/// A fishing line's colour (`FishingHookRenderer.stringVertex`'s -16777216).
+const LINE_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
+/// Far more than any outline shape's edges, and a few fishing lines, need.
+const MAX_VERTICES: usize = 6 * 512;
 
 pub struct HitOutlinePipeline {
     pipeline: rhi::backend::RenderPipeline,
@@ -39,6 +41,8 @@ pub struct HitOutlinePipeline {
     vertex_buffers: Vec<rhi::backend::Buffer>,
     /// The outlined shape's edges (block-local) and where the block sits.
     target: Option<(DVec3, Vec<(DVec3, DVec3)>)>,
+    /// Fishing lines' segments, in world space.
+    lines: Vec<(DVec3, DVec3)>,
     vertices: Vec<LineVertex>,
 }
 
@@ -74,6 +78,7 @@ impl HitOutlinePipeline {
             camera_buffers,
             vertex_buffers,
             target: None,
+            lines: Vec::new(),
             vertices: Vec::new(),
         }
     }
@@ -97,34 +102,27 @@ impl HitOutlinePipeline {
         self.target = target.map(|(origin, boxes)| (origin, shape_edges(boxes)));
     }
 
-    /// This frame's quads, relative to the render anchor.
-    fn build(&mut self, anchor: DVec3) {
+    /// This frame's fishing lines, as world-space segments.
+    pub fn set_lines(&mut self, lines: Vec<(DVec3, DVec3)>) {
+        self.lines = lines;
+    }
+
+    /// This frame's quads, relative to the render anchor: the outline's,
+    /// then the fishing lines'. Returns how many are the outline's.
+    fn build(&mut self, anchor: DVec3) -> usize {
         self.vertices.clear();
-        let Some((origin, edges)) = &self.target else {
-            return;
-        };
-        let base = *origin - anchor;
-        for &(from, to) in edges {
-            let start = (base + from).as_vec3();
-            let direction = (to - from).as_vec3();
-            let end = start + direction;
-            // Two triangles: each end's two sides.
-            for (point, side) in [
-                (start, 1.0),
-                (start, -1.0),
-                (end, 1.0),
-                (start, -1.0),
-                (end, -1.0),
-                (end, 1.0),
-            ] {
-                self.vertices.push(LineVertex {
-                    position: point.to_array(),
-                    direction: direction.to_array(),
-                    side,
-                });
+        if let Some((origin, edges)) = &self.target {
+            let base = *origin - anchor;
+            for &(from, to) in edges {
+                push_segment(&mut self.vertices, base + from, base + to);
             }
         }
+        let outline = self.vertices.len();
+        for &(from, to) in &self.lines {
+            push_segment(&mut self.vertices, from - anchor, to - anchor);
+        }
         self.vertices.truncate(MAX_VERTICES);
+        outline.min(self.vertices.len())
     }
 
     /// `screen` is the framebuffer size in pixels.
@@ -135,23 +133,32 @@ impl HitOutlinePipeline {
         anchor: DVec3,
         screen: [f32; 2],
     ) {
-        self.build(anchor);
+        let outline = self.build(anchor);
         if self.vertices.is_empty() {
             return;
         }
         self.vertex_buffers[frame].write(bytemuck::cast_slice(&self.vertices));
-        // `Window.getAppropriateLineWidth`.
-        let push = Push {
-            screen_size: screen,
-            line_width: (screen[0] / 1920.0 * 2.5).max(2.5),
-            _pad: 0.0,
-            color: OUTLINE_COLOR,
-        };
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, self.camera_sets[frame]);
-        pass.set_push_constants(rhi::ShaderStages::VERTEX, 0, bytemuck::bytes_of(&push));
         pass.set_vertex_buffer(0, self.vertex_buffers[frame].handle());
-        pass.draw(self.vertices.len() as u32, 1, 0, 0);
+        // Both at `Window.getAppropriateLineWidth`.
+        let line_width = (screen[0] / 1920.0 * 2.5).max(2.5);
+        for (color, range) in [
+            (OUTLINE_COLOR, 0..outline),
+            (LINE_COLOR, outline..self.vertices.len()),
+        ] {
+            if range.is_empty() {
+                continue;
+            }
+            let push = Push {
+                screen_size: screen,
+                line_width,
+                _pad: 0.0,
+                color,
+            };
+            pass.set_push_constants(rhi::ShaderStages::VERTEX, 0, bytemuck::bytes_of(&push));
+            pass.draw(range.len() as u32, 1, range.start as u32, 0);
+        }
     }
 
     pub fn destroy(&mut self, device: &rhi::backend::Device) {
@@ -161,6 +168,27 @@ impl HitOutlinePipeline {
         self.pipeline.destroy(device);
         self.pipeline_layout.destroy(device);
         self.camera_layout.destroy(device);
+    }
+}
+
+/// One segment's two triangles, each end's two sides.
+fn push_segment(vertices: &mut Vec<LineVertex>, from: DVec3, to: DVec3) {
+    let start = from.as_vec3();
+    let direction = (to - from).as_vec3();
+    let end = start + direction;
+    for (point, side) in [
+        (start, 1.0),
+        (start, -1.0),
+        (end, 1.0),
+        (start, -1.0),
+        (end, -1.0),
+        (end, 1.0),
+    ] {
+        vertices.push(LineVertex {
+            position: point.to_array(),
+            direction: direction.to_array(),
+            side,
+        });
     }
 }
 

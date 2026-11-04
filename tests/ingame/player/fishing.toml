@@ -1,0 +1,75 @@
+# Fishing: casting a rod into water throws a bobber, drawn as its sprite
+# with the line running to the rod tip (FishingHookRenderer), and the rod
+# draws cast (fishing_rod/cast); using it again reels the line in.
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/gamemode survival"
+
+[[step]]
+chat = "/tp @s 800.5 -60 800.5 0 20"
+
+[[step]]
+wait_ms = 1000
+
+[[step]]
+chat = "/fill 798 -62 803 802 -61 808 minecraft:water"
+
+[[step]]
+chat = "/item replace entity @s weapon.mainhand with fishing_rod"
+
+[[step]]
+look_at = [800.5, -61.0, 805.5]
+
+[[step]]
+wait_ms = 11000
+
+[[step]]
+mouse_down = "right"
+
+[[step]]
+wait_ms = 100
+
+[[step]]
+mouse_up = "right"
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+screenshot = "cast"
+
+[[step]]
+press = { action = "key.togglePerspective" }
+
+[[step]]
+wait_ms = 500
+
+[[step]]
+screenshot = "cast_behind"
+
+[[step]]
+press = { action = "key.togglePerspective" }
+
+[[step]]
+press = { action = "key.togglePerspective" }
+
+[[step]]
+mouse_down = "right"
+
+[[step]]
+wait_ms = 100
+
+[[step]]
+mouse_up = "right"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "reeled"

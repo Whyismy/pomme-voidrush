@@ -364,6 +364,7 @@ pub struct GameState {
     pub end_crystals: crate::entity::end_crystal::EndCrystalStore,
     pub thrown_items: crate::entity::thrown_item::ThrownItemStore,
     pub arrows: crate::entity::arrow::ArrowStore,
+    pub fishing_hooks: crate::entity::fishing_hook::FishingHookStore,
     pub particle_store: crate::particle::ParticleStore,
     /// `WeatherEffectRenderer.rainSoundTime`: ticks since the last rain sound.
     pub rain_sound_time: i32,
@@ -546,6 +547,7 @@ impl GameState {
             end_crystals: Default::default(),
             thrown_items: Default::default(),
             arrows: Default::default(),
+            fishing_hooks: Default::default(),
             rain_sound_time: 0,
             particle_store: {
                 let (grass, foliage, dry_foliage) = mesh_dispatcher.colormaps();
@@ -2730,6 +2732,7 @@ pub fn update_game(
             .tick(&game.chunk_store, game.block_registry.block_state_table());
         game.end_crystals.tick();
         game.thrown_items.tick();
+        game.fishing_hooks.tick();
         game.arrows
             .tick(crate::physics::collision::CollisionWorld::new(
                 &game.chunk_store,
@@ -4997,6 +5000,12 @@ pub fn update_game(
     if !no_ambience {
         add_entity_flames(game, &gfx.renderer, partial_tick, &mut particle_quads);
     }
+    let fishing_lines = if benchmark_running {
+        Vec::new()
+    } else {
+        add_fishing_hooks(game, core, &gfx.renderer, partial_tick, &mut particle_quads)
+    };
+    gfx.renderer.set_fishing_lines(fishing_lines);
     crate::frame_log::add(
         "particle_extract",
         extract_start.elapsed().as_secs_f32() * 1000.0,
@@ -5013,15 +5022,27 @@ pub fn update_game(
         [None, None]
     } else {
         let using = game.interaction.using_hand();
-        let held = |stack: &azalea_inventory::ItemStack, hand| match stack {
+        let cast = cast_rod_hand(
+            game.fishing_hooks.has_hook(game.player.entity_id),
+            main_stack.as_present(),
+            inventory.offhand().as_present(),
+        );
+        let held = |stack: &azalea_inventory::ItemStack, hand: u8| match stack {
             azalea_inventory::ItemStack::Present(data) => {
                 let name = crate::player::inventory::item_resource_name(data.kind);
-                (name != "air").then(|| (name, data.clone(), using == Some(hand)))
+                let hand_id = crate::player::interaction::HANDS[usize::from(hand)];
+                (name != "air").then(|| {
+                    (
+                        name,
+                        data.clone(),
+                        using == Some(hand_id),
+                        cast == Some(hand),
+                    )
+                })
             }
             _ => None,
         };
-        let [main, off] = crate::player::interaction::HANDS;
-        [held(main_stack, main), held(inventory.offhand(), off)]
+        [held(main_stack, 0), held(inventory.offhand(), 1)]
     };
     // Last element pushed: vanilla draws the saving indicator on its own
     // stratum above screens, with the GUI hidden (F1) included.
@@ -6030,6 +6051,8 @@ fn build_held_items(
                 .using_hand()
                 .map(|hand| u8::from(hand != crate::player::interaction::HANDS[0])),
         };
+        let angler = info.entity_id.unwrap_or(game.player.entity_id);
+        let cast = cast_rod_hand(game.fishing_hooks.has_hook(angler), hands[0], hands[1]);
         for ((stack, right), hand) in hands.into_iter().zip([true, false]).zip([0u8, 1]) {
             let Some(stack) = stack else {
                 continue;
@@ -6041,6 +6064,8 @@ fn build_held_items(
             let model = renderer.render_assets().stack_model_key(&name, stack);
             let model = if using == Some(hand) {
                 renderer.render_assets().in_use_model_key(&model)
+            } else if cast == Some(hand) {
+                renderer.render_assets().cast_model_key(&model)
             } else {
                 model
             };
@@ -6211,6 +6236,174 @@ fn holds_items(kind: EntityKind) -> bool {
 /// fire frames (mirrored every other pair), at full brightness.
 // TODO: vanilla's quads are 1.4 times taller than wide and turn only about
 // y; particle quads are square and face the camera fully.
+/// Vanilla `FishingRodCast`: the hand (0 main, 1 off) whose rod draws cast
+/// while its angler has a line out; a rod in the main hand wins.
+fn cast_rod_hand(
+    has_hook: bool,
+    main: Option<&azalea_inventory::ItemStackData>,
+    off: Option<&azalea_inventory::ItemStackData>,
+) -> Option<u8> {
+    use azalea_registry::builtin::ItemKind;
+    let rod = |stack: Option<&azalea_inventory::ItemStackData>| {
+        stack.is_some_and(|stack| stack.kind == ItemKind::FishingRod)
+    };
+    if !has_hook {
+        None
+    } else if rod(main) {
+        Some(0)
+    } else if rod(off) {
+        Some(1)
+    } else {
+        None
+    }
+}
+
+/// Vanilla `FishingHookRenderer`: each bobber, a camera-facing half-block
+/// sprite at full size, and its line's segments to the angler's rod tip.
+fn add_fishing_hooks(
+    game: &GameState,
+    core: &AppCore,
+    renderer: &Renderer,
+    partial_tick: f32,
+    out: &mut Vec<crate::renderer::pipelines::particle::ParticleQuad>,
+) -> Vec<(glam::DVec3, glam::DVec3)> {
+    use crate::renderer::pipelines::particle::ParticleQuad;
+    let mut lines = Vec::new();
+    if game.fishing_hooks.hooks.is_empty() {
+        return lines;
+    }
+    let region = crate::world::block::render_assets::FISHING_HOOK_TEXTURES
+        .iter()
+        .find_map(|texture| game.particle_store.item_region(texture));
+    let anchor = renderer.camera_anchor();
+    let world_light = WorldLight {
+        chunks: &game.chunk_store,
+        table: game.block_registry.block_state_table(),
+    };
+    for hook in game.fishing_hooks.hooks.values() {
+        let pos = hook.lerped(partial_tick);
+        if let Some(region) = region {
+            out.push(ParticleQuad {
+                pos: (pos - anchor).as_vec3().into(),
+                size: 0.25,
+                u0: region.u_min,
+                u1: region.u_max,
+                v0: region.v_min,
+                v1: region.v_max,
+                color: u32::MAX,
+                light: entity_light(
+                    &world_light,
+                    EntityKind::FishingBobber,
+                    pos.into(),
+                    false,
+                    0,
+                )
+                .lane(),
+                translucent: false,
+            });
+        }
+        if let Some(tip) = rod_tip(game, core, renderer, hook.owner, partial_tick) {
+            lines.extend(crate::entity::fishing_hook::line_segments(pos, tip));
+        }
+    }
+    lines
+}
+
+/// Vanilla `FishingHookRenderer.getPlayerHandPos`: the angler's rod tip. In
+/// first person it sits on the near plane beside the view (scaled by 960 /
+/// fov); otherwise in front of the body, beside the eyes, on the side of
+/// the hand holding the rod.
+fn rod_tip(
+    game: &GameState,
+    core: &AppCore,
+    renderer: &Renderer,
+    owner: i32,
+    partial_tick: f32,
+) -> Option<glam::DVec3> {
+    use azalea_inventory::components::EquipmentSlot;
+    use azalea_registry::builtin::ItemKind;
+    let main_arm_right = core.menu.main_hand_right();
+    if owner == game.player.entity_id {
+        let main_rod = game.player.inventory.hotbar_slots()[core.input.selected_slot() as usize]
+            .as_present()
+            .is_some_and(|stack| stack.kind == ItemKind::FishingRod);
+        let invert = if main_rod == main_arm_right {
+            1.0
+        } else {
+            -1.0
+        };
+        let feet = game
+            .player
+            .prev_position
+            .lerp(game.player.position, f64::from(partial_tick));
+        let eye = *feet + glam::DVec3::new(0.0, f64::from(game.player.target_eye_height()), 0.0);
+        if renderer.is_first_person() && game.camera_entity.is_none() {
+            let look = game.player.look_dir;
+            let (yaw, pitch) = (
+                f64::from(look.y_rot_deg()).to_radians(),
+                f64::from(look.x_rot_deg()).to_radians(),
+            );
+            let forward = glam::DVec3::new(
+                -yaw.sin() * pitch.cos(),
+                -pitch.sin(),
+                yaw.cos() * pitch.cos(),
+            );
+            let left = glam::DVec3::new(yaw.cos(), 0.0, yaw.sin());
+            let up = forward.cross(left);
+            let fov = f64::from(core.menu.fov);
+            let aspect =
+                f64::from(renderer.screen_width()) / f64::from(renderer.screen_height().max(1));
+            let plane_h = (fov.to_radians() / 2.0).tan() * 0.05;
+            let plane_w = plane_h * aspect;
+            let on_plane =
+                forward * 0.05 + up * (-0.1 * plane_h) - left * (invert * 0.525 * plane_w);
+            return Some(eye + on_plane * (960.0 / fov));
+        }
+        let body = lerp_angle(
+            game.player_prev_body_y_rot,
+            game.player_body_y_rot,
+            partial_tick,
+        );
+        let crouch = if game.player.crouching { -0.1875 } else { 0.0 };
+        return Some(hand_offset(eye, body, invert, 1.0, crouch));
+    }
+    let e = game.entity_store.living.get(&owner)?;
+    let main_rod = e
+        .equipment(EquipmentSlot::Mainhand)
+        .and_then(|stack| stack.as_present())
+        .is_some_and(|stack| stack.kind == ItemKind::FishingRod);
+    let invert = if main_rod { 1.0 } else { -1.0 };
+    let body = lerp_angle(e.prev_body_y_rot_deg, e.body_y_rot_deg, partial_tick);
+    let scale = f64::from(crate::entity::entity_scale(e));
+    let crouch = if e.is_crouching { -0.1875 } else { 0.0 };
+    Some(hand_offset(
+        *e.eye_position(partial_tick),
+        body,
+        invert,
+        scale,
+        crouch,
+    ))
+}
+
+/// The third-person half of [`rod_tip`]: 0.35 to the rod's side, 0.8 ahead
+/// and 0.45 below the eyes, turned with the body.
+fn hand_offset(
+    eye: glam::DVec3,
+    body_deg: f32,
+    invert: f64,
+    scale: f64,
+    crouch: f64,
+) -> glam::DVec3 {
+    let (sin, cos) = f64::from(body_deg).to_radians().sin_cos();
+    let right = invert * 0.35 * scale;
+    let ahead = 0.8 * scale;
+    eye + glam::DVec3::new(
+        -cos * right - sin * ahead,
+        crouch - 0.45 * scale,
+        -sin * right + cos * ahead,
+    )
+}
+
 fn add_entity_flames(
     game: &GameState,
     renderer: &Renderer,

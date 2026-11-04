@@ -2714,6 +2714,9 @@ impl AppCore {
                     if crate::entity::thrown_item::is_thrown_item(entity_type) {
                         game.thrown_items.spawn(id, entity_type, position, velocity);
                     }
+                    if crate::entity::fishing_hook::is_fishing_hook(entity_type) {
+                        game.fishing_hooks.spawn(id, data, *position);
+                    }
                     if crate::entity::arrow::is_arrow(entity_type) {
                         game.arrows.spawn(
                             id,
@@ -2766,6 +2769,7 @@ impl AppCore {
                     game.item_entity_store.move_delta(id, dx, dy, dz, on_ground);
                     game.thrown_items.move_delta(id, dvec3(dx, dy, dz));
                     game.arrows.move_delta(id, dvec3(dx, dy, dz));
+                    game.fishing_hooks.move_delta(id, dvec3(dx, dy, dz));
                     game.falling_blocks
                         .move_delta(id, dvec3(dx, dy, dz), on_ground);
                     game.interactions.move_delta(id, dvec3(dx, dy, dz));
@@ -2797,6 +2801,7 @@ impl AppCore {
                     game.item_entity_store.move_delta(id, dx, dy, dz, on_ground);
                     game.thrown_items.move_delta(id, dvec3(dx, dy, dz));
                     game.arrows.move_delta(id, dvec3(dx, dy, dz));
+                    game.fishing_hooks.move_delta(id, dvec3(dx, dy, dz));
                     game.falling_blocks
                         .move_delta(id, dvec3(dx, dy, dz), on_ground);
                     game.interactions.move_delta(id, dvec3(dx, dy, dz));
@@ -2866,6 +2871,7 @@ impl AppCore {
                     game.end_crystals.teleport(id, position);
                     game.thrown_items.teleport(id, position);
                     game.arrows.teleport(id, position);
+                    game.fishing_hooks.teleport(id, *position);
                     game.arrows.rotate(id, y_rot_deg, x_rot_deg);
                     if let Some(velocity) = velocity {
                         game.thrown_items.set_motion(id, velocity);
@@ -2954,6 +2960,7 @@ impl AppCore {
                     game.end_crystals.remove(&ids);
                     game.thrown_items.remove(&ids);
                     game.arrows.remove(&ids);
+                    game.fishing_hooks.remove(&ids);
                     game.display_store.remove(&ids);
                     game.name_store.remove(&ids);
                     if game.controlled_vehicle_id.is_some_and(|v| ids.contains(&v)) {
@@ -3349,6 +3356,7 @@ impl AppCore {
                     game.end_crystals.clear();
                     game.thrown_items.clear();
                     game.arrows.clear();
+                    game.fishing_hooks.clear();
                     game.display_store.clear();
                     game.name_store.clear();
                     game.entity_positions.clear();
