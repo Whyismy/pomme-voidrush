@@ -182,6 +182,57 @@ pub(crate) fn set_block_and_light(
     old
 }
 
+/// Light in the lit columns beside `column`, spread back into it from their
+/// edges: each edge cell's level re-enters one step toward `column`.
+fn pull_light_across_edges(
+    engine: &mut impl LightEngine,
+    column: (i32, i32),
+    min_light_section_y: i32,
+    light_sections: usize,
+) {
+    use queue::Dir;
+    let mut entries = Vec::new();
+    let storage = engine.storage();
+    let (min_x, min_z) = (column.0 * 16, column.1 * 16);
+    for (toward, (dx, dz)) in [
+        (Dir::North, (0, -1)),
+        (Dir::South, (0, 1)),
+        (Dir::West, (-1, 0)),
+        (Dir::East, (1, 0)),
+    ] {
+        let neighbor = (column.0 + dx, column.1 + dz);
+        if !storage.light_on_in_column(neighbor) {
+            continue;
+        }
+        for index in 0..light_sections as i32 {
+            let section_y = min_light_section_y + index;
+            let key = SectionKey::new(neighbor.0, section_y, neighbor.1);
+            if !storage.storing_light_for_section(key) {
+                continue;
+            }
+            for y in section_y * 16..section_y * 16 + 16 {
+                for t in 0..16 {
+                    let (x, z) = match toward {
+                        Dir::North => (min_x + t, min_z - 1),
+                        Dir::South => (min_x + t, min_z + 16),
+                        Dir::West => (min_x - 1, min_z + t),
+                        _ => (min_x + 16, min_z + t),
+                    };
+                    let pos = LightPos::new(x, y, z);
+                    let level = storage.get_stored_level(pos);
+                    if level > 1 {
+                        entries.push((
+                            pos,
+                            queue::increase_only_one_direction(level, false, toward.opposite()),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    engine.increase_queue().extend(entries);
+}
+
 /// A queued light task (vanilla `ClientLevel.lightUpdateQueue` runnables).
 pub(crate) enum LightTask {
     /// Server light for a column: chunk-load light (`enable: true`, vanilla
@@ -407,6 +458,47 @@ impl LevelLightEngine {
     /// Forgets a column's sky sources; vanilla's live on the chunk object and
     /// vanish when it drops. The stored light tears down via
     /// [`LightTask::Remove`].
+    /// A column the server sent without light, lit as vanilla's server
+    /// lights a fresh one (`ThreadedLevelLightEngine.initializeLight`, then
+    /// `lightChunk`): its sections' status with the light still off, then
+    /// both engines' `propagateLightSources`. Light already in the lit
+    /// columns beside it flows in across the edges, as it would have on the
+    /// server.
+    fn light_column_ourselves(
+        &mut self,
+        pos: (i32, i32),
+        store: &impl LightChunks,
+        block_state_table: BlockStateTable,
+        out: &mut LightDirty,
+    ) {
+        for section_y in self.min_section_y..self.min_section_y + self.section_count {
+            let key = SectionKey::new(pos.0, section_y, pos.1);
+            let empty = store.section_is_empty_at(pos, section_y);
+            self.block.update_section_status(key, empty);
+            if let Some(engine) = &mut self.sky {
+                engine.update_section_status(key, empty);
+            }
+        }
+        match store.chunk_at(pos) {
+            Some(chunk) => self.block.propagate_light_sources(
+                pos,
+                &chunk.read(),
+                store.min_y(),
+                block_state_table,
+            ),
+            None => self.block.set_light_enabled(pos, true),
+        }
+        let sections = self.light_section_count();
+        let min_light_section_y = self.min_section_y - 1;
+        pull_light_across_edges(&mut self.block, pos, min_light_section_y, sections);
+        if let Some(engine) = &mut self.sky {
+            engine.propagate_light_sources(pos);
+            pull_light_across_edges(engine, pos, min_light_section_y, sections);
+        }
+        out.lit.push((pos, self.light_on_in_column(pos)));
+        out.columns.push(pos);
+    }
+
     pub fn on_chunk_unloaded(&mut self, pos: (i32, i32)) {
         if let Some(sky) = &mut self.sky {
             sky.sources.remove(&pos);
@@ -434,13 +526,19 @@ impl LevelLightEngine {
             let Some(task) = self.tasks.pop_front() else {
                 break;
             };
-            self.apply_task(task, store, out);
+            self.apply_task(task, store, block_state_table, out);
         }
         crate::frame_log::add("light_tasks", tasks_start.elapsed().as_secs_f32() * 1000.0);
         self.run_light_updates(store, block_state_table, out);
     }
 
-    fn apply_task(&mut self, task: LightTask, store: &impl LightChunks, out: &mut LightDirty) {
+    fn apply_task(
+        &mut self,
+        task: LightTask,
+        store: &impl LightChunks,
+        block_state_table: BlockStateTable,
+        out: &mut LightDirty,
+    ) {
         match task {
             LightTask::ApplyLight {
                 pos,
@@ -448,6 +546,18 @@ impl LevelLightEngine {
                 block,
                 enable,
             } => {
+                // Paper sends most columns loaded after the join with no
+                // light at all (every mask empty) and no light update after,
+                // which leaves their caves black on vanilla but where the
+                // sky reaches. Light them as the server would have.
+                let unlit = sky
+                    .iter()
+                    .chain(&block)
+                    .all(|entry| matches!(entry, SectionEntry::Skip));
+                if enable && unlit {
+                    self.light_column_ourselves(pos, store, block_state_table, out);
+                    return;
+                }
                 // Vanilla readSectionList order: sky layer first, then block.
                 for (index, entry) in sky.iter().enumerate() {
                     let key = self.light_section_key(pos, index);
@@ -1065,6 +1175,73 @@ mod tests {
             air,
             _world.block_state_table()
         ));
+    }
+
+    /// Paper sends columns loaded after the join without light: such a
+    /// column lights itself as the server would, a lantern in a sealed cave
+    /// lighting the cave and the open sky over it full, and light from the
+    /// lit column beside it flows across the edge.
+    #[test]
+    fn a_column_sent_without_light_lights_itself() {
+        use crate::position::ChunkPos;
+        use crate::world::chunk::Chunk;
+        let table = BlockStateTable::native();
+        let mut store = ChunkStore::new(4);
+        let sections = store.section_count() as usize;
+        let height = store.height();
+        let min_y = store.min_y();
+        let mut engine = LevelLightEngine::new(height, min_y, true);
+        let stone = find_state("stone", &[]);
+        let lantern = find_state("lantern", &[("hanging", "false"), ("waterlogged", "false")]);
+        let run = |store: &mut ChunkStore, engine: &mut LevelLightEngine| {
+            for _ in 0..4 {
+                engine.poll_and_run(store, table, &mut LightDirty::default());
+            }
+        };
+        // Two columns, each a stone slab from y 40 to 80 hollowed into one
+        // cave from x 2 to 29 at y 50 to 52; a lantern at each end.
+        let unlit = |pos: (i32, i32)| LightTask::ApplyLight {
+            pos,
+            sky: (0..sections + 2).map(|_| SectionEntry::Skip).collect(),
+            block: (0..sections + 2).map(|_| SectionEntry::Skip).collect(),
+            enable: true,
+        };
+        for cx in 0..2 {
+            store.insert_chunk(ChunkPos::new(cx, 0), Chunk::empty(sections));
+            for x in cx * 16..cx * 16 + 16 {
+                for z in 0..16 {
+                    for y in 40..80 {
+                        let cave = (2..30).contains(&x) && z == 8 && (50..53).contains(&y);
+                        if !cave {
+                            store.set_block_state_tracked(x, y, z, stone, table);
+                        }
+                    }
+                }
+            }
+        }
+        store.set_block_state_tracked(2, 50, 8, lantern, table);
+        store.set_block_state_tracked(29, 50, 8, lantern, table);
+        // The first column arrives and is lit before the second.
+        engine.on_chunk_loaded(&mut store, table, (0, 0));
+        engine.queue_task(unlit((0, 0)));
+        run(&mut store, &mut engine);
+        assert_eq!(store.get_block_light(2, 50, 8), 15);
+        assert_eq!(store.get_block_light(10, 50, 8), 7);
+        assert_eq!(store.get_sky_light(10, 50, 8), 0);
+        assert_eq!(store.get_sky_light(10, 80, 8), 15);
+        assert_eq!(store.get_sky_light(10, 81, 8), 15);
+        engine.on_chunk_loaded(&mut store, table, (1, 0));
+        engine.queue_task(unlit((1, 0)));
+        run(&mut store, &mut engine);
+        // Each lantern's light runs the length of the cave, both ways
+        // across the edge.
+        assert_eq!(store.get_block_light(29, 50, 8), 15);
+        assert_eq!(store.get_block_light(20, 50, 8), 6);
+        assert_eq!(store.get_block_light(15, 50, 8), 2);
+        assert_eq!(store.get_block_light(16, 50, 8), 2);
+        assert_eq!(store.get_block_light(12, 50, 8), 5);
+        assert_eq!(store.get_sky_light(20, 81, 8), 15);
+        assert_eq!(store.get_sky_light(20, 50, 8), 0);
     }
 
     #[test]

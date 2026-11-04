@@ -48,6 +48,57 @@ impl BlockLightEngine {
         self.storage.set_light_enabled(column, enable);
     }
 
+    /// Vanilla `BlockLightEngine.propagateLightSources`, the server's
+    /// lighting of a fresh column: light on, and every emitting block
+    /// spreads its light.
+    pub fn propagate_light_sources(
+        &mut self,
+        column: (i32, i32),
+        chunk: &crate::world::chunk::Chunk,
+        min_y: i32,
+        block_state_table: block::BlockStateTable,
+    ) {
+        self.storage.set_light_enabled(column, true);
+        let state_of = |id: u32| block_state_table.try_state(id);
+        let emits = |id: u32| {
+            state_of(id).is_some_and(|state| {
+                block_state_table
+                    .block_state_data(state)
+                    .light_props()
+                    .emission
+                    > 0
+            })
+        };
+        for (index, section) in chunk.sections.iter().enumerate() {
+            if section.block_count == 0 || !section.states.may_contain(emits) {
+                continue;
+            }
+            for y in 0..16 {
+                for z in 0..16 {
+                    for x in 0..16 {
+                        let Some(state) = state_of(section.states.get(x, y, z)) else {
+                            continue;
+                        };
+                        let data = block_state_table.block_state_data(state);
+                        let emission = data.light_props().emission;
+                        if emission == 0 {
+                            continue;
+                        }
+                        let pos = LightPos::new(
+                            column.0 * 16 + x as i32,
+                            min_y + index as i32 * 16 + y as i32,
+                            column.1 * 16 + z as i32,
+                        );
+                        self.increase_queue.push_back((
+                            pos,
+                            entry::increase_light_from_emission(emission, data.is_empty_shape()),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
     fn emission(&self, pos: LightPos, block_state_data: &block::BlockStateData) -> u8 {
         let emission = block_state_data.light_props().emission;
         if emission > 0 && self.storage.light_on_in_section(pos.section()) {

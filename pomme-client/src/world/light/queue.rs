@@ -95,6 +95,34 @@ pub(crate) const fn increase_only_one_direction(
     with_level(with_direction(data, dir), new_from_level)
 }
 
+/// `increaseSkySourceInDirections`: a full-15 sky source spreading down
+/// and to the sides whose neighbours lie lower.
+pub(crate) const fn increase_sky_source_in_directions(
+    down: bool,
+    north: bool,
+    south: bool,
+    west: bool,
+    east: bool,
+) -> u64 {
+    let mut data = with_level(0, 15);
+    if down {
+        data = with_direction(data, Dir::Down);
+    }
+    if north {
+        data = with_direction(data, Dir::North);
+    }
+    if south {
+        data = with_direction(data, Dir::South);
+    }
+    if west {
+        data = with_direction(data, Dir::West);
+    }
+    if east {
+        data = with_direction(data, Dir::East);
+    }
+    data
+}
+
 pub(crate) fn get_from_level(entry: u64) -> u8 {
     (entry & LEVEL_MASK) as u8
 }

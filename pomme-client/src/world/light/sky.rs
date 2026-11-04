@@ -204,6 +204,61 @@ impl SkyLightEngine {
         }
     }
 
+    /// Vanilla `SkyLightEngine.propagateLightSources`, the server's lighting
+    /// of a fresh column: from its top down to each column's lowest sky
+    /// source, full 15, spreading down and out to lower neighbours.
+    pub fn propagate_light_sources(&mut self, column: (i32, i32)) {
+        self.storage.set_light_enabled(column, true);
+        let top = self.sky.top_section_y(column);
+        let bottom = self.sky.current_lowest_y;
+        let (min_x, min_z) = (column.0 << 4, column.1 << 4);
+        let mut section_y = top - 1;
+        while section_y >= bottom {
+            let key = SectionKey::new(column.0, section_y, column.1);
+            if self.storage.storing_light_for_section(key) {
+                let section_min_y = section_y << 4;
+                let section_max_y = section_min_y + 15;
+                let mut sources_below = false;
+                for z in min_z..min_z + 16 {
+                    for x in min_x..min_x + 16 {
+                        let lowest = self.lowest_source_y(x, z, i32::MIN);
+                        if lowest > section_max_y {
+                            continue;
+                        }
+                        let north = self.lowest_source_y(x, z - 1, i32::MIN);
+                        let south = self.lowest_source_y(x, z + 1, i32::MIN);
+                        let west = self.lowest_source_y(x - 1, z, i32::MIN);
+                        let east = self.lowest_source_y(x + 1, z, i32::MIN);
+                        let neighbor = north.max(south).max(west).max(east);
+                        for y in (section_min_y.max(lowest)..=section_max_y).rev() {
+                            let pos = LightPos::new(x, y, z);
+                            self.storage.set_stored_level(pos, 15);
+                            if y == lowest || y < neighbor {
+                                self.increase_queue.push_back((
+                                    pos,
+                                    entry::increase_sky_source_in_directions(
+                                        y == lowest,
+                                        y < north,
+                                        y < south,
+                                        y < west,
+                                        y < east,
+                                    ),
+                                ));
+                            }
+                        }
+                        if lowest < section_min_y {
+                            sources_below = true;
+                        }
+                    }
+                }
+                if !sources_below {
+                    break;
+                }
+            }
+            section_y -= 1;
+        }
+    }
+
     fn lowest_source_y(&self, x: i32, z: i32, default: i32) -> i32 {
         match self.sources.get(&(x >> 4, z >> 4)) {
             Some(sources) => sources.lowest_source_y(x & 15, z & 15),
