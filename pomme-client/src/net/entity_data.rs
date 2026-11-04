@@ -78,10 +78,14 @@ pub(super) fn handle_typed_entity_data(
     for item in p.packed_items.iter() {
         match &item.value {
             EntityDataValue::ItemStack(ItemStack::Present(stack)) if item.index == ITEM_INDEX => {
-                send_item_data(p.id.0, stack, event_tx);
+                send_item_data(p.id.0, &plain_holders(stack.clone()), event_tx);
             }
             EntityDataValue::ItemStack(stack) if item.index == DISPLAY_ITEM_INDEX => {
-                send_display_item(p.id.0, Some(stack.clone()), event_tx);
+                let stack = match stack {
+                    ItemStack::Present(stack) => ItemStack::Present(plain_holders(stack.clone())),
+                    empty => empty.clone(),
+                };
+                send_display_item(p.id.0, Some(stack), event_tx);
             }
             value => {
                 if let Some(value) = from_azalea(value) {
@@ -90,6 +94,31 @@ pub(super) fn handle_typed_entity_data(
             }
         }
     }
+}
+
+/// A stack azalea decoded from a translated wire, with its banner patterns'
+/// holders (registry id plus one, `ByteBufCodecs.holder`) back to the plain
+/// ids azalea's type means; the native path's
+/// `item_codec::transcode_banner_patterns` does this while reading.
+// TODO: the other holder components azalea keeps plain (trims, equippable
+// and consumable sounds) are still one high on this path.
+fn plain_holders(mut stack: ItemStackData) -> ItemStackData {
+    use azalea_inventory::components::BannerPatterns;
+    use azalea_registry::builtin::DataComponentKind;
+    if let Some(patterns) = stack.component_patch.get::<BannerPatterns>() {
+        let mut patterns = patterns.clone();
+        for layer in &mut patterns.patterns {
+            layer.pattern -= 1;
+        }
+        // SAFETY: the value is the kind it's inserted as.
+        unsafe {
+            stack.component_patch.unchecked_insert_component(
+                DataComponentKind::BannerPatterns,
+                Some(patterns.into()),
+            );
+        }
+    }
+    stack
 }
 
 fn send_item_data(id: i32, stack: &ItemStackData, event_tx: &Sender<NetworkEvent>) {

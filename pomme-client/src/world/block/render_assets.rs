@@ -110,6 +110,9 @@ pub struct BlockRenderAssets {
     /// Item models with a banner's flag, which take a stack's patterns
     /// ([`crate::banner`]).
     banner_models: std::collections::HashSet<String>,
+    /// Item models drawn as a shield (vanilla's plate in its no-pattern
+    /// texture), whose stacks draw their base colour and patterns.
+    shield_models: std::collections::HashSet<String>,
     /// Item models drawn as a player head, whose stacks draw their own skin
     /// in the GUI.
     player_head_models: std::collections::HashSet<String>,
@@ -233,6 +236,16 @@ impl BlockRenderAssets {
             .map(|(key, _)| key.clone())
             .collect();
         let banner_pattern_textures = banner_pattern_textures(jar_assets_dir, packs);
+        let shield_models = item_models
+            .iter()
+            .filter(|(_, model)| {
+                model
+                    .quads
+                    .iter()
+                    .any(|quad| is_shield_plate_texture(quad.texture))
+            })
+            .map(|(key, _)| key.clone())
+            .collect();
         let player_head = model::TextureId::intern(model::PLAYER_HEAD_TEXTURE);
         let player_head_models = item_models
             .iter()
@@ -253,6 +266,7 @@ impl BlockRenderAssets {
             item_display_transforms,
             item_tint_sources,
             banner_models,
+            shield_models,
             player_head_models,
             banner_pattern_textures,
         }
@@ -278,9 +292,11 @@ impl BlockRenderAssets {
     /// `model`'s variant for a stack in use ([`model::using_model_key`]),
     /// or `model` itself where nothing changes while it's used.
     pub fn in_use_model_key(&self, model: &str) -> String {
-        let key = model::using_model_key(model);
+        // A stack's pattern layers stay on its in-use variant.
+        let (base, layers) = model.split_at(model.find('~').unwrap_or(model.len()));
+        let key = model::using_model_key(base);
         if self.item_models.contains_key(&key) {
-            key
+            key + layers
         } else {
             model.to_owned()
         }
@@ -316,6 +332,18 @@ impl BlockRenderAssets {
             && let Some(layers) = stack
                 .get_component::<azalea_inventory::components::BannerPatterns>()
                 .and_then(|patterns| crate::banner::layers_suffix(&patterns))
+        {
+            return key + &layers;
+        }
+        if self.shield_models.contains(&key)
+            && let Some(layers) = crate::banner::shield_layers_suffix(
+                stack
+                    .get_component::<azalea_inventory::components::BaseColor>()
+                    .map(|base| base.color as i32),
+                stack
+                    .get_component::<azalea_inventory::components::BannerPatterns>()
+                    .as_deref(),
+            )
         {
             return key + &layers;
         }
@@ -535,6 +563,12 @@ impl BlockRenderAssets {
 
 /// Every `textures/entity/banner/*.png` in the jar and the packs, as texture
 /// names (`entity/banner/border`, or namespaced outside `minecraft`).
+/// A shield's plate texture without patterns (vanilla
+/// `NO_PATTERN_SHIELD`, in its 26.1 folder or the older place).
+pub(crate) fn is_shield_plate_texture(texture: model::TextureId) -> bool {
+    texture.name().ends_with("shield_base_nopattern")
+}
+
 fn banner_pattern_textures(
     jar_assets_dir: &Path,
     packs: Option<&crate::resource_pack::ResourcePackManager>,
@@ -552,20 +586,33 @@ fn banner_pattern_textures(
         };
         for namespace in namespaces.flatten() {
             let ns = namespace.file_name().to_string_lossy().into_owned();
-            let Ok(files) = std::fs::read_dir(namespace.path().join("textures/entity/banner"))
-            else {
-                continue;
-            };
-            for file in files.flatten() {
-                let file = file.file_name().to_string_lossy().into_owned();
-                let Some(stem) = file.strip_suffix(".png") else {
+            // A patterned shield's base before 26.1 moved it into
+            // `entity/shield/`.
+            if ns == "minecraft"
+                && namespace
+                    .path()
+                    .join("textures/entity/shield_base.png")
+                    .is_file()
+            {
+                names.insert("entity/shield_base".to_owned());
+            }
+            // Banners' pattern textures and shields' own.
+            for folder in ["banner", "shield"] {
+                let dir = namespace.path().join("textures/entity").join(folder);
+                let Ok(files) = std::fs::read_dir(dir) else {
                     continue;
                 };
-                names.insert(if ns == "minecraft" {
-                    format!("entity/banner/{stem}")
-                } else {
-                    format!("{ns}:entity/banner/{stem}")
-                });
+                for file in files.flatten() {
+                    let file = file.file_name().to_string_lossy().into_owned();
+                    let Some(stem) = file.strip_suffix(".png") else {
+                        continue;
+                    };
+                    names.insert(if ns == "minecraft" {
+                        format!("entity/{folder}/{stem}")
+                    } else {
+                        format!("{ns}:entity/{folder}/{stem}")
+                    });
+                }
             }
         }
     }

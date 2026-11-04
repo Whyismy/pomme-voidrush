@@ -1,7 +1,9 @@
 # A Void Rush pack shield (vanilla's shield with the pack's frame model
-# over it, switching to the `_blocking` models while raised), seen in first
-# and third person, lowered and raised. Run with the pack served
-# (POMME_INGAME_SERVER_PROPERTIES resource-pack=...).
+# over it, switching to the `_blocking` models while raised), with a boss
+# shield's base colour and banner patterns, seen in first and third person,
+# lowered and raised, then the same banner on a plain shield, and both in
+# the inventory. Run with the pack served (POMME_INGAME_SERVER_PROPERTIES
+# resource-pack=...).
 
 [[step]]
 wait_ms = 4000
@@ -22,13 +24,16 @@ wait_ms = 1000
 chat = "/item replace entity @s weapon.mainhand with diamond_sword"
 
 [[step]]
-chat = "/item replace entity @s weapon.offhand with shield[custom_model_data={strings:[\"shield_1\"]}]"
+chat = "/item replace entity @s weapon.offhand with shield[custom_model_data={strings:[\"void_shield_6\"]},base_color=black,banner_patterns=[{pattern:\"stripe_center\",color:\"purple\"},{pattern:\"stripe_downright\",color:\"purple\"},{pattern:\"stripe_downleft\",color:\"purple\"},{pattern:\"border\",color:\"white\"}]]"
+
+[[step]]
+chat = "/item replace entity @s hotbar.1 with shield[base_color=black,banner_patterns=[{pattern:\"stripe_center\",color:\"purple\"},{pattern:\"stripe_downright\",color:\"purple\"},{pattern:\"stripe_downleft\",color:\"purple\"},{pattern:\"border\",color:\"white\"}]]"
 
 [[step]]
 look_at = [760.5, -58.4, 770.5]
 
 [[step]]
-wait_ms = 2000
+wait_ms = 11000
 
 [[step]]
 screenshot = "fp_lowered"
@@ -44,6 +49,9 @@ screenshot = "fp_raised"
 
 [[step]]
 mouse_up = "right"
+
+[[step]]
+press = { action = "key.toggleGui" }
 
 [[step]]
 press = { action = "key.togglePerspective" }
@@ -68,3 +76,27 @@ screenshot = "front_raised"
 
 [[step]]
 mouse_up = "right"
+
+[[step]]
+press = { action = "key.togglePerspective" }
+
+[[step]]
+press = { action = "key.toggleGui" }
+
+[[step]]
+press = { action = "key.hotbar.2" }
+
+[[step]]
+wait_ms = 800
+
+[[step]]
+screenshot = "fp_plain"
+
+[[step]]
+open_inventory = true
+
+[[step]]
+wait_ms = 800
+
+[[step]]
+screenshot = "inventory"

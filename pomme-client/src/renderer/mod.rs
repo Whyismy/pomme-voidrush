@@ -1980,10 +1980,61 @@ impl Renderer {
         if let Some(info) = self.item_entity_pipeline.mesh_info(name) {
             return info;
         }
+        // A shield stack's base colour and patterns
+        // (`ShieldSpecialRenderer`): the plate and handle in the patterned
+        // base texture, then copies of the plate in each layer's texture,
+        // taking the tints after the model's.
+        if crate::banner::is_shield_key(name)
+            && let Some(base) = self
+                .render_assets
+                .get_item_model(crate::banner::base_key(name))
+        {
+            use crate::world::block::model::TextureId;
+            let plain = crate::world::block::render_assets::is_shield_plate_texture;
+            let mut model = base.clone();
+            // The plate reaches 11 pixels above and below the middle, the
+            // handle only 3.
+            let plate: Vec<_> = model
+                .quads
+                .iter()
+                .filter(|quad| {
+                    plain(quad.texture) && quad.positions.iter().any(|p| p[1].abs() > 4.0 / 16.0)
+                })
+                .cloned()
+                .collect();
+            for quad in &mut model.quads {
+                if plain(quad.texture) {
+                    let patterned = quad
+                        .texture
+                        .name()
+                        .replace("shield_base_nopattern", "shield_base");
+                    quad.texture = TextureId::intern(&patterned);
+                }
+            }
+            let tint_base = self
+                .render_assets
+                .item_tint_palette(crate::banner::base_key(name), None, None)
+                .len() as u32;
+            for (i, (texture, _)) in crate::banner::layers(name).enumerate() {
+                let texture = TextureId::intern(&texture);
+                model.quads.extend(plate.iter().cloned().map(|mut quad| {
+                    quad.texture = texture;
+                    quad.tint_index = Some(tint_base + i as u32);
+                    quad
+                }));
+            }
+            self.item_entity_pipeline.ensure_mesh(
+                &self.ctx.device,
+                name,
+                &model,
+                &self.atlas.uv_map,
+            );
+        }
         // A banner stack's pattern layers: copies of its flag's base pattern
         // in each layer's texture, taking the tints after the model's
         // (`BannerRenderer.renderPatterns`).
         if name.contains('~')
+            && !crate::banner::is_shield_key(name)
             && let Some(base) = self
                 .render_assets
                 .get_item_model(crate::banner::base_key(name))

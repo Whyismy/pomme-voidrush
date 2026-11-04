@@ -67,6 +67,12 @@ pub fn dye_rgb_named(name: &str) -> u32 {
     dye_rgb(NAMES.iter().position(|n| *n == name).unwrap_or(0) as i32)
 }
 
+/// A layer's pattern asset, by its registry id (azalea's plain id; the
+/// wire's holder, one higher, is undone where stacks are read).
+fn pattern_asset(names: &[String], pattern: i32) -> Option<&String> {
+    names.get(usize::try_from(pattern).ok()?)
+}
+
 /// The suffix a stack's model key takes for its pattern layers (see
 /// [`layers`]): each layer's pattern asset and colour, in order.
 pub fn layers_suffix(patterns: &BannerPatterns) -> Option<String> {
@@ -78,30 +84,69 @@ pub fn layers_suffix(patterns: &BannerPatterns) -> Option<String> {
         .patterns
         .iter()
         .filter_map(|layer| {
-            let asset = names.get(usize::try_from(layer.pattern).ok()?)?;
+            let asset = pattern_asset(&names, layer.pattern)?;
             Some(format!("{asset}={:06x}", dye_rgb(layer.color)))
         })
         .collect();
     (!layers.is_empty()).then(|| format!("~{}", layers.join(",")))
 }
 
-/// A model key's pattern layers (see [`layers_suffix`]): each layer's
-/// texture (`entity/banner/<pattern>`, namespaced outside `minecraft`) and
-/// colour.
-pub fn layers(key: &str) -> impl Iterator<Item = (String, u32)> + '_ {
+/// Marks a shield's layers in its key: they draw from `entity/shield/`.
+const SHIELD_LAYERS: &str = "shield;";
+
+/// The suffix a shield stack's model key takes (vanilla
+/// `ShieldSpecialRenderer`): with a base colour or patterns, its plate draws
+/// the base pattern in the base colour (white without one), then each
+/// pattern layer, from the shield's own pattern textures.
+pub fn shield_layers_suffix(
+    base_color: Option<i32>,
+    patterns: Option<&BannerPatterns>,
+) -> Option<String> {
+    let patterns = patterns.map_or(&[][..], |p| p.patterns.as_slice());
+    if base_color.is_none() && patterns.is_empty() {
+        return None;
+    }
+    let names = PATTERNS.read().unwrap_or_else(PoisonError::into_inner);
+    let mut layers = vec![format!(
+        "minecraft:base={:06x}",
+        dye_rgb(base_color.unwrap_or(0))
+    )];
+    layers.extend(patterns.iter().filter_map(|layer| {
+        let asset = pattern_asset(&names, layer.pattern)?;
+        Some(format!("{asset}={:06x}", dye_rgb(layer.color)))
+    }));
+    Some(format!("~{SHIELD_LAYERS}{}", layers.join(",")))
+}
+
+/// Whether model key `key` carries a shield's layers
+/// ([`shield_layers_suffix`]).
+pub fn is_shield_key(key: &str) -> bool {
     key.split_once('~')
+        .is_some_and(|(_, layers)| layers.starts_with(SHIELD_LAYERS))
+}
+
+/// A model key's pattern layers (see [`layers_suffix`] and
+/// [`shield_layers_suffix`]): each layer's texture
+/// (`entity/banner/<pattern>`, or `entity/shield/` for a shield, namespaced
+/// outside `minecraft`) and colour.
+pub fn layers(key: &str) -> impl Iterator<Item = (String, u32)> + '_ {
+    let layers = key
+        .split_once('~')
         .map(|(_, layers)| layers)
-        .unwrap_or_default()
-        .split(',')
-        .filter_map(|layer| {
-            let (asset, color) = layer.split_once('=')?;
-            let color = u32::from_str_radix(color, 16).ok()?;
-            let texture = match asset.split_once(':') {
-                Some(("minecraft", _)) | None => format!("entity/banner/{}", path_of(asset)),
-                Some((namespace, path)) => format!("{namespace}:entity/banner/{path}"),
-            };
-            Some((texture, color))
-        })
+        .unwrap_or_default();
+    let (folder, layers) = match layers.strip_prefix(SHIELD_LAYERS) {
+        Some(layers) => ("shield", layers),
+        None => ("banner", layers),
+    };
+    layers.split(',').filter_map(move |layer| {
+        let (asset, color) = layer.split_once('=')?;
+        let color = u32::from_str_radix(color, 16).ok()?;
+        let texture = match asset.split_once(':') {
+            Some(("minecraft", _)) | None => format!("entity/{folder}/{}", path_of(asset)),
+            Some((namespace, path)) => format!("{namespace}:entity/{folder}/{path}"),
+        };
+        Some((texture, color))
+    })
 }
 
 fn path_of(asset: &str) -> &str {
