@@ -96,14 +96,16 @@ pub(super) fn handle_typed_entity_data(
     }
 }
 
-/// A stack azalea decoded from a translated wire, with its banner patterns'
-/// holders (registry id plus one, `ByteBufCodecs.holder`) back to the plain
-/// ids azalea's type means; the native path's
-/// `item_codec::transcode_banner_patterns` does this while reading.
-// TODO: the other holder components azalea keeps plain (trims, equippable
-// and consumable sounds) are still one high on this path.
+/// A stack azalea decoded from a translated wire, with its registry holders
+/// (registry id plus one, `ByteBufCodecs.holder`) back to the plain ids
+/// azalea's types mean: banner patterns and the trim's material and
+/// pattern. The native path's `item_codec` transcoders do this while
+/// reading.
+// TODO: equippable and consumable sound holders are still one high on this
+// path (nothing reads them from entity-data items).
 fn plain_holders(mut stack: ItemStackData) -> ItemStackData {
-    use azalea_inventory::components::BannerPatterns;
+    use azalea_inventory::components::{BannerPatterns, Trim};
+    use azalea_registry::DataRegistry;
     use azalea_registry::builtin::DataComponentKind;
     if let Some(patterns) = stack.component_patch.get::<BannerPatterns>() {
         let mut patterns = patterns.clone();
@@ -116,6 +118,19 @@ fn plain_holders(mut stack: ItemStackData) -> ItemStackData {
                 DataComponentKind::BannerPatterns,
                 Some(patterns.into()),
             );
+        }
+    }
+    if let Some(trim) = stack.component_patch.get::<Trim>() {
+        let plain = |id: u32| id.saturating_sub(1);
+        let trim = Trim {
+            material: DataRegistry::new_raw(plain(trim.material.protocol_id())),
+            pattern: DataRegistry::new_raw(plain(trim.pattern.protocol_id())),
+        };
+        // SAFETY: the value is the kind it's inserted as.
+        unsafe {
+            stack
+                .component_patch
+                .unchecked_insert_component(DataComponentKind::Trim, Some(trim.into()));
         }
     }
     stack
@@ -342,6 +357,45 @@ pub(super) fn from_azalea(value: &EntityDataValue) -> Option<Value> {
 
 #[cfg(test)]
 mod tests {
+    /// A translated wire's holders (id + 1) come back to azalea's plain
+    /// ids: a trim's material and pattern, and each banner pattern.
+    #[test]
+    fn translated_holders_drop_their_plus_one() {
+        use azalea_inventory::components::{BannerPatternLayer, BannerPatterns, Trim};
+        use azalea_registry::DataRegistry;
+        use azalea_registry::builtin::{DataComponentKind, ItemKind};
+
+        let mut stack = ItemStackData::new(ItemKind::DiamondChestplate, 1);
+        let trim = Trim {
+            material: DataRegistry::new_raw(5),
+            pattern: DataRegistry::new_raw(3),
+        };
+        let patterns = BannerPatterns {
+            patterns: vec![BannerPatternLayer {
+                pattern: 6,
+                color: 0,
+            }],
+        };
+        // SAFETY: each value is the kind it's inserted as.
+        unsafe {
+            stack
+                .component_patch
+                .unchecked_insert_component(DataComponentKind::Trim, Some(trim.into()));
+            stack.component_patch.unchecked_insert_component(
+                DataComponentKind::BannerPatterns,
+                Some(patterns.into()),
+            );
+        }
+        let plain = plain_holders(stack);
+        let trim = plain.component_patch.get::<Trim>().unwrap();
+        assert_eq!(
+            (trim.material.protocol_id(), trim.pattern.protocol_id()),
+            (4, 2)
+        );
+        let patterns = plain.component_patch.get::<BannerPatterns>().unwrap();
+        assert_eq!(patterns.patterns[0].pattern, 5);
+    }
+
     use pomme_protocol::wire::write_varint;
 
     use super::*;
