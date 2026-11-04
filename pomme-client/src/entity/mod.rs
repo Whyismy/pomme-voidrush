@@ -1093,6 +1093,16 @@ pub(crate) fn living_entity_dimensions(entity: &LivingEntity) -> EntityDimension
             dims.height *= 0.5;
         }
     }
+    // `Slime.getDefaultDimensions`, which magma and sulfur cubes share: the
+    // type's box times the cube's size, so a big slime is hit where it's drawn.
+    if matches!(
+        entity.entity_type,
+        EntityKind::Slime | EntityKind::MagmaCube | EntityKind::SulfurCube
+    ) {
+        let size = f32::from(entity.slime_size);
+        dims.width *= size;
+        dims.height *= size;
+    }
     // `LivingEntity.getDimensions`: the whole box at the `scale` attribute.
     let scale = entity_scale(entity);
     dims.width *= scale;
@@ -3115,6 +3125,24 @@ mod tests {
         store.apply_entity_data(2, 16, MetaValue::Bool(true));
         let dims = living_entity_dimensions(&store.living[&2]);
         assert!((dims.height - 0.6 * 0.65).abs() < 1e-6);
+    }
+
+    /// A slime's or magma cube's box grows with its size, as vanilla's
+    /// `Slime.getDefaultDimensions` scales the type's 0.52 cube.
+    #[test]
+    fn cube_mob_boxes_grow_with_their_size() {
+        let mut store = EntityStore::new();
+        spawn(&mut store, 1, EntityKind::Slime, Position::default());
+        let small = living_entity_dimensions(&store.living[&1]);
+        assert!((small.width - 0.52).abs() < 1e-6);
+        store.apply_entity_data(1, 16, MetaValue::Int(4));
+        let big = living_entity_dimensions(&store.living[&1]);
+        assert!((big.width - 2.08).abs() < 1e-5 && (big.height - 2.08).abs() < 1e-5);
+
+        spawn(&mut store, 2, EntityKind::MagmaCube, Position::default());
+        store.apply_entity_data(2, 16, MetaValue::Int(3));
+        let magma = living_entity_dimensions(&store.living[&2]);
+        assert!((magma.width - 1.56).abs() < 1e-5);
     }
 
     /// `LivingEntity.aiStep` zeroes velocity components under 0.003 (a
