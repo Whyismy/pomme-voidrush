@@ -1579,15 +1579,20 @@ impl Renderer {
                 // FIRST_PERSON_RIGHT_HAND / FIRST_PERSON_LEFT_HAND.
                 let first_person = [4, 3]
                     .map(|context| self.render_assets.baked_display_transform(&model, context));
+                let arm_models = [4, 3].map(|context| {
+                    let mesh = self.render_assets.context_model_key(&model, context);
+                    self.ensure_item_mesh(&mesh);
+                    mesh
+                });
                 pipelines::held_item::HeldItemInfo {
                     name,
-                    model,
                     item_tints,
                     has_3d_model,
                     charged_crossbow: crate::player::interaction::is_charged_crossbow(&stack),
                     stabs: crate::player::interaction::swing_animation(Some(&stack)).0,
                     // FIRST_PERSON_RIGHT_HAND / FIRST_PERSON_LEFT_HAND.
                     first_person,
+                    arm_models,
                 }
             })
         });
@@ -2536,6 +2541,9 @@ impl Renderer {
         struct BakeJob {
             slot: pipelines::gui_item_atlas::Slot,
             name: String,
+            /// The GUI view's mesh (the model's variant for it, where its
+            /// parts are posed apart there).
+            mesh: String,
             item_tints: Vec<u32>,
             display: crate::world::block::model::DisplayTransform,
             needs_clear: bool,
@@ -2546,14 +2554,22 @@ impl Renderer {
             if let Some((slot, state)) = self.gui_item_atlas.get_or_allocate(key, discard) {
                 item_atlas_uvs.insert(key.clone(), self.gui_item_atlas.slot_uv(&slot));
                 if !matches!(state, pipelines::gui_item_atlas::SlotState::Ready) {
+                    // GUI.
+                    let mesh = self.render_assets.context_model_key(name, 6);
                     bake_list.push(BakeJob {
                         slot,
                         name: name.clone(),
+                        mesh,
                         item_tints: item_tints.clone(),
                         display: self.render_assets.get_item_gui_transform(name),
                         needs_clear: matches!(state, pipelines::gui_item_atlas::SlotState::Stale),
                     });
                 }
+            }
+        }
+        for job in &bake_list {
+            if job.mesh != job.name && !job.name.contains(HEAD_SKIN_MARK) {
+                self.ensure_item_mesh(&job.mesh);
             }
         }
         if !bake_list.is_empty() {
@@ -2601,7 +2617,7 @@ impl Renderer {
                     sx,
                     sy,
                     self.gui_item_atlas.slot_px(),
-                    &job.name,
+                    &job.mesh,
                     job.display,
                     &job.item_tints,
                 );

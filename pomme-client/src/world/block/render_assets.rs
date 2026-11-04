@@ -315,6 +315,20 @@ impl BlockRenderAssets {
         }
     }
 
+    /// `model`'s variant for display context `context`, where its
+    /// composite parts are posed apart there
+    /// ([`model::context_model_key`]), or `model` itself.
+    pub fn context_model_key(&self, model: &str, context: u8) -> String {
+        // A stack's pattern layers stay on its variant.
+        let (base, layers) = model.split_at(model.find('~').unwrap_or(model.len()));
+        let key = model::context_model_key(base, context);
+        if self.item_models.contains_key(&key) {
+            key + layers
+        } else {
+            model.to_owned()
+        }
+    }
+
     pub fn is_player_head_model(&self, key: &str) -> bool {
         self.player_head_models.contains(key)
     }

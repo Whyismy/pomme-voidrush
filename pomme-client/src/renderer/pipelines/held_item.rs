@@ -15,9 +15,6 @@ use crate::world::block::model::CardinalLightType;
 pub struct HeldItemInfo {
     /// The item, whose model JSON gives the display transforms.
     pub name: String,
-    /// The baked mesh this stack draws with
-    /// (`BlockRenderAssets::stack_model_key`).
-    pub model: String,
     pub item_tints: Vec<u32>,
     pub has_3d_model: bool,
     pub charged_crossbow: bool,
@@ -27,6 +24,9 @@ pub struct HeldItemInfo {
     /// (packs and the stack's model included); `None` falls back to the
     /// item definition's.
     pub first_person: [Option<DisplayTransform>; 2],
+    /// The mesh for each arm, right then left: the model's variant for that
+    /// view where its parts are posed apart there.
+    pub arm_models: [String; 2],
 }
 
 /// One first-person hand holding an item (vanilla `submitArmWithItem` for a
@@ -133,7 +133,8 @@ impl HeldItemPipeline {
         self.shared.bind(pass, frame, self.pipeline);
         for hand in hands {
             let item = hand.item;
-            let Some((buffer, vertex_count)) = meshes.mesh_handle(&item.model) else {
+            let mesh = &item.arm_models[usize::from(!hand.right_arm)];
+            let Some((buffer, vertex_count)) = meshes.mesh_handle(mesh) else {
                 continue;
             };
             let default = default_first_person(item.has_3d_model, hand.right_arm);

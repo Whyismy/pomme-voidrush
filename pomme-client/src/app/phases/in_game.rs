@@ -5865,6 +5865,7 @@ fn build_display_renders(
                     };
                     let name = crate::player::inventory::item_resource_name(stack.kind);
                     let model = renderer.render_assets().stack_model_key(&name, stack);
+                    let model = renderer.render_assets().context_model_key(&model, context);
                     let info = renderer.ensure_item_mesh(&model);
                     let tints: Arc<[u32]> = renderer
                         .render_assets()
@@ -6069,6 +6070,10 @@ fn build_held_items(
             } else {
                 model
             };
+            // THIRD_PERSON_RIGHT_HAND / THIRD_PERSON_LEFT_HAND's own pose.
+            let model = renderer
+                .render_assets()
+                .context_model_key(&model, if right { 2 } else { 1 });
             renderer.ensure_item_mesh(&model);
             let tints: Arc<[u32]> = renderer
                 .render_assets()
@@ -6118,6 +6123,8 @@ fn build_held_items(
             continue;
         };
         let model = renderer.render_assets().stack_model_key(&name, stack);
+        // HEAD's own pose.
+        let model = renderer.render_assets().context_model_key(&model, 5);
         renderer.ensure_item_mesh(&model);
         let tints: Arc<[u32]> = renderer
             .render_assets()

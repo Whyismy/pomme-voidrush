@@ -24,7 +24,7 @@ wait_ms = 1000
 chat = "/item replace entity @s weapon.mainhand with diamond_sword"
 
 [[step]]
-chat = "/item replace entity @s weapon.offhand with shield[custom_model_data={strings:[\"void_shield_6\"]},base_color=black,banner_patterns=[{pattern:\"stripe_center\",color:\"purple\"},{pattern:\"stripe_downright\",color:\"purple\"},{pattern:\"stripe_downleft\",color:\"purple\"},{pattern:\"border\",color:\"white\"}]]"
+chat = "/item replace entity @s weapon.offhand with shield[custom_model_data={strings:[\"boss_shield_3\"]},base_color=green,banner_patterns=[{pattern:\"stripe_center\",color:\"purple\"},{pattern:\"stripe_downright\",color:\"purple\"},{pattern:\"stripe_downleft\",color:\"purple\"},{pattern:\"border\",color:\"white\"}]]"
 
 [[step]]
 chat = "/item replace entity @s hotbar.1 with shield[base_color=black,banner_patterns=[{pattern:\"stripe_center\",color:\"purple\"},{pattern:\"stripe_downright\",color:\"purple\"},{pattern:\"stripe_downleft\",color:\"purple\"},{pattern:\"border\",color:\"white\"}]]"

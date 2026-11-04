@@ -2987,6 +2987,8 @@ impl AppCore {
                     // The stack's own model (a pack's `custom_model_data`
                     // case, an `item_model`), as the screens draw it.
                     let model = renderer.render_assets().stack_model_key(&item_name, &stack);
+                    // Dropped and thrown items draw in the GROUND view.
+                    let model = renderer.render_assets().context_model_key(&model, 7);
                     renderer.ensure_item_mesh(&model);
                     game.thrown_items.set_item(id, model.clone(), stack.clone());
                     game.item_entity_store

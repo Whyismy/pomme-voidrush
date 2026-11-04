@@ -951,6 +951,8 @@ pub fn bake_item_models(
         let mut display: Option<DisplayTransforms> = None;
         // Each part's GUI pose, for a GUI variant whose parts disagree.
         let mut part_gui: Vec<(usize, DisplayTransform)> = Vec::new();
+        // Each part's display transforms, for the views its parts disagree in.
+        let mut part_display: Vec<(usize, DisplayTransforms)> = Vec::new();
         for part in parts {
             let resolved = resolve_model(
                 &part.path,
@@ -1077,6 +1079,7 @@ pub fn bake_item_models(
             }
             let start = merged.as_ref().map_or(0, |model| model.quads.len());
             part_gui.push((start, resolved.gui_transform));
+            part_display.push((start, resolved.display));
             merged = Some(match merged.take() {
                 None => baked,
                 Some(mut model) => {
@@ -1127,6 +1130,33 @@ pub fn bake_item_models(
                 gui_transform,
                 gui_light.unwrap_or_default(),
             );
+            // Vanilla draws each composite part in its own model's pose;
+            // where the parts disagree in a view (Void Rush's shield frames,
+            // posed apart from the plate they wrap), that view gets a model
+            // of its own with each part's pose folded into its quads, drawn
+            // in the first part's.
+            if !name.ends_with("#gui") {
+                for (context, quads) in context_variants(&baked.quads, &part_display) {
+                    let key = context_model_key(name, context);
+                    if let Some(display) = display {
+                        display_transforms.insert(key.clone(), display);
+                    }
+                    if let Some(transform) = ground_transforms.get(name).copied() {
+                        ground_transforms.insert(key.clone(), transform);
+                    }
+                    gui_transforms.insert(key.clone(), gui_transform);
+                    if let Some(tints) = tint_sources.get(name).cloned() {
+                        tint_sources.insert(key.clone(), tints);
+                    }
+                    item_models.insert(
+                        key,
+                        BakedModel {
+                            quads,
+                            is_full_cube: false,
+                        },
+                    );
+                }
+            }
             item_models.insert(name.to_string(), baked);
         }
     };
@@ -1837,6 +1867,74 @@ fn find_first_item_model_node(json: &serde_json::Value) -> Option<&serde_json::V
 /// `paletted_permutations` atlas source for its trim textures.
 fn default_stack_branch(node: &serde_json::Value) -> &serde_json::Value {
     display_branch(node, false)
+}
+
+/// The key a composite model's variant for display context `context`
+/// ([`DISPLAY_CONTEXT_KEYS`]) bakes under, where its parts' poses disagree
+/// there.
+pub fn context_model_key(key: &str, context: u8) -> String {
+    format!("{key}@{context}")
+}
+
+/// Each display context in which a composite's parts (their quads from
+/// each `part_display` start on) disagree, with the quads posed for it:
+/// each part's quads carried from its own transform into the first part's,
+/// which the view applies (`D_first⁻¹ · D_part` about the item's centre,
+/// both mirrored in the left-hand views as they're drawn).
+fn context_variants(
+    quads: &[BakedQuad],
+    part_display: &[(usize, DisplayTransforms)],
+) -> Vec<(u8, Vec<BakedQuad>)> {
+    let Some((_, first)) = part_display.first() else {
+        return Vec::new();
+    };
+    let pose = |display: &DisplayTransforms, context: usize| {
+        let transform = display[context].unwrap_or(DisplayTransform::IDENTITY);
+        if matches!(context, 1 | 3) {
+            transform.mirrored()
+        } else {
+            transform
+        }
+    };
+    let ends: Vec<usize> = part_display
+        .iter()
+        .skip(1)
+        .map(|(start, _)| *start)
+        .chain(std::iter::once(quads.len()))
+        .collect();
+    let mut variants = Vec::new();
+    for context in 1..DISPLAY_CONTEXT_KEYS.len() {
+        let base = pose(first, context);
+        if part_display
+            .iter()
+            .all(|(_, display)| pose(display, context) == base)
+        {
+            continue;
+        }
+        let Some(base_inverse) = Some(base.to_matrix()).filter(|m| m.determinant().abs() > 1e-9)
+        else {
+            continue;
+        };
+        let base_inverse = base_inverse.inverse();
+        let mut posed = quads.to_vec();
+        for ((start, display), end) in part_display.iter().zip(&ends) {
+            let own = pose(display, context);
+            if own == base {
+                continue;
+            }
+            let m = Mat4::from_translation(Vec3::splat(0.5))
+                * base_inverse
+                * own.to_matrix()
+                * Mat4::from_translation(Vec3::splat(-0.5));
+            for quad in &mut posed[*start..*end] {
+                for p in &mut quad.positions {
+                    *p = m.transform_point3(Vec3::from_array(*p)).to_array();
+                }
+            }
+        }
+        variants.push((context as u8, posed));
+    }
+    variants
 }
 
 /// The conditions whose true side bakes a variant of its own: each
@@ -3721,6 +3819,55 @@ mod tests {
     /// A shield (a special `shield` model under `using_item`) bakes vanilla's
     /// plate and handle around the item's center, takes its base model's
     /// display transforms, and a pack's composite case adds its own model.
+    /// A composite whose parts are posed apart in a view (Void Rush's
+    /// shield frames, raised 3 pixels in third person) bakes that view's
+    /// variant with the part moved into the first part's pose; views where
+    /// they agree get none.
+    #[test]
+    fn composite_parts_posed_apart_bake_a_view_variant() {
+        let root = test_temp_dir("context_variant");
+        let jar = root.join("jar");
+        let items = jar.join("minecraft/items");
+        let models = jar.join("minecraft/models/item");
+        for dir in [&items, &models] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        std::fs::write(
+            items.join("shield.json"),
+            r#"{"model":{"type":"minecraft:composite","models":[
+                {"type":"minecraft:special","base":"minecraft:item/shield","model":{"type":"minecraft:shield"}},
+                {"type":"minecraft:model","model":"minecraft:item/frame"}]}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            models.join("shield.json"),
+            r#"{"display":{"thirdperson_righthand":{"rotation":[0,90,0],"translation":[10,6,-4]},
+                "gui":{"translation":[2,3,0],"scale":[0.65,0.65,0.65]}}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            models.join("frame.json"),
+            r##"{"textures":{"frame":"block/stone"},
+                "display":{"thirdperson_righthand":{"rotation":[0,90,0],"translation":[10,9,-4]},
+                "gui":{"translation":[2,3,0],"scale":[0.65,0.65,0.65]}},
+                "elements":[{"from":[-7,-12,0.6],"to":[-5.5,12,2.4],"faces":{"south":{"uv":[0,0,1,1],"texture":"#frame"}}}]}"##,
+        )
+        .unwrap();
+
+        let baked = bake_item_models(&jar, &None, None);
+        let frame_y = |key: &str| baked.models[key].quads.last().unwrap().positions[0][1];
+        // THIRD_PERSON_RIGHT_HAND (2): the frame 3 pixels up, in the
+        // shield's pose.
+        let variant = context_model_key("shield", 2);
+        assert!(((frame_y(&variant) - frame_y("shield")) - 3.0 / 16.0).abs() < 1e-5);
+        assert_eq!(
+            baked.models[&variant].quads[0].positions,
+            baked.models["shield"].quads[0].positions
+        );
+        // GUI (6): posed alike, no variant.
+        assert!(!baked.models.contains_key(&context_model_key("shield", 6)));
+    }
+
     /// The fishing rod's `fishing_rod/cast` condition bakes its cast sprite
     /// (no line hanging) as a variant of its own, beside the plain one.
     #[test]
