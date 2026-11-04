@@ -2485,6 +2485,24 @@ mod tests {
         }
     }
 
+    /// Ctrl+M's mute silences the master channel without moving its
+    /// slider, so unmuting comes back at the same volume.
+    #[test]
+    fn muting_zeroes_master_and_unmuting_restores_it() {
+        let master = SoundCategory::Master as usize;
+        let music = SoundCategory::Music as usize;
+        let mut grid = Grid::new("Other", "Other");
+        grid.menu.master_volume = 0.7;
+        grid.menu.music_volume = 0.4;
+        grid.menu.sound_muted = true;
+        let muted = grid.menu.category_volumes();
+        assert_eq!(muted[master], 0.0);
+        assert_eq!(muted[music], 0.4);
+        assert_eq!(grid.menu.master_volume, 0.7);
+        grid.menu.sound_muted = false;
+        assert_eq!(grid.menu.category_volumes()[master], 0.7);
+    }
+
     #[test]
     fn chunk_builders_toggles_between_max_and_low_and_saves() {
         let dir =

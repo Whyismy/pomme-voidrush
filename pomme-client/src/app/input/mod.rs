@@ -657,6 +657,11 @@ impl InputState {
         self.action_input_just_pressed(Action::DropItem)
     }
 
+    /// Ctrl+M pressed since the last `end_frame`: mute or unmute.
+    pub fn mute_toggle_pressed(&self) -> bool {
+        self.ctrl_held() && self.just_pressed.contains(&KeyCode::KeyM)
+    }
+
     pub fn key_just_pressed(&self, key: KeyCode) -> bool {
         self.just_pressed.contains(&key)
     }

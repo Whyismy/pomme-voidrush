@@ -1,0 +1,23 @@
+# Ctrl+M mutes every sound and says so on the action bar; again unmutes, at
+# the volume the sliders still hold.
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+press = { key = "key.keyboard.m", ctrl = true }
+
+[[step]]
+wait_ms = 300
+
+[[step]]
+screenshot = "muted"
+
+[[step]]
+press = { key = "key.keyboard.m", ctrl = true }
+
+[[step]]
+wait_ms = 300
+
+[[step]]
+screenshot = "unmuted"

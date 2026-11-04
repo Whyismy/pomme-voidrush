@@ -2561,6 +2561,18 @@ pub fn update_game(
     );
     core.audio
         .update_entity_sound_position(game.player.entity_id, game.player.position);
+    if core.input.mute_toggle_pressed() {
+        core.menu.sound_muted = !core.menu.sound_muted;
+        let text = if core.menu.sound_muted {
+            "Sound muted (Ctrl+M to unmute)"
+        } else {
+            "Sound on"
+        };
+        game.action_bar = Some((
+            vec![crate::ui::text::TextSpan::new(text.into(), [1.0; 4])],
+            game.tick_count,
+        ));
+    }
     core.audio.set_volumes(core.menu.category_volumes());
     core.audio.set_subtitles_enabled(core.menu.show_subtitles);
 

@@ -768,6 +768,9 @@ pub struct MainMenu {
     pub show_online_status: bool,
     pub show_current_server: bool,
     pub master_volume: f32,
+    /// Ctrl+M: every sound silenced, the volume sliders untouched, so
+    /// unmuting comes back at the same volume. Not saved.
+    pub sound_muted: bool,
     pub music_volume: f32,
     pub jukebox_volume: f32,
     pub weather_volume: f32,
@@ -931,6 +934,7 @@ impl MainMenu {
             show_online_status: settings.show_online_status,
             show_current_server: settings.show_current_server,
             master_volume: settings.master_volume,
+            sound_muted: false,
             music_volume: settings.music_volume,
             jukebox_volume: settings.jukebox_volume,
             weather_volume: settings.weather_volume,
@@ -1105,6 +1109,7 @@ impl MainMenu {
     /// slider.
     pub fn category_volumes(&self) -> [f32; SoundCategory::COUNT] {
         std::array::from_fn(|index| match SoundCategory::from_index(index as u8) {
+            SoundCategory::Master if self.sound_muted => 0.0,
             SoundCategory::Master => self.master_volume,
             SoundCategory::Music => self.music_volume,
             SoundCategory::Records => self.jukebox_volume,
