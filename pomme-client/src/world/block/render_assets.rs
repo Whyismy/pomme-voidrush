@@ -307,7 +307,8 @@ impl BlockRenderAssets {
         // A stack's pattern layers stay on its variant.
         let (base, layers) = model.split_at(model.find('~').unwrap_or(model.len()));
         let key = format!("{base}{suffix}");
-        if self.item_models.contains_key(&key) {
+        // A 3D model, or a flat one (the cast fishing rod's sprite).
+        if self.item_models.contains_key(&key) || self.flat_item_texture_keys.contains_key(&key) {
             key + layers
         } else {
             model.to_owned()

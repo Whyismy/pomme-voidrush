@@ -3721,6 +3721,42 @@ mod tests {
     /// A shield (a special `shield` model under `using_item`) bakes vanilla's
     /// plate and handle around the item's center, takes its base model's
     /// display transforms, and a pack's composite case adds its own model.
+    /// The fishing rod's `fishing_rod/cast` condition bakes its cast sprite
+    /// (no line hanging) as a variant of its own, beside the plain one.
+    #[test]
+    fn the_cast_fishing_rod_bakes_its_own_sprite() {
+        let root = test_temp_dir("cast_rod");
+        let jar = root.join("jar");
+        let items = jar.join("minecraft/items");
+        let models = jar.join("minecraft/models/item");
+        for dir in [&items, &models] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        std::fs::write(
+            items.join("fishing_rod.json"),
+            r#"{"model":{"type":"minecraft:condition","property":"minecraft:fishing_rod/cast",
+                "on_false":{"type":"minecraft:model","model":"minecraft:item/fishing_rod"},
+                "on_true":{"type":"minecraft:model","model":"minecraft:item/fishing_rod_cast"}}}"#,
+        )
+        .unwrap();
+        for name in ["fishing_rod", "fishing_rod_cast"] {
+            std::fs::write(
+                models.join(format!("{name}.json")),
+                format!(r#"{{"parent":"minecraft:item/generated","textures":{{"layer0":"minecraft:item/{name}"}}}}"#),
+            )
+            .unwrap();
+        }
+        std::fs::write(models.join("generated.json"), r#"{}"#).unwrap();
+
+        let baked = bake_item_models(&jar, &None, None);
+        let sprite = |key: &str| baked.flat_texture_keys[key][0].clone();
+        assert_eq!(sprite("fishing_rod").as_deref(), Some("item/fishing_rod"));
+        assert_eq!(
+            sprite("fishing_rod#cast").as_deref(),
+            Some("item/fishing_rod_cast")
+        );
+    }
+
     #[test]
     fn shields_bake_the_special_model() {
         let root = test_temp_dir("shield_special");
