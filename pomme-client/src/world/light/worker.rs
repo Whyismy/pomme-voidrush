@@ -22,6 +22,9 @@ use crate::world::block::BlockStateTable;
 use crate::world::chunk::{Chunk, ChunkLightData, ChunkStore};
 
 enum Message {
+    /// The block table the session's state ids now mean (see
+    /// [`LightWorker::select_block_state_table`]).
+    BlockStateTable(BlockStateTable),
     /// A new level (vanilla recreates the light engine with the level).
     Reset {
         height: u32,
@@ -100,6 +103,17 @@ impl LightWorker {
         // The worker only stops when this handle drops, or when it panicked,
         // which the light simply stops updating after.
         let _ = self.tx.send((self.seq, message));
+    }
+
+    /// Reads state ids through `block_state_table` from now on. The game
+    /// switches tables when the server's protocol is chosen, after this
+    /// worker started; reading the new ids through the old table takes a
+    /// lantern for some other block, which then gives no light.
+    pub fn select_block_state_table(&mut self, block_state_table: BlockStateTable) {
+        if block_state_table.table_slot() != self.block_state_table.table_slot() {
+            self.block_state_table = block_state_table;
+            self.send(Message::BlockStateTable(block_state_table));
+        }
     }
 
     /// Starts over for a new level.
@@ -240,7 +254,7 @@ impl LightChunks for SharedChunks {
     }
 }
 
-fn run(rx: Receiver<(u64, Message)>, tx: Sender<Output>, block_state_table: BlockStateTable) {
+fn run(rx: Receiver<(u64, Message)>, tx: Sender<Output>, mut block_state_table: BlockStateTable) {
     crate::frame_log::mute_this_thread();
     let mut engine = LevelLightEngine::new(0, 0, false);
     let mut world = SharedChunks::default();
@@ -252,13 +266,13 @@ fn run(rx: Receiver<(u64, Message)>, tx: Sender<Output>, block_state_table: Bloc
                 return;
             };
             seq = at;
-            handle(message, &mut engine, &mut world, block_state_table);
+            handle(message, &mut engine, &mut world, &mut block_state_table);
         }
         loop {
             match rx.try_recv() {
                 Ok((at, message)) => {
                     seq = at;
-                    handle(message, &mut engine, &mut world, block_state_table);
+                    handle(message, &mut engine, &mut world, &mut block_state_table);
                 }
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => return,
@@ -289,9 +303,11 @@ fn handle(
     message: Message,
     engine: &mut LevelLightEngine,
     world: &mut SharedChunks,
-    block_state_table: BlockStateTable,
+    table: &mut BlockStateTable,
 ) {
+    let block_state_table = *table;
     match message {
+        Message::BlockStateTable(selected) => *table = selected,
         Message::Reset {
             height,
             min_y,
@@ -382,6 +398,37 @@ mod tests {
             store.get_block_light(8, 70, 8) == 15 && store.get_block_light(11, 70, 8) == 12
         });
         assert!(worker.light_on_in_column((0, 0)));
+    }
+
+    /// The game picks the server's block table after the worker started; a
+    /// light placed in the new table's ids still lights.
+    #[test]
+    fn a_light_placed_after_the_table_switch_lights() {
+        let started = BlockStateTable::for_protocol(777);
+        let table = BlockStateTable::native();
+        assert_ne!(started.table_slot(), table.table_slot());
+        let light = light_level_15(table);
+        let in_started = started
+            .try_state(u32::from(light))
+            .map(|state| started.block_state_data(state).id());
+        assert_ne!(in_started, Some("light"), "the two tables must disagree");
+        let mut store = ChunkStore::new(4);
+        let sections = store.section_count() as usize;
+        store.insert_chunk(ChunkPos::new(0, 0), Chunk::empty(sections));
+        let mut worker = LightWorker::new(store.height(), store.min_y(), true, started);
+        worker.select_block_state_table(table);
+        worker.on_chunk_loaded(&store, (0, 0));
+        worker.queue_task(LightTask::ApplyLight {
+            pos: (0, 0),
+            sky: Vec::new(),
+            block: Vec::new(),
+            enable: true,
+        });
+        let (old, flip) = store.set_block_state_tracked(8, 70, 8, light, table);
+        worker.on_block_changed(LightPos::new(8, 70, 8), old, light, flip);
+        poll_until(&mut worker, &mut store, |store| {
+            store.get_block_light(8, 70, 8) == 15 && store.get_block_light(11, 70, 8) == 12
+        });
     }
 
     #[test]

@@ -435,6 +435,8 @@ impl GameState {
     pub fn select_protocol(&mut self, protocol: i32) {
         let previous_slot = self.block_registry.block_state_table().table_slot();
         self.block_registry.select_protocol(protocol);
+        self.light_engine
+            .select_block_state_table(self.block_registry.block_state_table());
         if previous_slot != self.block_registry.block_state_table().table_slot() {
             self.mesh_dispatcher = self
                 .mesh_dispatcher
