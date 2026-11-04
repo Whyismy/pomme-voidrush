@@ -333,6 +333,14 @@ impl InteractionState {
         self.using_item.as_ref().map(|active| active.hand)
     }
 
+    /// Vanilla `getTicksUsingItem(partialTicks)`: how long the item in use
+    /// has been, or 0 when nothing is.
+    pub fn ticks_using(&self, partial_tick: f32) -> f32 {
+        self.using_item.as_ref().map_or(0.0, |active| {
+            (active.duration - active.remaining) as f32 + partial_tick
+        })
+    }
+
     /// Whether the item in use blocks (`ArmPose.BLOCK`: a raised shield).
     pub fn blocking(&self) -> bool {
         self.using_item
@@ -1895,6 +1903,11 @@ pub(crate) fn swing_animation(stack: Option<&ItemStackData>) -> (bool, i32) {
                 swing.duration.max(1),
             )
         })
+}
+
+/// The stack's `kinetic_weapon` (a spear's charge), if it has one.
+pub(crate) fn kinetic_weapon(stack: &ItemStackData) -> Option<KineticWeapon> {
+    stack_component::<KineticWeapon>(stack)
 }
 
 fn stack_component<T: DefaultableComponent + Clone>(stack: &ItemStackData) -> Option<T> {

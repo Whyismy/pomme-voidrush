@@ -4474,6 +4474,18 @@ pub fn update_game(
                                 .is_some_and(crate::player::interaction::blocks_attacks)
                         })
                         .map(|hand| hand == 0),
+                    spear: spear_pose(
+                        e.entity_type,
+                        e.aggressive,
+                        [
+                            azalea_inventory::components::EquipmentSlot::Mainhand,
+                            azalea_inventory::components::EquipmentSlot::Offhand,
+                        ]
+                        .map(|slot| e.equipment(slot).and_then(|stack| stack.as_present())),
+                        e.using_hand,
+                        e.use_ticks as f32 + partial_tick,
+                        e.swing_time > 0,
+                    ),
                     skip_cull: false,
                     shadow: ShadowCaster {
                         position: *interp_pos,
@@ -4744,6 +4756,20 @@ pub fn update_game(
                 .then(|| game.interaction.using_hand())
                 .flatten()
                 .map(|hand| hand == crate::player::interaction::HANDS[0]),
+            spear: spear_pose(
+                EntityKind::Player,
+                false,
+                [
+                    game.player.inventory.hotbar_slots()[core.input.selected_slot() as usize]
+                        .as_present(),
+                    game.player.inventory.offhand().as_present(),
+                ],
+                game.interaction
+                    .using_hand()
+                    .map(|hand| u8::from(hand != crate::player::interaction::HANDS[0])),
+                game.interaction.ticks_using(partial_tick),
+                swing_progress[0].max(swing_progress[1]) > 0.0,
+            ),
             skip_cull: true,
             // Players drop their render offset before the shadow.
             shadow: ShadowCaster {
@@ -6087,6 +6113,7 @@ fn build_held_items(
                 * glam::Mat4::from_rotation_x(-std::f32::consts::FRAC_PI_2)
                 * glam::Mat4::from_rotation_y(std::f32::consts::PI)
                 * glam::Mat4::from_translation(glam::Vec3::new(side / 16.0, 0.125, -0.625))
+                * spear_item_matrix(info, hands[0], stack, right)
                 * transform;
             out.push(ItemRenderInfo {
                 item_name: model.into(),
@@ -6203,6 +6230,39 @@ fn build_thrown_items(
     }
 }
 
+/// Vanilla `ItemInHandLayer.submitArmWithItem`'s spear turns for the item
+/// `stack` in the `right` (or left) hand: thrust through a stab
+/// (`thirdPersonAttackItem`, the main hand's weapon) and levelled through a
+/// charge (`ArmPose.SPEAR.animateUseItem`).
+fn spear_item_matrix(
+    info: &EntityRenderInfo,
+    main: Option<&azalea_inventory::ItemStackData>,
+    stack: &azalea_inventory::ItemStackData,
+    right: bool,
+) -> glam::Mat4 {
+    use crate::renderer::entity_model::spear;
+    let mut m = glam::Mat4::IDENTITY;
+    if right && info.attack_stabs && info.attack_time > 0.0 {
+        let forward = main
+            .and_then(crate::player::interaction::kinetic_weapon)
+            .map_or(0.0, |weapon| weapon.forward_movement);
+        m *= spear::attack_item_matrix(info.attack_time, forward);
+    }
+    if info.spear.arms[usize::from(!right)]
+        && let Some((use_right, ticks, _)) = info.spear.using
+        && use_right == right
+        && let Some(weapon) = crate::player::interaction::kinetic_weapon(stack)
+    {
+        m *= spear::use_item_matrix(
+            &spear::KineticTimings::from(&weapon),
+            ticks,
+            info.attack_time,
+            right,
+        );
+    }
+    m
+}
+
 /// From a model part's frame as pomme poses it to vanilla's (y down), which
 /// `ItemInHandLayer`'s offsets are in.
 const ARM_FRAME: glam::Mat4 = glam::Mat4::from_cols(
@@ -6243,6 +6303,38 @@ fn holds_items(kind: EntityKind) -> bool {
 /// fire frames (mirrored every other pair), at full brightness.
 // TODO: vanilla's quads are 1.4 times taller than wide and turn only about
 // y; particle quads are square and face the camera fully.
+/// How a humanoid of `kind` holds a spear (`hands`: main, then off): the
+/// arms its renderer's `getArmPose` puts in `ArmPose.SPEAR`, and the charge
+/// the hand in `using` (0 main, 1 off) is `use_ticks` into.
+fn spear_pose(
+    kind: EntityKind,
+    aggressive: bool,
+    hands: [Option<&azalea_inventory::ItemStackData>; 2],
+    using: Option<u8>,
+    use_ticks: f32,
+    swinging: bool,
+) -> crate::renderer::entity_model::spear::SpearPose {
+    use crate::renderer::entity_model::spear;
+    let held = hands.map(|stack| {
+        stack.map(|stack| {
+            (
+                spear::is_spear(stack.kind),
+                crate::player::interaction::swing_animation(Some(stack)).0,
+            )
+        })
+    });
+    let using = using.and_then(|hand| {
+        let weapon = crate::player::interaction::kinetic_weapon(hands[usize::from(hand)]?)?;
+        Some((hand == 0, use_ticks, spear::KineticTimings::from(&weapon)))
+    });
+    let (arms, hanging) = spear::spear_arms(kind, aggressive, held, swinging);
+    spear::SpearPose {
+        arms,
+        hanging,
+        using,
+    }
+}
+
 /// Vanilla `FishingRodCast`: the hand (0 main, 1 off) whose rod draws cast
 /// while its angler has a line out; a rod in the main hand wins.
 fn cast_rod_hand(

@@ -1,0 +1,141 @@
+# Mobs holding spears (vanilla ArmPose.SPEAR): a still zombie, husk,
+# zombified piglin and piglin each point theirs where they look, the
+# zombies with both arms; then a hostile zombie charges, its spear levelled.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/difficulty normal"
+
+[[step]]
+chat = "/summon minecraft:zombie 0.5 -60 5.5 {NoAI:1b,Silent:1b,Rotation:[180f,0f],equipment:{mainhand:{id:\"minecraft:iron_spear\"}}}"
+
+[[step]]
+chat = "/summon minecraft:husk 2.5 -60 5.5 {NoAI:1b,Silent:1b,Rotation:[180f,0f],equipment:{mainhand:{id:\"minecraft:diamond_spear\"}}}"
+
+[[step]]
+chat = "/summon minecraft:zombified_piglin 4.5 -60 5.5 {NoAI:1b,Silent:1b,Rotation:[180f,0f],equipment:{mainhand:{id:\"minecraft:golden_spear\"}}}"
+
+[[step]]
+chat = "/summon minecraft:piglin 6.5 -60 5.5 {NoAI:1b,Silent:1b,IsImmuneToZombification:1b,Rotation:[180f,0f],equipment:{mainhand:{id:\"minecraft:golden_spear\"}}}"
+
+[[step]]
+chat = "/tp @s 3.5 -59 0.5 0 5"
+
+[[step]]
+wait_ms = 6000
+
+[[step]]
+screenshot = "still"
+
+# From their right side, to see the arms' angle: mobs in a line north to
+# south, all facing north.
+[[step]]
+chat = "/kill @e[type=!player]"
+
+[[step]]
+chat = "/summon minecraft:zombie 0.5 -60 2.5 {NoAI:1b,Silent:1b,Rotation:[180f,0f],equipment:{mainhand:{id:\"minecraft:iron_spear\"}}}"
+
+[[step]]
+chat = "/summon minecraft:zombie 0.5 -60 4.5 {NoAI:1b,Silent:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:zombified_piglin 0.5 -60 6.5 {NoAI:1b,Silent:1b,Rotation:[180f,0f],equipment:{mainhand:{id:\"minecraft:golden_spear\"}}}"
+
+[[step]]
+chat = "/summon minecraft:piglin 0.5 -60 8.5 {NoAI:1b,Silent:1b,IsImmuneToZombification:1b,Rotation:[180f,0f],equipment:{mainhand:{id:\"minecraft:golden_spear\"}}}"
+
+[[step]]
+chat = "/tp @s 6.5 -60 5.5 90 0"
+
+[[step]]
+wait_ms = 4000
+
+[[step]]
+screenshot = "side"
+
+# A hostile one: survival, kept alive, with the zombie a field away.
+[[step]]
+chat = "/kill @e[type=!player]"
+
+[[step]]
+chat = "/effect give @s minecraft:resistance 600 4 true"
+
+[[step]]
+chat = "/effect give @s minecraft:regeneration 600 4 true"
+
+[[step]]
+chat = "/gamemode survival"
+
+[[step]]
+chat = "/tp @s 0.5 -60 0.5 0 0"
+
+[[step]]
+chat = "/summon minecraft:zombie 0.5 -60 14.5 {Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f],equipment:{mainhand:{id:\"minecraft:iron_spear\"}}}"
+
+[[step]]
+chat = "/time set 18000"
+
+[[step]]
+chat = "/effect give @s minecraft:night_vision 600 0 true"
+
+[[step]]
+press = { key = "key.keyboard.f1" }
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "charge_1"
+
+[[step]]
+wait_ms = 400
+
+[[step]]
+screenshot = "charge_2"
+
+[[step]]
+wait_ms = 400
+
+[[step]]
+screenshot = "charge_3"
+
+[[step]]
+wait_ms = 400
+
+[[step]]
+screenshot = "charge_4"
+
+[[step]]
+wait_ms = 400
+
+[[step]]
+screenshot = "charge_5"
+
+[[step]]
+wait_ms = 400
+
+[[step]]
+screenshot = "charge_6"
+
+[[step]]
+wait_ms = 400
+
+[[step]]
+screenshot = "charge_7"
+
+[[step]]
+wait_ms = 400
+
+[[step]]
+screenshot = "charge_8"
+
+[[step]]
+press = { key = "key.keyboard.f1" }
+
+[[step]]
+chat = "/gamemode creative"

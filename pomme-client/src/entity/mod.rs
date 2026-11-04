@@ -812,6 +812,9 @@ pub struct LivingEntity {
     /// Vanilla `DATA_LIVING_ENTITY_FLAGS`: the hand whose item is in use
     /// (0 main, 1 off), if any.
     pub using_hand: Option<u8>,
+    /// Ticks the item in use has been (vanilla `getTicksUsingItem`, counted
+    /// on the client from the flag): a spear's charge animation reads it.
+    pub use_ticks: u32,
     /// Dye id, wolf/cat collars (vanilla default red).
     pub collar_color: u8,
     pub is_interested: bool,
@@ -931,10 +934,13 @@ pub struct LivingEntity {
     pub prev_creeper_swell: i32,
     pub creeper_swell_dir: i32,
     pub creeper_ignited: bool,
-    /// Arm-swing animation timer, counts down from `SWING_DURATION` to 0
+    /// Arm-swing animation timer, counts down from `swing_duration` to 0
     /// (driven by the server `Animate` packet). Drives the zombie attack
     /// swing.
     pub swing_time: u8,
+    /// The swing's length in ticks (vanilla `getCurrentSwingDuration`: the
+    /// main hand's `swing_animation`, a spear's slow stab).
+    pub swing_duration: u8,
     /// Chicken `flapping` decay factor.
     flapping: f32,
     target_squish: f32,
@@ -1208,6 +1214,7 @@ impl LivingEntity {
             is_on_fire: false,
             vehicle: None,
             using_hand: None,
+            use_ticks: 0,
             collar_color: 14,
             is_interested: false,
             anger_end_time: -1,
@@ -1292,6 +1299,7 @@ impl LivingEntity {
             creeper_swell_dir: -1,
             creeper_ignited: false,
             swing_time: 0,
+            swing_duration: SWING_DURATION,
             flapping: 1.0,
             target_squish: 0.0,
             // Vanilla `AbstractCubeMob.wasOnGround` starts false; with the
@@ -1400,8 +1408,8 @@ impl LivingEntity {
     /// attack pose contribution is zero, like vanilla's attackTime
     /// endpoints).
     pub fn swing_progress(&self, partial: f32) -> f32 {
-        ((SWING_DURATION as f32 - self.swing_time as f32 + partial) / SWING_DURATION as f32)
-            .clamp(0.0, 1.0)
+        let duration = f32::from(self.swing_duration.max(1));
+        ((duration - f32::from(self.swing_time) + partial) / duration).clamp(0.0, 1.0)
     }
 
     /// Vanilla `getEyePosition(partialTick)`, at the standing eye height.
@@ -2226,7 +2234,13 @@ impl EntityStore {
                 entity.is_glowing = shared_flags_glowing(f);
             }
             (_, 8, Byte(f)) => {
-                entity.using_hand = (f & 0x01 != 0).then_some(u8::from(f & 0x02 != 0));
+                let using_hand = (f & 0x01 != 0).then_some(u8::from(f & 0x02 != 0));
+                // `LivingEntity.onSyncedDataUpdated`: a new use starts its
+                // count over.
+                if using_hand != entity.using_hand {
+                    entity.use_ticks = 0;
+                }
+                entity.using_hand = using_hand;
             }
             (_, 9, Float(h)) => entity.health = h,
             // Mob flags byte: bit 0x04 = aggressive. Players aren't mobs;
@@ -2552,12 +2566,18 @@ impl EntityStore {
 
     /// Begins an arm swing (server `Animate` packet). Restarts when idle or
     /// past the halfway point (vanilla `LivingEntity.swing`); `swing_time`
-    /// counts down, so that is `swing_time <= SWING_DURATION / 2`.
+    /// counts down, so that is `swing_time <= swing_duration / 2`. The swing
+    /// lasts as long as the main hand's item swings for.
     pub fn start_swing(&mut self, id: i32) {
         if let Some(entity) = self.living.get_mut(&id)
-            && entity.swing_time <= SWING_DURATION / 2
+            && entity.swing_time <= entity.swing_duration / 2
         {
-            entity.swing_time = SWING_DURATION;
+            let main = entity
+                .equipment(EquipmentSlot::Mainhand)
+                .and_then(|stack| stack.as_present());
+            let duration = crate::player::interaction::swing_animation(main).1;
+            entity.swing_duration = duration.clamp(1, i32::from(u8::MAX)) as u8;
+            entity.swing_time = entity.swing_duration;
         }
     }
 
@@ -2725,6 +2745,9 @@ impl EntityStore {
             );
             if entity.swing_time > 0 {
                 entity.swing_time -= 1;
+            }
+            if entity.using_hand.is_some() {
+                entity.use_ticks = entity.use_ticks.saturating_add(1);
             }
             // `Villager.tick` and `Panda.tick` count it down, not the
             // wandering trader.

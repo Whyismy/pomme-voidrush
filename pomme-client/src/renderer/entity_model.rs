@@ -18,6 +18,7 @@ mod panda;
 mod parrot;
 mod polar_bear;
 mod sniffer_anim;
+pub mod spear;
 mod turtle;
 pub use armadillo::*;
 pub use axolotl::*;

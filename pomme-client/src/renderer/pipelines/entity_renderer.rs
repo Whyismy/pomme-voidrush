@@ -284,6 +284,8 @@ pub struct EntityRenderInfo {
     /// Vanilla `ArmPose.BLOCK`: the arm raising a shield, `true` for the
     /// right one.
     pub blocking_arm: Option<bool>,
+    /// The arms holding a spear out (`ArmPose.SPEAR`) and any charge.
+    pub spear: entity_model::spear::SpearPose,
     /// Skip frustum/distance culling (the 3rd-person self entity, which sits at
     /// the camera and must never blink out).
     pub skip_cull: bool,
@@ -381,6 +383,7 @@ impl Default for EntityRenderInfo {
             attack_time: 0.0,
             attack_stabs: false,
             blocking_arm: None,
+            spear: entity_model::spear::SpearPose::default(),
             skip_cull: false,
             outline_color: None,
             visibility: Visibility::Visible,
@@ -3330,6 +3333,25 @@ impl EntityRenderer {
         info: &EntityRenderInfo,
     ) -> entity_model::PartAnim {
         let mut anim = self.compute_kind_anim(anim_type, model, info);
+        if info.spear.arms != [false; 2] || info.spear.hanging != [false; 2] {
+            entity_model::spear::pose_arms(
+                model,
+                &mut anim,
+                &info.spear,
+                &entity_model::spear::ArmInput {
+                    head_x_rot_deg: info.head_x_rot_deg,
+                    local_head_y_rot_deg: crate::entity::wrap_degrees(
+                        info.head_y_rot_deg - info.body_y_rot_deg,
+                    ),
+                    attack_time: info.attack_time,
+                    attack_stabs: info.attack_stabs,
+                    is_crouching: info.is_crouching,
+                    age_in_ticks: info.age_in_ticks,
+                    walk_pos: info.walk_anim_pos,
+                    walk_speed: info.walk_anim_speed,
+                },
+            );
+        }
         if info.head_only {
             // Children follow their parent's scale, so hiding the other roots
             // hides everything but the head and its hat.
