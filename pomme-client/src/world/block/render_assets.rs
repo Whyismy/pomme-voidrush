@@ -582,9 +582,13 @@ impl BlockRenderAssets {
         let quad_textures =
             models.flat_map(|model| model.quads.iter().map(|quad| quad.texture.name()));
 
+        // `FluidRenderer`'s flowing and overlay sprites, which no block
+        // model names.
+        const FLUID_TEXTURES: [&str; 3] = ["water_flow", "lava_flow", "water_overlay"];
         face_textures
             .chain(quad_textures)
             .chain(self.banner_pattern_textures.iter().map(String::as_str))
+            .chain(FLUID_TEXTURES)
     }
 }
 

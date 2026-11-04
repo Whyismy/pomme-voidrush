@@ -2273,11 +2273,35 @@ fn classify_block(block_state_data: &BlockStateData) -> BlockKind {
 }
 
 // TODO: biome-based water color
-// TODO: flowing water texture (water_flow) with direction-based rotation
 
 const MAX_FLUID_HEIGHT: f32 = 8.0 / 9.0;
 /// `FluidRenderer`'s `offs` anti-z-fighting inset.
 const FLUID_INSET: f32 = 0.001;
+
+/// `FluidRenderer`'s flowing top: the sprite's centre half, turned so its
+/// streaks run with `flow` (north-west, south-west, south-east, north-east).
+fn flow_top_uvs(flow_x: f64, flow_z: f64) -> [[f32; 2]; 4] {
+    let angle = (flow_z as f32).atan2(flow_x as f32) - std::f32::consts::FRAC_PI_2;
+    let s = angle.sin() * 0.25;
+    let c = angle.cos() * 0.25;
+    [
+        [0.5 + (-c - s), 0.5 + (-c + s)],
+        [0.5 + (-c + s), 0.5 + (c + s)],
+        [0.5 + (c + s), 0.5 + (c - s)],
+        [0.5 + (c - s), 0.5 + (-c - s)],
+    ]
+}
+
+/// Vanilla `FluidRenderer`'s overlay test: a `HalfTransparentBlock` (glass,
+/// ice, slime, honey) or leaves beside the water.
+fn shows_water_overlay(id: &str) -> bool {
+    id.ends_with("glass")
+        || id.ends_with("leaves")
+        || matches!(
+            id,
+            "ice" | "frosted_ice" | "blue_ice" | "slime_block" | "honey_block"
+        )
+}
 
 fn same_fluid(block_state_data: &BlockStateData, kind: FluidKind) -> bool {
     block_state_data.fluid().kind == kind
@@ -2454,11 +2478,20 @@ fn emit_fluid(
     by: i32,
     bz: i32,
 ) {
-    // The fluid's own texture, whatever block holds it (a waterlogged one).
-    let (region, tint) = match kind {
-        BlockKind::Lava => (uv_map.get_region("lava_still"), PACKED_WHITE_SHIFTED),
+    // The fluid's own textures, whatever block holds it (a waterlogged
+    // one): still, flowing, and water's overlay beside glass and leaves
+    // (vanilla `FluidModel`).
+    let (region, flow_region, overlay_region, tint) = match kind {
+        BlockKind::Lava => (
+            uv_map.get_region("lava_still"),
+            uv_map.get_region("lava_flow"),
+            None,
+            PACKED_WHITE_SHIFTED,
+        ),
         _ => (
             uv_map.get_region("water_still"),
+            uv_map.get_region("water_flow"),
+            Some(uv_map.get_region("water_overlay")),
             pack_tint_shifted(snapshot.water_tint(bx, by, bz)),
         ),
     };
@@ -2526,18 +2559,35 @@ fn emit_fluid(
                 if !render_up {
                     continue;
                 }
-                positions[0][1] = north_west;
-                positions[1][1] = south_west;
-                positions[2][1] = south_east;
-                positions[3][1] = north_east;
-
+                // North-west, south-west, south-east, north-east.
+                positions = [
+                    [0.0, north_west, 0.0],
+                    [0.0, south_west, 1.0],
+                    [1.0, south_east, 1.0],
+                    [1.0, north_east, 0.0],
+                ];
+                // `FluidRenderer`: still water lies flat; moving water
+                // takes the flowing sprite, turned to run downstream.
+                let flow = crate::player::fluid_flow_at(
+                    |x, y, z| snapshot.get_block_state(x, y, z),
+                    block_state_table,
+                    bx,
+                    by,
+                    bz,
+                    block_state_data.fluid(),
+                );
+                let (top_region, top_uvs) = if flow.x == 0.0 && flow.z == 0.0 {
+                    (region, [[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.0]])
+                } else {
+                    (flow_region, flow_top_uvs(flow.x, flow.z))
+                };
                 emit_face_into(
-                    vertices, indices, block_pos, &positions, &uvs, light, region, tint,
+                    vertices, indices, block_pos, &positions, &top_uvs, light, top_region, tint,
                 );
 
                 // TODO: gate on `FluidState.shouldRenderBackwardUpFace`.
                 let rev_positions = [positions[0], positions[3], positions[2], positions[1]];
-                let rev_uvs = [uvs[0], uvs[3], uvs[2], uvs[1]];
+                let rev_uvs = [top_uvs[0], top_uvs[3], top_uvs[2], top_uvs[1]];
                 emit_face_into(
                     vertices,
                     indices,
@@ -2545,7 +2595,7 @@ fn emit_fluid(
                     &rev_positions,
                     &rev_uvs,
                     light,
-                    region,
+                    top_region,
                     tint,
                 );
                 continue;
@@ -2582,6 +2632,46 @@ fn emit_fluid(
                 for p in &mut positions {
                     p[axis] = plane;
                 }
+                // `FluidRenderer`'s sides: the flowing sprite's top-left
+                // quarter, hanging from the surface (water's overlay beside
+                // glass, ice, slime, honey and leaves).
+                let side_region = match overlay_region {
+                    Some(overlay)
+                        if shows_water_overlay(
+                            block_state_table.block_state_data(neighbor).id(),
+                        ) =>
+                    {
+                        overlay
+                    }
+                    _ => flow_region,
+                };
+                let side_uvs = std::array::from_fn(|i| {
+                    let p = positions[i];
+                    let u = 0.5
+                        * match dir {
+                            Direction::North => p[0],
+                            Direction::South => 1.0 - p[0],
+                            Direction::West => 1.0 - p[2],
+                            _ => p[2],
+                        };
+                    let v = if i == 0 || i == 3 {
+                        (1.0 - p[1]) * 0.5
+                    } else {
+                        0.5
+                    };
+                    [u, v]
+                });
+                emit_face_into(
+                    vertices,
+                    indices,
+                    block_pos,
+                    &positions,
+                    &side_uvs,
+                    light,
+                    side_region,
+                    tint,
+                );
+                continue;
             }
         }
 
@@ -2821,6 +2911,28 @@ mod fluid_height_tests {
     };
     use crate::world::block::BlockStateTable;
     use crate::world::block::model::Direction;
+
+    /// `FluidRenderer`'s flowing top: water running south takes the
+    /// sprite's centre half unturned; running east, a quarter turn.
+    #[test]
+    fn flowing_tops_turn_the_sprite_downstream() {
+        let close = |a: [[f32; 2]; 4], b: [[f32; 2]; 4]| {
+            a.iter()
+                .flatten()
+                .zip(b.iter().flatten())
+                .all(|(a, b)| (a - b).abs() < 1e-6)
+        };
+        let south = super::flow_top_uvs(0.0, 1.0);
+        assert!(close(
+            south,
+            [[0.25, 0.25], [0.25, 0.75], [0.75, 0.75], [0.75, 0.25]]
+        ));
+        let east = super::flow_top_uvs(1.0, 0.0);
+        assert!(close(
+            east,
+            [[0.75, 0.25], [0.25, 0.25], [0.25, 0.75], [0.75, 0.75]]
+        ));
+    }
 
     #[test]
     fn fluid_corner_averaging_matches_vanilla_weighting() {

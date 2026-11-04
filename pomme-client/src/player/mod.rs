@@ -75,11 +75,6 @@ const HORIZONTAL: [Direction; 4] = [
     Direction::West,
 ];
 
-#[inline]
-fn affects_water_flow(f: Fluid) -> bool {
-    matches!(f.kind, FluidKind::Empty | FluidKind::Water)
-}
-
 fn water_flow_at(
     chunks: &crate::world::chunk::ChunkStore,
     block_state_table: BlockStateTable,
@@ -89,6 +84,31 @@ fn water_flow_at(
     state_fluid: Fluid,
 ) -> glam::DVec3 {
     debug_assert_eq!(state_fluid.kind, FluidKind::Water);
+    fluid_flow_at(
+        |x, y, z| chunks.get_block_state(x, y, z),
+        block_state_table,
+        x,
+        y,
+        z,
+        state_fluid,
+    )
+}
+
+/// Vanilla `FlowingFluid.getFlow` for the water or lava at `x, y, z`
+/// (`state_fluid`), reading blocks through `block_at`: toward lower
+/// neighbours of the same fluid (or empty ones over it), down a falling
+/// one's sides against solid faces, normalised.
+pub(crate) fn fluid_flow_at(
+    block_at: impl Fn(i32, i32, i32) -> azalea_block::BlockState,
+    block_state_table: BlockStateTable,
+    x: i32,
+    y: i32,
+    z: i32,
+    state_fluid: Fluid,
+) -> glam::DVec3 {
+    // `FlowingFluid.affectsFlow`: empty, or the same fluid.
+    let affects_flow = |f: Fluid| f.kind == FluidKind::Empty || f.kind == state_fluid.kind;
+    let chunks = BlockAt(&block_at);
     let own_height = state_fluid.height();
     let mut flow_x = 0.0_f64;
     let mut flow_z = 0.0_f64;
@@ -100,7 +120,7 @@ fn water_flow_at(
         let neighbor_state = chunks.get_block_state(nx, y, nz);
         let neighbor_block_state_data = block_state_table.block_state_data(neighbor_state);
         let neighbor_fluid = neighbor_block_state_data.fluid();
-        if !affects_water_flow(neighbor_fluid) {
+        if !affects_flow(neighbor_fluid) {
             continue;
         }
 
@@ -110,7 +130,7 @@ fn water_flow_at(
             let below_fluid = block_state_table
                 .block_state_data(chunks.get_block_state(nx, y - 1, nz))
                 .fluid();
-            if !neighbor_block_state_data.blocks_motion() && affects_water_flow(below_fluid) && {
+            if !neighbor_block_state_data.blocks_motion() && affects_flow(below_fluid) && {
                 neighbor_height = below_fluid.height();
                 neighbor_height > 0.0
             } {
@@ -134,8 +154,8 @@ fn water_flow_at(
             let solid_face = |by| {
                 let state = chunks.get_block_state(nx, by, nz);
                 let block_state_data = block_state_table.block_state_data(state);
-                let same_water = block_state_data.fluid().kind == FluidKind::Water;
-                !same_water
+                let same_fluid = block_state_data.fluid().kind == state_fluid.kind;
+                !same_fluid
                     && !matches!(block_state_data.id(), "ice" | "frosted_ice")
                     && block_state_data.is_full_face_sturdy(direction) == Some(true)
             };
@@ -146,6 +166,15 @@ fn water_flow_at(
         }
     }
     vanilla_vec3_normalize(flow)
+}
+
+/// A block lookup with `ChunkStore`'s spelling, for [`fluid_flow_at`].
+struct BlockAt<'a, F>(&'a F);
+
+impl<F: Fn(i32, i32, i32) -> azalea_block::BlockState> BlockAt<'_, F> {
+    fn get_block_state(&self, x: i32, y: i32, z: i32) -> azalea_block::BlockState {
+        (self.0)(x, y, z)
+    }
 }
 
 /// Vanilla `getTicksRequiredToFreeze`.

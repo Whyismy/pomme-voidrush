@@ -1,0 +1,56 @@
+# Flowing water draws vanilla's FluidRenderer textures: moving water's
+# surface the flowing sprite turned downstream, every side the flowing
+# sprite hanging from the surface (a waterfall streams), still water flat;
+# lava alike.
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/gamemode spectator"
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/tp @s 846.5 -55 836.5 0 35"
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+chat = "/fill 840 -61 840 852 -57 852 minecraft:air"
+
+[[step]]
+chat = "/fill 840 -61 846 852 -61 846 minecraft:stone"
+
+[[step]]
+chat = "/setblock 840 -58 846 minecraft:stone"
+
+[[step]]
+chat = "/setblock 840 -57 846 minecraft:water"
+
+[[step]]
+chat = "/fill 846 -62 841 848 -62 843 minecraft:water"
+
+[[step]]
+chat = "/setblock 850 -60 850 minecraft:stone"
+
+[[step]]
+chat = "/setblock 850 -59 850 minecraft:lava"
+
+[[step]]
+wait_ms = 6000
+
+
+[[step]]
+press = { action = "key.toggleGui" }
+
+[[step]]
+wait_ms = 2500
+
+[[step]]
+screenshot = "flowing"
