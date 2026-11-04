@@ -1,0 +1,48 @@
+# Opening a screen (the inventory, chat) keeps the selected hotbar slot
+# held on the server: a sword in slot 5 that adds 4 max health keeps adding
+# it. It used to tell the server slot 1 while any screen was open.
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/gamemode survival"
+
+[[step]]
+chat = "/clear @s"
+
+[[step]]
+chat = "/item replace entity @s hotbar.4 with diamond_sword[attribute_modifiers=[{type:\"max_health\",amount:4,operation:\"add_value\",id:\"test:hp\",slot:\"mainhand\"}]]"
+
+[[step]]
+press = { action = "key.hotbar.5" }
+
+[[step]]
+wait_ms = 500
+
+[[step]]
+expect = { player = { max_health = 24.0 } }
+
+[[step]]
+open_inventory = true
+
+[[step]]
+wait_ms = 1000
+
+[[step]]
+expect = { player = { max_health = 24.0 } }
+
+[[step]]
+close_menu = true
+
+[[step]]
+press = { action = "key.chat" }
+
+[[step]]
+wait_ms = 1000
+
+[[step]]
+expect = { player = { max_health = 24.0 } }

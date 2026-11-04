@@ -3806,6 +3806,10 @@ impl AppCore {
 
         let neutral = InputState::released();
         let input = if input_live { &self.input } else { &neutral };
+        // The hotbar slot outlives any screen: the neutral input stands in
+        // for keys and clicks only, so a screen or chat opening doesn't
+        // carry slot 0 to the server (and swap the held item's attributes).
+        let selected_slot = self.input.selected_slot();
 
         // Vanilla LocalPlayer.aiStep ride-jump charge. `was_jump_pressed`
         // still holds last tick's key here (movement::tick overwrites it
@@ -3867,7 +3871,7 @@ impl AppCore {
         let hand_stacks = game
             .player
             .inventory
-            .hand_stacks(input.selected_slot())
+            .hand_stacks(selected_slot)
             .map(Option::<&_>::cloned);
         let hand_stacks = hand_stacks.each_ref().map(Option::as_ref);
         let held_stack = hand_stacks[0];
@@ -3904,7 +3908,7 @@ impl AppCore {
             worn: worn_for(
                 stack,
                 &game.player.inventory,
-                input.selected_slot(),
+                selected_slot,
                 creative,
                 &game.registries,
             ),
@@ -3928,7 +3932,7 @@ impl AppCore {
             game.player.on_ground,
             creative,
             game.player.food,
-            input.selected_slot(),
+            selected_slot,
             hands,
             &game.player.attributes,
             &game.player.effects,
