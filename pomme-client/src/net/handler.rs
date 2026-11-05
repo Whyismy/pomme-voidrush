@@ -26,13 +26,10 @@ fn dialog_holder_reference(
     }
 }
 
-/// Queues an event the game thread must not lose, blocking while the queue is
-/// full. Blocking stalls this connection's reads and writes until the game
-/// thread drains, so on a multi-thread runtime the worker's other tasks are
-/// handed off first.
-// TODO: a stall past the server's keep-alive timeout (a long window drag on
-// Windows) leaves keep-alives unanswered; vanilla answers them off its main
-// thread even while it is frozen.
+/// Queues an event the game thread must not lose, blocking while a bounded
+/// queue is full (the session's own queue is unbounded). Blocking stalls this
+/// connection's reads and writes until the game thread drains, so on a
+/// multi-thread runtime the worker's other tasks are handed off first.
 pub(super) fn send_ordered(event_tx: &Sender<NetworkEvent>, event: NetworkEvent) {
     if let Err(TrySendError::Full(event)) = event_tx.try_send(event) {
         let block = || {
