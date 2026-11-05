@@ -2639,12 +2639,14 @@ pub fn update_game(
     }
 
     // Menus never pause the simulation; tick_physics substitutes neutral input.
-    core.tick_accumulator += dt;
+    // The whole frame counts, not the clamped `dt`, so a slow frame doesn't
+    // lose ticks.
+    let ticks = advance_ticks(&mut core.tick_accumulator, raw_dt);
     // Vanilla `Minecraft.runTick` ticks textures once per frame that runs any
     // ticks, before them.
     // TODO: vanilla also skips this while singleplayer is paused and under
     // `/tick freeze` (`isLevelRunningNormally`); pomme tracks neither yet.
-    let ticked = core.tick_accumulator >= TICK_RATE;
+    let ticked = ticks > 0;
     let ticks_start = std::time::Instant::now();
     if ticked {
         if game.deterministic {
@@ -2653,7 +2655,7 @@ pub fn update_game(
             gfx.renderer.tick_texture_animations();
         }
     }
-    while core.tick_accumulator >= TICK_RATE {
+    for _ in 0..ticks {
         game.tick_count = game.tick_count.wrapping_add(1);
         if !game.deterministic {
             game.block_light_flicker = tick_block_light_flicker(game.block_light_flicker);
@@ -2781,7 +2783,6 @@ pub fn update_game(
             game.xp_display_start_tick = game.tick_count as i64;
         }
         AppCore::send_client_tick_end(connection);
-        core.tick_accumulator -= TICK_RATE;
     }
     if ticked {
         gfx.renderer.tick_lightmap(lightmap_info(
@@ -7887,6 +7888,20 @@ fn effective_render_distance(core: &AppCore, game: &GameState) -> u32 {
     }
 }
 
+/// Vanilla `Minecraft.runTick`'s cap on the ticks one frame catches up.
+const MAX_TICKS_PER_FRAME: u32 = 10;
+
+/// The ticks a frame of `frame_secs` runs, as vanilla `DeltaTracker.Timer`
+/// counts them: the frame's whole time joins the leftover fraction, every
+/// whole tick in it is taken out, and `Minecraft.runTick` runs at most
+/// [`MAX_TICKS_PER_FRAME`] of them (`Math.min(10, i)`), dropping the rest.
+fn advance_ticks(accumulator: &mut f32, frame_secs: f32) -> u32 {
+    *accumulator += frame_secs.max(0.0);
+    let due = (*accumulator / TICK_RATE).floor();
+    *accumulator -= due * TICK_RATE;
+    (due as u32).min(MAX_TICKS_PER_FRAME)
+}
+
 /// How far the clock is between its last tick and the next.
 fn sky_partial_tick(core: &AppCore) -> f32 {
     (core.time_tick_accumulator / TICK_RATE).clamp(0.0, 1.0)
@@ -7927,9 +7942,48 @@ fn darkness_scale(game_time: u64, gamma: f32, partial_tick: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::{
-        MeshGate, detached_distance, has_red_overlay, night_vision_scale, scroll_wheel,
-        section_bit, section_bits, tick_block_light_flicker,
+        MAX_TICKS_PER_FRAME, MeshGate, advance_ticks, detached_distance, has_red_overlay,
+        night_vision_scale, scroll_wheel, section_bit, section_bits, tick_block_light_flicker,
     };
+    use crate::app::TICK_RATE;
+
+    #[test]
+    fn ten_fps_runs_two_ticks_a_frame_and_keeps_the_fraction() {
+        let mut accumulator = 0.0;
+        let frames: Vec<u32> = (0..10)
+            .map(|_| advance_ticks(&mut accumulator, 0.1))
+            .collect();
+        assert_eq!(frames, [2; 10]);
+        assert!(accumulator.abs() < 1e-4);
+
+        // A 130 ms frame runs its two ticks and carries 30 ms on.
+        let mut accumulator = 0.0;
+        assert_eq!(advance_ticks(&mut accumulator, 0.13), 2);
+        assert!((accumulator - 0.03).abs() < 1e-4);
+        assert_eq!(advance_ticks(&mut accumulator, 0.025), 1);
+    }
+
+    #[test]
+    fn a_slow_frame_catches_up_at_most_ten_ticks() {
+        // A 300 ms hitch is six ticks; a clamped frame time ran only two.
+        let mut accumulator = 0.0;
+        assert_eq!(advance_ticks(&mut accumulator, 0.3), 6);
+
+        // Vanilla drops whatever is past ten, keeping only the fraction.
+        let mut accumulator = 0.0;
+        assert_eq!(
+            advance_ticks(&mut accumulator, 2.0 + TICK_RATE / 2.0),
+            MAX_TICKS_PER_FRAME
+        );
+        assert!((accumulator - TICK_RATE / 2.0).abs() < 1e-4);
+        assert_eq!(advance_ticks(&mut accumulator, 0.0), 0);
+    }
+
+    #[test]
+    fn an_unspent_tick_from_the_loading_screen_runs_in_the_first_frame() {
+        let mut accumulator = TICK_RATE;
+        assert_eq!(advance_ticks(&mut accumulator, 0.001), 1);
+    }
 
     #[test]
     fn mesh_gate_counts_masks_and_takes_them_back() {
