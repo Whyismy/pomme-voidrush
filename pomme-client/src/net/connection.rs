@@ -16,7 +16,7 @@ use tokio::sync::mpsc;
 use super::NetworkEvent;
 use super::chat::ChatPacketError;
 use super::chat_security::{ChatSender, ProfileKeyPair};
-use super::conn::{Conn, MemoryEnd, RawWriter};
+use super::conn::{Conn, MemoryEnd, RawReader, RawWriter};
 use super::handler::{handle_game_packet, handle_raw_game_packet, send_ordered};
 use super::sender::{Outbound, PacketSender};
 use crate::ui::server_dialog::DialogRegistry;
@@ -230,8 +230,8 @@ pub async fn connect_to_server(
     );
     send_ordered(&event_tx, NetworkEvent::Connected);
 
-    game_loop(
-        conn,
+    let ended = game_loop(
+        &mut conn,
         &event_tx,
         GameLoopArgs {
             block_state_table: BlockStateTable::for_protocol(wire),
@@ -245,7 +245,49 @@ pub async fn connect_to_server(
             key_pair_rx,
         },
     )
-    .await
+    .await;
+    // A kicking server closes right after its Disconnect, and closing with our
+    // packets still unread resets the connection, so the kick can surface as
+    // a failed write while the Disconnect waits unread.
+    if let Err(ConnectionError::Write(_)) = &ended
+        && let Some(reason) = pending_disconnect(&mut conn.reader).await
+    {
+        return kicked(&event_tx, reason);
+    }
+    ended
+}
+
+/// Ends the session with the server's Disconnect `reason`. Vanilla
+/// `handleDisconnect` closes the connection with it, so nothing that fails
+/// afterwards, such as the reset of the server's close, replaces it.
+fn kicked(event_tx: &Sender<NetworkEvent>, reason: String) -> Result<(), ConnectionError> {
+    super::lifecycle_wire::disconnected(event_tx, reason);
+    Ok(())
+}
+
+/// The reason of a game Disconnect already waiting on `reader`, read past
+/// whatever precedes it. Gives up at the first failed read or after a second.
+async fn pending_disconnect(reader: &mut RawReader) -> Option<String> {
+    let translation = super::translate::active();
+    let read = async {
+        loop {
+            let raw = reader.read().await.ok()?;
+            let raw = match translation {
+                Some(t) => match t.translate_game_frame(raw) {
+                    Some(raw) => raw,
+                    None => continue,
+                },
+                None => raw,
+            };
+            if let Some(reason) = super::lifecycle_wire::read_disconnect(&raw) {
+                return Some(reason);
+            }
+        }
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(1), read)
+        .await
+        .ok()
+        .flatten()
 }
 
 /// What the phases before the game loop produced.
@@ -945,7 +987,7 @@ struct GameLoopArgs {
 }
 
 async fn game_loop(
-    mut conn: Conn,
+    conn: &mut Conn,
     event_tx: &Sender<NetworkEvent>,
     args: GameLoopArgs,
 ) -> Result<(), ConnectionError> {
@@ -1053,6 +1095,9 @@ async fn game_loop(
             },
             None => raw,
         };
+        if let Some(reason) = super::lifecycle_wire::read_disconnect(&raw) {
+            return kicked(event_tx, reason);
+        }
         match super::chat::handle_raw_chat_packet(&raw, event_tx, &chat_types, &mut inbound_chat) {
             Some(Err(ChatPacketError::Malformed(error))) => {
                 tracing::warn!("Skipping malformed chat packet: {error}");
@@ -1115,7 +1160,7 @@ async fn game_loop(
                     );
                     write_game_frame(&mut conn.writer, translation, serialize_frame(&ack)?).await?;
                     let next = config_sequence(
-                        &mut conn,
+                        conn,
                         view_distance,
                         chat_options,
                         skin_options,
@@ -1418,11 +1463,18 @@ mod tests {
         ));
     }
 
+    /// A client mid-session over an in-memory pipe, and its peer.
+    struct PipeSession {
+        peer: Conn,
+        event_rx: crossbeam_channel::Receiver<NetworkEvent>,
+        packet_tx: mpsc::UnboundedSender<Outbound>,
+        client: tokio::task::JoinHandle<Result<(), ConnectionError>>,
+    }
+
     /// The whole join over an in-memory pipe, against a peer that sends only
     /// the two frames the client actually requires: login finished, then
     /// finish configuration. No registry data, no compression, no encryption.
-    #[tokio::test]
-    async fn joins_an_integrated_server_over_the_pipe() {
+    async fn join_over_the_pipe() -> PipeSession {
         use azalea_auth::game_profile::GameProfile;
         use azalea_protocol::packets::config::c_finish_configuration::ClientboundFinishConfiguration;
         use azalea_protocol::packets::handshake::ServerboundHandshakePacket;
@@ -1459,7 +1511,7 @@ mod tests {
                 skin_options: crate::ui::menu::SkinOptions::default(),
             },
             event_tx,
-            packet_tx,
+            packet_tx.clone(),
             packet_rx,
         ));
 
@@ -1501,6 +1553,20 @@ mod tests {
             ServerboundConfigPacket::FinishConfiguration(_)
         ));
 
+        PipeSession {
+            peer,
+            event_rx,
+            packet_tx,
+            client,
+        }
+    }
+
+    #[tokio::test]
+    async fn joins_an_integrated_server_over_the_pipe() {
+        let PipeSession {
+            event_rx, client, ..
+        } = join_over_the_pipe().await;
+
         // Protocol selection precedes configuration; the remaining events
         // arrive as soon as configuration ends, before any game packet.
         let events: Vec<_> = std::iter::from_fn(|| event_rx.recv().ok())
@@ -1513,5 +1579,75 @@ mod tests {
         assert!(matches!(events[2], NetworkEvent::Connected));
 
         client.abort();
+    }
+
+    /// A native game `disconnect` frame with a plain text reason.
+    fn disconnect_frame(reason: &str) -> Vec<u8> {
+        let id = PacketTable::native()
+            .id(Phase::Game, Direction::Clientbound, "disconnect")
+            .unwrap();
+        let mut frame = Vec::new();
+        pomme_protocol::wire::write_varint(&mut frame, id);
+        frame.push(8);
+        frame.extend((reason.len() as u16).to_be_bytes());
+        frame.extend(reason.as_bytes());
+        frame
+    }
+
+    /// A kick is a Disconnect and then the server closing. Whether the client
+    /// reads the Disconnect first or its next write fails first, the session
+    /// ends with the kick's reason and nothing after it.
+    #[tokio::test]
+    async fn a_kick_ends_the_session_with_its_reason() {
+        let PipeSession {
+            mut peer,
+            event_rx,
+            packet_tx,
+            client,
+        } = join_over_the_pipe().await;
+        peer.writer
+            .write(&disconnect_frame("Timed out"))
+            .await
+            .unwrap();
+        drop(peer);
+        PacketSender::new(packet_tx).send(ServerboundGamePacket::ClientTickEnd(
+            azalea_protocol::packets::game::s_client_tick_end::ServerboundClientTickEnd,
+        ));
+
+        assert!(client.await.unwrap().is_ok());
+        let reasons: Vec<String> = event_rx
+            .try_iter()
+            .filter_map(|event| match event {
+                NetworkEvent::Disconnected { reason } => Some(reason),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(reasons, ["Timed out"]);
+    }
+
+    /// After a failed write, the reason is read past what the server sent
+    /// before its Disconnect, up to the end of what it sent.
+    #[tokio::test]
+    async fn a_failed_write_finds_the_disconnect_waiting_behind_other_packets() {
+        let (client_end, server_end) = crate::net::conn::memory_pipes();
+        let mut client = Conn::from_memory(client_end);
+        let mut peer = Conn::from_memory(server_end);
+        let mut time = Vec::new();
+        let set_time = PacketTable::native()
+            .id(Phase::Game, Direction::Clientbound, "set_time")
+            .unwrap();
+        pomme_protocol::wire::write_varint(&mut time, set_time);
+        peer.writer.write(&time).await.unwrap();
+        peer.writer
+            .write(&disconnect_frame("You are sending too many packets!"))
+            .await
+            .unwrap();
+        drop(peer);
+
+        assert_eq!(
+            pending_disconnect(&mut client.reader).await.as_deref(),
+            Some("You are sending too many packets!")
+        );
+        assert_eq!(pending_disconnect(&mut client.reader).await, None);
     }
 }

@@ -65,6 +65,12 @@ fn read_native(raw: &[u8], name: &str) -> Option<DecodeResult<LifecyclePacket>> 
     super::read_raw_packet(id, &raw[r.pos()..], lifecycle::read)
 }
 
+/// Hands the game thread the server's Disconnect `reason`.
+pub(super) fn disconnected(event_tx: &Sender<NetworkEvent>, reason: String) {
+    tracing::warn!("Disconnected: {reason}");
+    send_ordered(event_tx, NetworkEvent::Disconnected { reason });
+}
+
 fn disconnect_reason(nbt: &[u8]) -> String {
     super::chat::read_component(nbt, &mut 0)
         .map(|reason| reason.plain_text())
@@ -145,11 +151,7 @@ fn handle(
         // Vanilla `handlePing` pongs from the main thread, in order with the
         // other main-thread packets.
         LifecyclePacket::Ping(id) => send_ordered(event_tx, NetworkEvent::Ping { id: id as u32 }),
-        LifecyclePacket::Disconnect(reason) => {
-            let reason = disconnect_reason(&reason);
-            tracing::warn!("Disconnected: {reason}");
-            send_ordered(event_tx, NetworkEvent::Disconnected { reason });
-        }
+        LifecyclePacket::Disconnect(reason) => disconnected(event_tx, disconnect_reason(&reason)),
         // Acknowledged on the game thread once the correction is applied.
         LifecyclePacket::PlayerPosition {
             id,
