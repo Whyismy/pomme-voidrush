@@ -61,6 +61,9 @@ struct Settings {
     menu_background_blurriness: u8,
     #[serde(default)]
     show_subtitles: bool,
+    /// Ctrl+M's mute, kept between launches.
+    #[serde(default)]
+    sound_muted: bool,
     #[serde(default = "default_true")]
     vignette: bool,
     #[serde(default = "default_true")]
@@ -241,6 +244,7 @@ impl Default for Settings {
             view_bobbing: true,
             menu_background_blurriness: default_menu_background_blurriness(),
             show_subtitles: false,
+            sound_muted: false,
             show_autosave_indicator: true,
             vignette: true,
             entity_shadows: true,
@@ -769,7 +773,8 @@ pub struct MainMenu {
     pub show_current_server: bool,
     pub master_volume: f32,
     /// Ctrl+M: every sound silenced, the volume sliders untouched, so
-    /// unmuting comes back at the same volume. Not saved.
+    /// unmuting comes back at the same volume. Saved with the options, so
+    /// the next launch starts as this one ended.
     pub sound_muted: bool,
     pub music_volume: f32,
     pub jukebox_volume: f32,
@@ -934,7 +939,7 @@ impl MainMenu {
             show_online_status: settings.show_online_status,
             show_current_server: settings.show_current_server,
             master_volume: settings.master_volume,
-            sound_muted: false,
+            sound_muted: settings.sound_muted,
             music_volume: settings.music_volume,
             jukebox_volume: settings.jukebox_volume,
             weather_volume: settings.weather_volume,
@@ -1146,6 +1151,14 @@ impl MainMenu {
         std::mem::take(&mut self.options_saved)
     }
 
+    /// Ctrl+M: mutes or unmutes every sound and saves the choice. Returns
+    /// whether sound is now muted.
+    pub fn toggle_sound_muted(&mut self, key_bindings: &KeyBindings) -> bool {
+        self.sound_muted = !self.sound_muted;
+        self.save_settings(key_bindings);
+        self.sound_muted
+    }
+
     pub fn flush_settings(&mut self, key_bindings: &KeyBindings) {
         if self.settings_dirty {
             self.save_settings(key_bindings);
@@ -1175,6 +1188,7 @@ impl MainMenu {
                 view_bobbing: self.view_bobbing,
                 menu_background_blurriness: self.menu_background_blurriness,
                 show_subtitles: self.show_subtitles,
+                sound_muted: self.sound_muted,
                 show_autosave_indicator: self.show_autosave_indicator,
                 vignette: self.vignette,
                 entity_shadows: self.entity_shadows,

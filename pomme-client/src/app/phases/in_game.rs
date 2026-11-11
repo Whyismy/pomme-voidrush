@@ -2579,8 +2579,8 @@ pub fn update_game(
     core.audio
         .update_entity_sound_position(game.player.entity_id, game.player.position);
     if core.input.mute_toggle_pressed() {
-        core.menu.sound_muted = !core.menu.sound_muted;
-        let text = if core.menu.sound_muted {
+        let muted = core.menu.toggle_sound_muted(&core.input.key_bindings);
+        let text = if muted {
             "Sound muted (Ctrl+M to unmute)"
         } else {
             "Sound on"

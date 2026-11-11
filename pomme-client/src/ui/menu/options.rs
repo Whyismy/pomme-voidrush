@@ -2503,6 +2503,35 @@ mod tests {
         assert_eq!(grid.menu.category_volumes()[master], 0.7);
     }
 
+    /// Ctrl+M's mute is saved as it's toggled, so the next launch starts
+    /// as this one ended; options saved before it existed start unmuted.
+    #[test]
+    fn mute_toggle_is_saved_and_restored() {
+        let dir = std::env::temp_dir().join(format!("pomme-mute-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&dir).unwrap();
+        let _cleanup = scopeguard::guard((), |_| {
+            let _ = std::fs::remove_dir_all(&dir);
+        });
+        let mut grid = Grid::new("Other", "Other");
+        grid.menu.settings_dir = dir.clone();
+        grid.menu.master_volume = 0.7;
+        for muted in [true, false] {
+            assert_eq!(grid.menu.toggle_sound_muted(&grid.key_bindings), muted);
+            let saved = load_settings(&dir);
+            assert_eq!(saved.sound_muted, muted);
+            // The slider's own value is saved untouched.
+            assert_eq!(saved.master_volume, 0.7);
+        }
+
+        let mut old: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("options.json")).unwrap())
+                .unwrap();
+        old.as_object_mut().unwrap().remove("sound_muted");
+        std::fs::write(dir.join("options.json"), old.to_string()).unwrap();
+        assert!(!load_settings(&dir).sound_muted);
+        assert_eq!(load_settings(&dir).master_volume, 0.7);
+    }
+
     #[test]
     fn chunk_builders_toggles_between_max_and_low_and_saves() {
         let dir =

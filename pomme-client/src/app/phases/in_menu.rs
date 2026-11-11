@@ -109,7 +109,7 @@ pub fn update_menu(
             gfx.renderer.menu_text_width(t, s)
         });
     if core.input.mute_toggle_pressed() {
-        core.menu.sound_muted = !core.menu.sound_muted;
+        core.menu.toggle_sound_muted(&core.input.key_bindings);
     }
     core.audio.set_volumes(core.menu.category_volumes());
     let action = result.action;
