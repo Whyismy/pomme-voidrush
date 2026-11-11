@@ -193,6 +193,8 @@ enum RenderMode<'a> {
         /// The quads of the map each hand holds, which it shows in place of
         /// the item.
         held_maps: [Option<Vec<pipelines::map::MapQuad>>; 2],
+        /// The maps on item frames.
+        world_maps: Vec<pipelines::map::WorldMap>,
         main_hand_right: bool,
         /// The local player's light, for the first-person arm (vanilla
         /// `renderHandsWithItems`).
@@ -1545,6 +1547,7 @@ impl Renderer {
         use_anim: [Option<pipelines::held_item::UseAnim>; 2],
         held_items: [Option<(String, azalea_inventory::ItemStackData, bool, bool)>; 2],
         held_maps: [Option<(i32, Option<&crate::world::map::SavedMap>)>; 2],
+        framed_maps: &[pipelines::map::FramedMap<'_>],
         main_hand_right: bool,
         hand_light: LightLevels,
         shown_hands: HandRenderSelection,
@@ -1574,6 +1577,16 @@ impl Renderer {
         let held_maps = held_maps.map(|held| {
             held.map(|(id, map)| self.map_pipeline.prepare(&self.ctx.device, id, map, false))
         });
+        let world_maps = framed_maps
+            .iter()
+            .map(|framed| pipelines::map::WorldMap {
+                quads: self
+                    .map_pipeline
+                    .prepare(&self.ctx.device, framed.id, framed.map, true),
+                pose: framed.pose,
+                light: framed.light,
+            })
+            .collect();
         let held_items = held_items.map(|held| {
             held.map(|(name, stack, in_use, cast)| {
                 let model = self.render_assets.stack_model_key(&name, &stack);
@@ -1627,6 +1640,7 @@ impl Renderer {
                 use_anim,
                 held_items,
                 held_maps,
+                world_maps,
                 main_hand_right,
                 hand_light,
                 shown_hands,
@@ -2666,6 +2680,7 @@ impl Renderer {
                 use_anim,
                 held_items,
                 held_maps,
+                world_maps,
                 main_hand_right,
                 hand_light,
                 shown_hands,
@@ -2777,6 +2792,8 @@ impl Renderer {
                         &mut pass,
                         frame,
                         item_entities,
+                        world_maps,
+                        self.map_pipeline.vertex_buffer(),
                     );
 
                     self.world_text_pipeline.draw(

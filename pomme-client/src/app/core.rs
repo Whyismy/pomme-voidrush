@@ -2718,6 +2718,13 @@ impl AppCore {
                     if entity_type == azalea_registry::builtin::EntityKind::EndCrystal {
                         game.end_crystals.spawn(id, position);
                     }
+                    if let azalea_registry::builtin::EntityKind::ItemFrame
+                    | azalea_registry::builtin::EntityKind::GlowItemFrame = entity_type
+                    {
+                        let glow =
+                            entity_type == azalea_registry::builtin::EntityKind::GlowItemFrame;
+                        game.item_frames.spawn(id, glow, position, data);
+                    }
                     if crate::entity::thrown_item::is_thrown_item(entity_type) {
                         game.thrown_items.spawn(id, entity_type, position, velocity);
                     }
@@ -2876,6 +2883,7 @@ impl AppCore {
                     game.falling_blocks.teleport(id, position, velocity);
                     game.interactions.teleport(id, position);
                     game.end_crystals.teleport(id, position);
+                    game.item_frames.teleport(id, position);
                     game.thrown_items.teleport(id, position);
                     game.arrows.teleport(id, position);
                     game.fishing_hooks.teleport(id, *position);
@@ -2965,6 +2973,7 @@ impl AppCore {
                     game.falling_blocks.remove(&ids);
                     game.interactions.remove(&ids);
                     game.end_crystals.remove(&ids);
+                    game.item_frames.remove(&ids);
                     game.thrown_items.remove(&ids);
                     game.arrows.remove(&ids);
                     game.fishing_hooks.remove(&ids);
@@ -2998,8 +3007,12 @@ impl AppCore {
                     let model = renderer.render_assets().context_model_key(&model, 7);
                     renderer.ensure_item_mesh(&model);
                     game.thrown_items.set_item(id, model.clone(), stack.clone());
+                    game.item_frames.set_item(id, Some(stack.clone()));
                     game.item_entity_store
                         .set_item_data(id, model, item_id, damage, count, stack);
+                }
+                NetworkEvent::FrameItemData { id, stack } => {
+                    game.item_frames.set_item(id, stack);
                 }
                 NetworkEvent::EntityData { id, index, value } => {
                     if index == 4
@@ -3033,6 +3046,7 @@ impl AppCore {
                     game.display_store.apply_entity_data(id, index, value);
                     game.interactions.apply_entity_data(id, index, value);
                     game.end_crystals.apply_entity_data(id, index, value);
+                    game.item_frames.apply_entity_data(id, index, value);
                     game.arrows.apply_entity_data(id, index, &value);
                     game.name_store.apply_entity_data(id, index, value);
                     if index == 5
@@ -3363,6 +3377,7 @@ impl AppCore {
                     game.falling_blocks.clear();
                     game.interactions.clear();
                     game.end_crystals.clear();
+                    game.item_frames.clear();
                     game.thrown_items.clear();
                     game.arrows.clear();
                     game.fishing_hooks.clear();
@@ -3894,7 +3909,7 @@ impl AppCore {
             game.player.look_dir,
             &game.chunk_store,
             &game.entity_store,
-            &pickables(game),
+            &pickables(game, held_stack.is_some()),
             &game.player.attributes,
             creative,
             held_item.as_deref(),
@@ -4462,8 +4477,9 @@ fn is_end_portal(
     )
 }
 
-/// The non-living entities the crosshair can pick.
-fn pickables(game: &GameState) -> Vec<crate::player::interaction::Pickable> {
+/// The non-living entities the crosshair can pick. `hand_holds` is whether
+/// the main hand holds anything.
+fn pickables(game: &GameState, hand_holds: bool) -> Vec<crate::player::interaction::Pickable> {
     use crate::player::interaction::Pickable;
     let interactions = game.interactions.entities.iter().map(|(&id, e)| Pickable {
         id,
@@ -4477,7 +4493,19 @@ fn pickables(game: &GameState) -> Vec<crate::player::interaction::Pickable> {
         position: c.position.into(),
         swing_on_use: true,
     });
-    interactions.chain(crystals).collect()
+    // `ItemFrame.interact` on the client: a use does something when the
+    // frame holds an item (it turns) or the hand does (it goes in).
+    let frames = game
+        .item_frames
+        .frames
+        .iter()
+        .map(move |(&id, frame)| Pickable {
+            id,
+            aabb: frame.bounding_box(),
+            position: frame.position(),
+            swing_on_use: frame.item.is_some() || hand_holds,
+        });
+    interactions.chain(crystals).chain(frames).collect()
 }
 
 #[cfg(test)]

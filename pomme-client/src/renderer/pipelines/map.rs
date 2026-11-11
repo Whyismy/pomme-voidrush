@@ -11,6 +11,7 @@ use pomme_protocol::map::MAP_SIZE;
 
 use super::item_entity;
 use crate::assets::{AssetIndex, resolve_asset_path};
+use crate::renderer::chunk::block_lighter::LightLevels;
 use crate::renderer::{MAX_FRAMES_IN_FLIGHT, rhi, util};
 use crate::world::map::{SavedMap, decoration_textures};
 
@@ -20,6 +21,23 @@ pub struct MapQuad {
     pub model: Mat4,
     pub first_vertex: u32,
     pub texture: rhi::backend::BindGroup,
+}
+
+/// A map to draw on an item frame: where its 128-unit space sits in the
+/// world (anchor-relative), and its light.
+pub struct FramedMap<'a> {
+    pub id: i32,
+    /// `None` until the server has sent the map.
+    pub map: Option<&'a SavedMap>,
+    pub pose: Mat4,
+    pub light: LightLevels,
+}
+
+/// A prepared [`FramedMap`].
+pub struct WorldMap {
+    pub quads: Vec<MapQuad>,
+    pub pose: Mat4,
+    pub light: LightLevels,
 }
 
 /// A map's picture on the GPU, as of `revision`.
@@ -135,10 +153,10 @@ impl MapPipeline {
     }
 
     /// A held or framed map's quads in the map's own space (128 units a
-    /// side, y down, facing -z), back to front: vanilla `renderMap`'s paper,
-    /// then `MapRenderer.render`. `map` is `None` until the server has sent
-    /// the map. Call outside a render pass: a changed picture is uploaded
-    /// here.
+    /// side, y down, facing -z), back to front: vanilla `renderMap`'s paper
+    /// for a held one, then `MapRenderer.render`. `map` is `None` until the
+    /// server has sent the map. Call outside a render pass: a changed
+    /// picture is uploaded here.
     pub fn prepare(
         &mut self,
         device: &rhi::backend::Device,
@@ -146,12 +164,15 @@ impl MapPipeline {
         map: Option<&SavedMap>,
         in_item_frame: bool,
     ) -> Vec<MapQuad> {
-        let background = &self.backgrounds[usize::from(map.is_some())];
-        let mut quads = vec![MapQuad {
-            model: Mat4::IDENTITY,
-            first_vertex: BACKGROUND_QUAD * VERTICES_PER_QUAD,
-            texture: background.1,
-        }];
+        let mut quads = Vec::new();
+        if !in_item_frame {
+            let background = &self.backgrounds[usize::from(map.is_some())];
+            quads.push(MapQuad {
+                model: Mat4::IDENTITY,
+                first_vertex: BACKGROUND_QUAD * VERTICES_PER_QUAD,
+                texture: background.1,
+            });
+        }
         let Some(map) = map else {
             return quads;
         };

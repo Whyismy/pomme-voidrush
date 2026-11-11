@@ -522,6 +522,12 @@ pub enum NetworkEvent {
         count: i32,
         stack: azalea_inventory::ItemStackData,
     },
+    /// An item frame's stack where [`NetworkEvent::EntityItemData`] doesn't
+    /// carry it: taken out, or at the index newer versions keep it.
+    FrameItemData {
+        id: i32,
+        stack: Option<azalea_inventory::ItemStackData>,
+    },
     /// A display entity's non-scalar synched value (`Display` and its
     /// subclasses); scalars arrive as [`NetworkEvent::EntityData`].
     DisplayData {

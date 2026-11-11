@@ -9,6 +9,7 @@ pub mod fishing_hook;
 pub mod glowing;
 pub mod heads;
 pub mod interaction;
+pub mod item_frame;
 pub mod light;
 pub mod name_tags;
 pub mod shadow;

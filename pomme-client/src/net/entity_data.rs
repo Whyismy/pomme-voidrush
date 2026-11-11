@@ -24,6 +24,10 @@ use crate::position::BlockPos;
 /// `ItemEntity.DATA_ITEM`.
 const ITEM_INDEX: u8 = 8;
 
+/// `ItemFrame.DATA_ITEM` where the facing is synced before it; older
+/// versions keep it at [`ITEM_INDEX`].
+const FRAME_ITEM_INDEX: u8 = 9;
+
 /// `Display.ItemDisplay.DATA_ITEM_STACK_ID`.
 const DISPLAY_ITEM_INDEX: u8 = 23;
 
@@ -52,6 +56,10 @@ pub(super) fn handle_raw_entity_data(
                 Value::Item(stack) if data.index == DISPLAY_ITEM_INDEX => {
                     let stack = stack.as_ref().map(item_codec::to_azalea);
                     send_display_item(id, stack, event_tx);
+                }
+                Value::Item(stack) if frame_item(data.index) => {
+                    let stack = stack.as_ref().map(item_codec::to_azalea);
+                    send_frame_item(id, stack, event_tx);
                 }
                 value => send_data_value(id, data.index, value, registry_holder, event_tx),
             }
@@ -86,6 +94,13 @@ pub(super) fn handle_typed_entity_data(
                     empty => empty.clone(),
                 };
                 send_display_item(p.id.0, Some(stack), event_tx);
+            }
+            EntityDataValue::ItemStack(stack) if frame_item(item.index) => {
+                let stack = match stack {
+                    ItemStack::Present(stack) => ItemStack::Present(plain_holders(stack.clone())),
+                    empty => empty.clone(),
+                };
+                send_frame_item(p.id.0, Some(stack), event_tx);
             }
             value => {
                 if let Some(value) = from_azalea(value) {
@@ -152,6 +167,22 @@ fn send_item_data(id: i32, stack: &ItemStackData, event_tx: &Sender<NetworkEvent
             stack: stack.clone(),
         },
     );
+}
+
+/// Whether a stack at `index` that the arms above didn't take may be an
+/// item frame's: an empty one where a dropped item's would be, or any at the
+/// newer index.
+fn frame_item(index: u8) -> bool {
+    index == ITEM_INDEX || index == FRAME_ITEM_INDEX
+}
+
+/// An item frame's stack; empty or absent clears it.
+fn send_frame_item(id: i32, stack: Option<ItemStack>, event_tx: &Sender<NetworkEvent>) {
+    let stack = match stack {
+        Some(ItemStack::Present(stack)) => Some(stack),
+        _ => None,
+    };
+    send_ordered(event_tx, NetworkEvent::FrameItemData { id, stack });
 }
 
 /// An item display's stack; empty or absent clears it.

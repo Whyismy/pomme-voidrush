@@ -364,6 +364,7 @@ pub struct GameState {
     /// The level's maps, as the server has sent them.
     pub maps: crate::world::map::MapStore,
     pub end_crystals: crate::entity::end_crystal::EndCrystalStore,
+    pub item_frames: crate::entity::item_frame::ItemFrameStore,
     pub thrown_items: crate::entity::thrown_item::ThrownItemStore,
     pub arrows: crate::entity::arrow::ArrowStore,
     pub fishing_hooks: crate::entity::fishing_hook::FishingHookStore,
@@ -548,6 +549,7 @@ impl GameState {
             end_portals: Default::default(),
             maps: Default::default(),
             end_crystals: Default::default(),
+            item_frames: Default::default(),
             thrown_items: Default::default(),
             arrows: Default::default(),
             fishing_hooks: Default::default(),
@@ -4885,6 +4887,16 @@ pub fn update_game(
     }
     crate::frame_log::add("displays", display_start.elapsed().as_secs_f32() * 1000.0);
     item_renders.extend(display_items);
+    let framed_maps = if benchmark_running {
+        Vec::new()
+    } else {
+        build_item_frame_renders(
+            &mut game.item_frames,
+            &world_light,
+            &mut gfx.renderer,
+            &mut item_renders,
+        )
+    };
     for (key, profile) in &head_skins {
         core.queue_profile_skin(*key, profile);
     }
@@ -5144,6 +5156,17 @@ pub fn update_game(
         use_anim,
         held_items,
         held_maps.map(|held| held.map(|id| (id, game.maps.get(id)))),
+        &framed_maps
+            .iter()
+            .map(
+                |&(id, pose, light)| crate::renderer::pipelines::map::FramedMap {
+                    id,
+                    map: game.maps.get(id),
+                    pose,
+                    light,
+                },
+            )
+            .collect::<Vec<_>>(),
         core.menu.main_hand_right(),
         player_light,
         shown_hands,
@@ -5735,6 +5758,113 @@ struct DisplayRenders {
         f64,
         crate::renderer::pipelines::menu_overlay::WorldTextRender,
     )>,
+}
+
+/// Item frames (vanilla `ItemFrameRenderer.submit`): the frame's body, then
+/// the item it holds in the `fixed` view, pushed onto `items`; or the map
+/// it holds, returned as (map id, pose, light) for the map pipeline.
+fn build_item_frame_renders(
+    store: &mut crate::entity::item_frame::ItemFrameStore,
+    world_light: &WorldLight,
+    renderer: &mut Renderer,
+    items: &mut Vec<crate::renderer::pipelines::item_entity::ItemRenderInfo>,
+) -> Vec<(i32, glam::Mat4, LightLevels)> {
+    use crate::renderer::pipelines::item_entity::ItemRenderInfo;
+    use crate::world::block::model::ITEM_FRAME_MODELS;
+
+    /// `ItemDisplayContext.FIXED`.
+    const FIXED: u8 = 8;
+    let eye = renderer.camera_render_position();
+    let anchor = renderer.camera_anchor();
+    let frustum = renderer.frustum_planes();
+    let generation = renderer.display_assets_generation();
+    let bodies: [Arc<str>; 4] = ITEM_FRAME_MODELS.map(|(key, _)| Arc::from(key));
+    let no_tints: Arc<[u32]> = Arc::from([]);
+    let mut maps = Vec::new();
+    for frame in store.frames.values_mut() {
+        // The frame and what it holds stay inside its block's space.
+        let center = frame.block_center();
+        let q = (center - eye).as_vec3();
+        if frustum
+            .iter()
+            .any(|p| p[0] * q.x + p[1] * q.y + p[2] * q.z + p[3] < -0.87)
+        {
+            continue;
+        }
+        let base =
+            glam::Mat4::from_translation((center - anchor).as_vec3()) * frame.facing_matrix();
+        let position = frame.position();
+        let world = entity_light(
+            world_light,
+            EntityKind::ItemFrame,
+            Position::new(position.x, position.y, position.z),
+            false,
+            0,
+        );
+        // `ItemFrameRenderer.getLightCoords`: a glow frame's contents are
+        // full bright (a map a little less), and its body lit at 5 or more.
+        let lit = |sky: u8, block: u8| {
+            if frame.glow {
+                LightLevels::new(sky, block)
+            } else {
+                world
+            }
+        };
+        let map = frame.map_id();
+        if !frame.invisible {
+            let body = usize::from(frame.glow) * 2 + usize::from(map.is_some());
+            items.push(ItemRenderInfo {
+                item_name: bodies[body].clone(),
+                outline_color: None,
+                tints: no_tints.clone(),
+                model_matrix: base,
+                light: lit(world.sky(), world.block().max(5)),
+                white_flash: false,
+            });
+        }
+        if let Some(id) = map {
+            maps.push((id, base * frame.map_matrix(), lit(15, 13)));
+            continue;
+        }
+        let Some(stack) = &frame.item else {
+            continue;
+        };
+        // TODO: a head in a frame is `SkullSpecialRenderer`'s, as an item
+        // display's is.
+        if frame
+            .item_render
+            .as_ref()
+            .is_none_or(|cached| cached.generation != generation)
+        {
+            let name = crate::player::inventory::item_resource_name(stack.kind);
+            let model = renderer.render_assets().stack_model_key(&name, stack);
+            let model = renderer.render_assets().context_model_key(&model, FIXED);
+            renderer.ensure_item_mesh(&model);
+            let tints = renderer
+                .render_assets()
+                .item_tint_palette(&model, Some(stack), None)
+                .into();
+            let transform = renderer.item_display_transform(&model, FIXED);
+            frame.item_render = Some(crate::entity::item_frame::FrameItemRender {
+                generation,
+                model: model.into(),
+                tints,
+                transform,
+            });
+        }
+        let Some(cached) = &frame.item_render else {
+            continue;
+        };
+        items.push(ItemRenderInfo {
+            item_name: cached.model.clone(),
+            outline_color: None,
+            tints: cached.tints.clone(),
+            model_matrix: base * frame.item_matrix() * cached.transform,
+            light: lit(15, 15),
+            white_flash: false,
+        });
+    }
+    maps
 }
 
 fn build_display_renders(

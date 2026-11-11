@@ -666,20 +666,26 @@ impl ItemEntityPipeline {
     /// instanced call; nothing is reordered.
     // TODO: vanilla also outlines glowing item entities (`submitItem` into the
     // outline target); the colour can ride in `ItemInstance`.
+    /// Draws `items`, then `maps` (the ones on item frames) from
+    /// `map_vertices`, each quad with its own texture in the atlas's place.
     pub fn draw(
         &mut self,
         device: &rhi::backend::Device,
         pass: &mut rhi::backend::RenderPassEncoder,
         frame: usize,
         items: &[ItemRenderInfo],
+        maps: &[super::map::WorldMap],
+        map_vertices: rhi::backend::BufferHandle,
     ) {
         self.outline_runs.clear();
-        if items.is_empty() {
+        let map_quads: usize = maps.iter().map(|map| map.quads.len()).sum();
+        if items.is_empty() && map_quads == 0 {
             return;
         }
 
         let colors = items.iter().map(|item| item.tints.len()).sum();
-        self.shared.begin_frame(device, frame, items.len(), colors);
+        self.shared
+            .begin_frame(device, frame, items.len() + map_quads, colors);
         for item in items {
             self.shared.push_item(
                 frame,
@@ -697,6 +703,23 @@ impl ItemEntityPipeline {
                 mesh.translucent == translucent
             });
             self.draw_runs(pass, frame, pipeline, &runs);
+        }
+        if map_quads > 0 {
+            self.shared.bind(pass, frame, self.translucent);
+            pass.set_vertex_buffer(0, map_vertices);
+            for map in maps {
+                for quad in &map.quads {
+                    let model = map.pose * quad.model;
+                    // Undoes the instance's own normal matrix: maps aren't
+                    // shaded, whichever way their frame faces.
+                    let unturned = Mat3::from_mat4(model).transpose();
+                    let instance =
+                        self.shared
+                            .push_item(frame, &model, unturned, map.light.lane(), &[], 0);
+                    pass.set_bind_group(1, quad.texture);
+                    pass.draw(6, 1, quad.first_vertex, instance);
+                }
+            }
         }
         self.outline_runs = runs(items, &self.meshes, |item, _| item.outline_color.is_some());
     }

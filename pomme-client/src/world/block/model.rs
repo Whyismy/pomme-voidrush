@@ -104,6 +104,16 @@ pub(crate) const DISPLAY_CONTEXT_KEYS: [&[&str]; 10] = [
     &["on_shelf"],
 ];
 
+/// The models an item frame draws as its body, by key: `blockstates/
+/// item_frame.json`'s and the glow frame's, empty then holding a map. They
+/// aren't items or block states, so they bake beside the item models.
+pub(crate) const ITEM_FRAME_MODELS: [(&str, &str); 4] = [
+    ("pomme:item_frame", "block/item_frame"),
+    ("pomme:item_frame_map", "block/item_frame_map"),
+    ("pomme:glow_item_frame", "block/glow_item_frame"),
+    ("pomme:glow_item_frame_map", "block/glow_item_frame_map"),
+];
+
 /// A model's transform per display context ([`DISPLAY_CONTEXT_KEYS`]).
 pub(crate) type DisplayTransforms = [Option<DisplayTransform>; 10];
 
@@ -1228,6 +1238,16 @@ pub fn bake_item_models(
                 bake(&selected_bundle_layer_key(item_name, front), parts);
             }
         }
+    }
+
+    for (key, path) in ITEM_FRAME_MODELS {
+        let part = ModelPart {
+            path: path.to_string(),
+            transform: None,
+            tints: Vec::new(),
+            special: None,
+        };
+        bake(key, &[part]);
     }
 
     // The mesh comes from the special renderer, but the chest's display

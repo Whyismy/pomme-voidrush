@@ -1,0 +1,94 @@
+# Item frames (vanilla ItemFrameRenderer): on a wall, a sword, a compass
+# turned an eighth, an empty frame, a block in a glow frame and an apple in
+# an unseen frame; a clock in one on the floor; then a map filling one.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/kill @e[type=!player]"
+
+[[step]]
+chat = "/clear"
+
+[[step]]
+chat = "/fill -3 -60 4 3 -57 4 minecraft:stone"
+
+[[step]]
+chat = "/summon minecraft:item_frame 2 -59 3 {Facing:2b,Fixed:1b,Item:{id:\"minecraft:diamond_sword\",count:1}}"
+
+[[step]]
+chat = "/summon minecraft:item_frame 1 -59 3 {Facing:2b,Fixed:1b,ItemRotation:1b,Item:{id:\"minecraft:compass\",count:1}}"
+
+[[step]]
+chat = "/summon minecraft:item_frame 0 -59 3 {Facing:2b,Fixed:1b}"
+
+[[step]]
+chat = "/summon minecraft:glow_item_frame -1 -59 3 {Facing:2b,Fixed:1b,Item:{id:\"minecraft:grass_block\",count:1}}"
+
+[[step]]
+chat = "/summon minecraft:item_frame -2 -59 3 {Facing:2b,Fixed:1b,Invisible:1b,Item:{id:\"minecraft:apple\",count:1}}"
+
+[[step]]
+chat = "/summon minecraft:item_frame 0 -60 2 {Facing:1b,Fixed:1b,Item:{id:\"minecraft:clock\",count:1}}"
+
+[[step]]
+chat = "/tp @s 0.5 -60 0.5 0 5"
+
+[[step]]
+wait_ms = 3000
+
+[[step]]
+screenshot = "wall"
+
+[[step]]
+chat = "/tp @s 0.5 -60 0.5 0 60"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "floor"
+
+# Open a map and put it in the empty frame.
+[[step]]
+chat = "/gamemode survival"
+
+[[step]]
+chat = "/item replace entity @s hotbar.0 with minecraft:map"
+
+[[step]]
+wait_ms = 1000
+
+[[step]]
+mouse_down = "right"
+
+[[step]]
+wait_ms = 400
+
+[[step]]
+mouse_up = "right"
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+chat = "/item replace entity @e[type=minecraft:item_frame,x=0.5,y=-58.5,z=3.9,distance=..0.6,limit=1] container.0 from entity @s weapon.mainhand"
+
+[[step]]
+chat = "/clear"
+
+[[step]]
+chat = "/tp @s 0.5 -60 1.5 0 0"
+
+[[step]]
+wait_ms = 3000
+
+[[step]]
+screenshot = "map"
+
+[[step]]
+chat = "/gamemode creative"
