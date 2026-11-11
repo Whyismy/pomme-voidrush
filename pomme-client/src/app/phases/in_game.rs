@@ -4913,8 +4913,8 @@ pub fn update_game(
     let display_start = Instant::now();
     let DisplayRenders {
         items: display_items,
-        heads: display_heads,
-        head_skins,
+        heads: mut display_heads,
+        mut head_skins,
         texts: mut world_texts,
     } = if benchmark_running {
         DisplayRenders::default()
@@ -4956,6 +4956,8 @@ pub fn update_game(
             &world_light,
             &mut gfx.renderer,
             &mut item_renders,
+            &mut display_heads,
+            &mut head_skins,
         )
     };
     for (key, profile) in &head_skins {
@@ -5834,13 +5836,16 @@ struct DisplayRenders {
 }
 
 /// Item frames (vanilla `ItemFrameRenderer.submit`): the frame's body, then
-/// the item it holds in the `fixed` view, pushed onto `items`; or the map
-/// it holds, returned as (map id, pose, light) for the map pipeline.
+/// the item it holds in the `fixed` view, pushed onto `items` (a head onto
+/// `heads`, with the skin a player's head wants onto `head_skins`); or the
+/// map it holds, returned as (map id, pose, light) for the map pipeline.
 fn build_item_frame_renders(
     store: &mut crate::entity::item_frame::ItemFrameStore,
     world_light: &WorldLight,
     renderer: &mut Renderer,
     items: &mut Vec<crate::renderer::pipelines::item_entity::ItemRenderInfo>,
+    heads: &mut Vec<EntityRenderInfo>,
+    head_skins: &mut Vec<(uuid::Uuid, pomme_protocol::entity_data::Profile)>,
 ) -> Vec<(i32, glam::Mat4, LightLevels)> {
     use crate::renderer::pipelines::item_entity::ItemRenderInfo;
     use crate::world::block::model::ITEM_FRAME_MODELS;
@@ -5902,14 +5907,58 @@ fn build_item_frame_renders(
         let Some(stack) = &frame.item else {
             continue;
         };
-        // TODO: a head in a frame is `SkullSpecialRenderer`'s, as an item
-        // display's is.
+        // Vanilla `SkullSpecialRenderer`: a head item is the head itself,
+        // as an item display's is: the floor skull standing on the item's
+        // origin, posed by the item's `fixed` display, which turns its face
+        // out of the frame.
+        let name = crate::player::inventory::item_resource_name(stack.kind);
+        if renderer.render_assets().stack_model_key(&name, stack) == name
+            && let Some(model) = crate::entity::heads::skull_model(&name)
+            && let Some((offset, yaw)) = crate::entity::heads::placed_skull(Some("8"), None)
+        {
+            let skin = if model == EntityKind::Player {
+                let stack = azalea_inventory::ItemStack::Present(stack.clone());
+                crate::entity::heads::item_profile(&stack).map(|profile| {
+                    let key = crate::entity::heads::skin_key(&profile);
+                    head_skins.push((key, profile));
+                    key
+                })
+            } else {
+                None
+            };
+            let (scale, lift) = crate::entity::heads::head_placement(model, offset.y, 0.5);
+            let full = base
+                * frame.item_matrix()
+                * renderer.item_display_transform(&name, FIXED)
+                * glam::Mat4::from_translation(glam::Vec3::new(
+                    offset.x as f32 - 0.5,
+                    lift as f32 - 0.5,
+                    offset.z as f32 - 0.5,
+                ))
+                * glam::Mat4::from_rotation_y((180.0 - yaw).to_radians())
+                * glam::Mat4::from_scale(glam::Vec3::splat(scale));
+            let origin = full.w_axis.truncate();
+            heads.push(EntityRenderInfo {
+                position: Position::from(anchor + origin.as_dvec3()),
+                head_y_rot_deg: 180.0,
+                body_y_rot_deg: 180.0,
+                entity_kind: model,
+                // A player head without a skin draws vanilla's wide Steve.
+                variant_index: crate::renderer::pipelines::entity_renderer::WIDE_STEVE_SKIN,
+                player_uuid: skin,
+                head_only: true,
+                body_transform: Some(glam::Mat4::from_translation(-origin) * full),
+                light: lit(15, 15),
+                skip_cull: true,
+                ..Default::default()
+            });
+            continue;
+        }
         if frame
             .item_render
             .as_ref()
             .is_none_or(|cached| cached.generation != generation)
         {
-            let name = crate::player::inventory::item_resource_name(stack.kind);
             let model = renderer.render_assets().stack_model_key(&name, stack);
             let model = renderer.render_assets().context_model_key(&model, FIXED);
             renderer.ensure_item_mesh(&model);

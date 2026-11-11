@@ -1,6 +1,7 @@
 # Item frames (vanilla ItemFrameRenderer): on a wall, a sword, a compass
 # turned an eighth, an empty frame, a block in a glow frame and an apple in
-# an unseen frame; a clock in one on the floor; then a map filling one.
+# an unseen frame, with three heads above; a clock in one on the floor; then
+# a map filling one.
 
 [[step]]
 wait_ms = 15000
@@ -34,6 +35,16 @@ chat = "/summon minecraft:item_frame -2 -59 3 {Facing:2b,Fixed:1b,Invisible:1b,I
 
 [[step]]
 chat = "/summon minecraft:item_frame 0 -60 2 {Facing:1b,Fixed:1b,Item:{id:\"minecraft:clock\",count:1}}"
+
+# Heads are the heads themselves (SkullSpecialRenderer), facing out.
+[[step]]
+chat = "/summon minecraft:item_frame 1 -58 3 {Facing:2b,Fixed:1b,Item:{id:\"minecraft:skeleton_skull\",count:1}}"
+
+[[step]]
+chat = "/summon minecraft:item_frame 0 -58 3 {Facing:2b,Fixed:1b,Item:{id:\"minecraft:player_head\",count:1}}"
+
+[[step]]
+chat = "/summon minecraft:item_frame -1 -58 3 {Facing:2b,Fixed:1b,ItemRotation:1b,Item:{id:\"minecraft:creeper_head\",count:1}}"
 
 [[step]]
 chat = "/tp @s 0.5 -60 0.5 0 5"
