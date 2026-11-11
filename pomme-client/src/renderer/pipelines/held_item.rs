@@ -37,6 +37,8 @@ pub struct HeldHand<'a> {
     pub main_hand: bool,
     pub right_arm: bool,
     pub swing_progress: f32,
+    /// Vanilla's `inverseArmHeight`: 0 held up, 1 dropped out of view.
+    pub lowered: f32,
     pub use_anim: Option<UseAnim>,
 }
 
@@ -58,16 +60,16 @@ pub struct HeldMap<'a> {
 
 /// The poses of a map held in both hands (vanilla
 /// `ItemInHandRenderer.renderTwoHandedMap`): the map's, then the right and
-/// left hands'. `x_rot` is the view's pitch in degrees and `attack` the
-/// swing's progress.
-pub fn two_handed_map_poses(x_rot: f32, attack: f32) -> (Mat4, [Mat4; 2]) {
+/// left hands'. `x_rot` is the view's pitch in degrees, `attack` the
+/// swing's progress and `lowered` the hand's `inverseArmHeight`.
+pub fn two_handed_map_poses(x_rot: f32, attack: f32, lowered: f32) -> (Mat4, [Mat4; 2]) {
     let pi = std::f32::consts::PI;
     let sqrt_attack = attack.sqrt();
     let y_swing = -0.2 * (attack * pi).sin();
     let z_swing = -0.4 * (sqrt_attack * pi).sin();
     let tilt = map_tilt(x_rot);
     let base = Mat4::from_translation(Vec3::new(0.0, -y_swing / 2.0, z_swing))
-        * Mat4::from_translation(Vec3::new(0.0, 0.04 + tilt * -0.5, -0.72))
+        * Mat4::from_translation(Vec3::new(0.0, 0.04 + lowered * -1.2 + tilt * -0.5, -0.72))
         * Mat4::from_rotation_x((tilt * -85.0).to_radians());
     let hands = [1.0, -1.0].map(|invert| {
         base * Mat4::from_rotation_y(90.0_f32.to_radians()) * hand::map_hand_matrix(invert)
@@ -80,17 +82,18 @@ pub fn two_handed_map_poses(x_rot: f32, attack: f32) -> (Mat4, [Mat4; 2]) {
 }
 
 /// The poses of a map held in one hand (vanilla `renderOneHandedMap`): the
-/// map's, then its arm's. `invert` is [`hand::arm_invert`].
-pub fn one_handed_map_poses(invert: f32, attack: f32) -> (Mat4, Mat4) {
+/// map's, then its arm's. `invert` is [`hand::arm_invert`] and `lowered` the
+/// hand's `inverseArmHeight`.
+pub fn one_handed_map_poses(invert: f32, attack: f32, lowered: f32) -> (Mat4, Mat4) {
     let pi = std::f32::consts::PI;
     let sqrt_attack = attack.sqrt();
     let x_swing = (sqrt_attack * pi).sin();
     let base = Mat4::from_translation(Vec3::new(invert * 0.125, -0.125, 0.0));
     let arm = base
         * Mat4::from_rotation_z((invert * 10.0_f32).to_radians())
-        * hand::arm_matrix(attack, invert);
+        * hand::arm_matrix(attack, invert, lowered);
     let map = base
-        * Mat4::from_translation(Vec3::new(invert * 0.51, -0.08, -0.75))
+        * Mat4::from_translation(Vec3::new(invert * 0.51, -0.08 + lowered * -1.2, -0.75))
         * Mat4::from_translation(Vec3::new(
             invert * -0.5 * x_swing,
             0.4 * (sqrt_attack * pi * 2.0).sin() - 0.3 * x_swing,
@@ -221,12 +224,13 @@ impl HeldItemPipeline {
                     .mirrored()
             };
             let invert = hand::arm_invert(hand.right_arm);
+            let lowered = hand.lowered;
             let mut arm = match hand.use_anim {
-                Some(anim) => eat_item_matrix(anim, invert),
+                Some(anim) => eat_item_matrix(anim, invert, lowered),
                 None if item.stabs => {
-                    item_arm_matrix(invert) * stab_matrix(hand.swing_progress, invert)
+                    item_arm_matrix(invert, lowered) * stab_matrix(hand.swing_progress, invert)
                 }
-                None => first_person_item_matrix(hand.swing_progress, invert),
+                None => first_person_item_matrix(hand.swing_progress, invert, lowered),
             };
             // Vanilla `submitArmWithItem`'s crossbow branch: a charged one
             // held still in the main hand turns toward the crosshair.
@@ -327,19 +331,19 @@ fn stab_matrix(attack: f32, invert: f32) -> Mat4 {
         * Mat4::from_translation(Vec3::new(0.0, 0.0, -0.25 * (ending - middle)))
 }
 
-/// Vanilla `ItemInHandRenderer.applyItemArmTransform` (inverseArmHeight 0):
-/// `invert` is [`hand::arm_invert`].
-fn item_arm_matrix(invert: f32) -> Mat4 {
-    Mat4::from_translation(Vec3::new(invert * 0.56, -0.52, -0.72))
+/// Vanilla `ItemInHandRenderer.applyItemArmTransform`: `invert` is
+/// [`hand::arm_invert`] and `lowered` its `inverseArmHeight`.
+fn item_arm_matrix(invert: f32, lowered: f32) -> Mat4 {
+    Mat4::from_translation(Vec3::new(invert * 0.56, -0.52 + lowered * -0.6, -0.72))
 }
 
 // Vanilla ItemInHandRenderer: applyItemArmTransform + swingArm.
-fn first_person_item_matrix(swing_progress: f32, invert: f32) -> Mat4 {
+fn first_person_item_matrix(swing_progress: f32, invert: f32, lowered: f32) -> Mat4 {
     let a = swing_progress;
     let sq = a.sqrt();
     let pi = std::f32::consts::PI;
 
-    item_arm_matrix(invert)
+    item_arm_matrix(invert, lowered)
         * Mat4::from_translation(Vec3::new(
             invert * -0.4 * (sq * pi).sin(),
             0.2 * (sq * pi * 2.0).sin(),
@@ -353,7 +357,7 @@ fn first_person_item_matrix(swing_progress: f32, invert: f32) -> Mat4 {
 
 // Vanilla ItemInHandRenderer: applyEatTransform then applyItemArmTransform
 // (EAT/DRINK skip the usual pre-transform).
-fn eat_item_matrix(anim: UseAnim, invert: f32) -> Mat4 {
+fn eat_item_matrix(anim: UseAnim, invert: f32, lowered: f32) -> Mat4 {
     let scaled = anim.curr_usage_time / anim.duration;
     // The chew bob runs after the first 20% of the eat, oscillating every 4
     // ticks; the jiggle shoves the item into the mouth over the last bite.
@@ -368,7 +372,7 @@ fn eat_item_matrix(anim: UseAnim, invert: f32) -> Mat4 {
         * Mat4::from_rotation_y((invert * jiggle * 90.0).to_radians())
         * Mat4::from_rotation_x((jiggle * 10.0).to_radians())
         * Mat4::from_rotation_z((invert * jiggle * 30.0).to_radians())
-        * item_arm_matrix(invert)
+        * item_arm_matrix(invert, lowered)
 }
 
 /// The fallback first-person display: `block/block.json`'s for the hand, or
@@ -409,7 +413,7 @@ mod tests {
     /// eye and in front of the paper.
     #[test]
     fn a_two_handed_map_faces_the_view() {
-        let (map, _) = two_handed_map_poses(90.0, 0.0);
+        let (map, _) = two_handed_map_poses(90.0, 0.0, 0.0);
         let at = |x: f32, y: f32, z: f32| map.transform_point3(Vec3::new(x, y, z));
         let near = |a: Vec3, b: Vec3| (a - b).length() < 1e-5;
         assert!(near(at(64.0, 64.0, 0.0), Vec3::new(0.0, 0.04, -0.72)));
@@ -427,7 +431,7 @@ mod tests {
     #[test]
     fn a_one_handed_map_sits_by_its_hand() {
         let centre = |invert: f32| {
-            one_handed_map_poses(invert, 0.0)
+            one_handed_map_poses(invert, 0.0, 0.0)
                 .0
                 .transform_point3(Vec3::new(64.0, 64.0, 0.0))
         };
@@ -446,8 +450,8 @@ mod tests {
     fn the_left_arm_mirrors_the_right() {
         for swing in [0.0, 0.3, 0.7, 1.0] {
             assert!(
-                first_person_item_matrix(swing, -1.0)
-                    .abs_diff_eq(mirror(first_person_item_matrix(swing, 1.0)), 1e-5),
+                first_person_item_matrix(swing, -1.0, 0.0)
+                    .abs_diff_eq(mirror(first_person_item_matrix(swing, 1.0, 0.0)), 1e-5),
                 "swing {swing}"
             );
         }
@@ -455,7 +459,10 @@ mod tests {
             curr_usage_time: 12.0,
             duration: 32.0,
         };
-        assert!(eat_item_matrix(anim, -1.0).abs_diff_eq(mirror(eat_item_matrix(anim, 1.0)), 1e-5));
+        assert!(
+            eat_item_matrix(anim, -1.0, 0.0)
+                .abs_diff_eq(mirror(eat_item_matrix(anim, 1.0, 0.0)), 1e-5)
+        );
         let display = default_first_person(false, true);
         assert!(
             display

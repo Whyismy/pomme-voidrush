@@ -173,6 +173,9 @@ pub struct InteractionState {
     /// Vanilla `Player.attackStrengthTicker`. The companion `itemSwapTicker`
     /// (hand-raise animation) is not tracked.
     attack_strength_ticker: u32,
+    /// `Player.itemSwapTicker`: as the attack strength's, but a spear's jab
+    /// leaves it running.
+    item_swap_ticker: u32,
     /// Vanilla `Player.lastItemInMainHand`; `None` is the empty hand.
     last_item_in_main_hand: Option<ItemStackData>,
 }
@@ -209,6 +212,7 @@ impl InteractionState {
             o_attack_anim: 0.0,
             swing_duration: SWING_DURATION,
             attack_strength_ticker: 0,
+            item_swap_ticker: 0,
             last_item_in_main_hand: None,
         }
     }
@@ -625,6 +629,7 @@ impl InteractionState {
     /// refresh the cache.
     fn tick_attack_cooldown(&mut self, held_stack: Option<&ItemStackData>) {
         self.attack_strength_ticker = self.attack_strength_ticker.saturating_add(1);
+        self.item_swap_ticker = self.item_swap_ticker.saturating_add(1);
         // Vanilla `ItemStack.matches`: same item, components, and count.
         let matches = same_item_same_components(held_stack, self.last_item_in_main_hand.as_ref())
             && held_stack.map(|s| s.count) == self.last_item_in_main_hand.as_ref().map(|s| s.count);
@@ -635,10 +640,23 @@ impl InteractionState {
                 _ => false,
             };
             if !same_type {
-                self.attack_strength_ticker = 0;
+                self.reset_attack_strength();
             }
             self.last_item_in_main_hand = held_stack.cloned();
         }
+    }
+
+    /// Vanilla `Player.resetAttackStrengthTicker`: the attack strength and
+    /// the first-person hand's rise both start over.
+    fn reset_attack_strength(&mut self) {
+        self.attack_strength_ticker = 0;
+        self.item_swap_ticker = 0;
+    }
+
+    /// Vanilla `Player.getItemSwapScale(1.0)`: how far the main hand has
+    /// come back up since the last attack or change of item.
+    pub fn item_swap_scale(&self, delay: f32) -> f32 {
+        ((self.item_swap_ticker as f32 + 1.0) / delay).clamp(0.0, 1.0)
     }
 
     /// Vanilla `Player.getAttackStrengthScale(0.0)` (the HUD passes no
@@ -695,7 +713,8 @@ impl InteractionState {
             held_stack.and_then(stack_component::<azalea_inventory::components::PiercingWeapon>)
         {
             sender.send_raw(wire::encode_stab());
-            // `Player.onAttack`: the attack strength starts over.
+            // `Player.stabAttack` resets only the attack strength: the
+            // spear stays up through its jab (`resetOnlyAttackStrengthTicker`).
             self.attack_strength_ticker = 0;
             if let Some(sound) = &weapon.sound {
                 audio.play_world_sound(
@@ -715,13 +734,13 @@ impl InteractionState {
             None => {
                 // Vanilla `Minecraft.startAttack` MISS branch.
                 self.miss_time = MISS_COOLDOWN;
-                self.attack_strength_ticker = 0;
+                self.reset_attack_strength();
                 self.swing(sender);
                 return;
             }
             Some(HitResult::Entity(hit)) => {
                 sender.send_raw(wire::encode_attack(hit.entity_id));
-                self.attack_strength_ticker = 0;
+                self.reset_attack_strength();
                 self.swing(sender);
                 let _ = input.weak_rumble_for_instant();
                 return;
@@ -732,7 +751,7 @@ impl InteractionState {
         let state = chunks.get_block_state(hit.block_pos.x, hit.block_pos.y, hit.block_pos.z);
         if block_registry.block_state_data(state).is_air() {
             self.miss_time = MISS_COOLDOWN;
-            self.attack_strength_ticker = 0;
+            self.reset_attack_strength();
             self.swing(sender);
             return;
         }
@@ -1080,7 +1099,7 @@ impl InteractionState {
         self.swing_time = 0;
         self.attack_anim = 0.0;
         self.o_attack_anim = 0.0;
-        self.attack_strength_ticker = 0;
+        self.reset_attack_strength();
         self.last_item_in_main_hand = None;
     }
 
@@ -1583,7 +1602,7 @@ impl InteractionState {
             self.is_destroying = false;
             self.destroy_progress = 0.0;
             // Vanilla `MultiPlayerGameMode.stopDestroyBlock`.
-            self.attack_strength_ticker = 0;
+            self.reset_attack_strength();
         }
     }
 }

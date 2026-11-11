@@ -1,4 +1,5 @@
 pub mod cooldowns;
+pub mod hand_equip;
 pub mod interaction;
 pub mod inventory;
 pub mod menu_click;

@@ -365,6 +365,8 @@ pub struct GameState {
     pub maps: crate::world::map::MapStore,
     pub end_crystals: crate::entity::end_crystal::EndCrystalStore,
     pub item_frames: crate::entity::item_frame::ItemFrameStore,
+    /// The first-person hands' heights and the stacks they show.
+    pub hand_equip: crate::player::hand_equip::HandEquip,
     pub thrown_items: crate::entity::thrown_item::ThrownItemStore,
     pub arrows: crate::entity::arrow::ArrowStore,
     pub fishing_hooks: crate::entity::fishing_hook::FishingHookStore,
@@ -550,6 +552,7 @@ impl GameState {
             maps: Default::default(),
             end_crystals: Default::default(),
             item_frames: Default::default(),
+            hand_equip: Default::default(),
             thrown_items: Default::default(),
             arrows: Default::default(),
             fishing_hooks: Default::default(),
@@ -2693,6 +2696,15 @@ pub fn update_game(
             // run on the tick-20 removal tick, then stop with future entity ticks.
             game.player.tick_hurt();
             game.player.cooldowns.tick();
+            let delay = crate::player::interaction::attack_strength_delay(&game.player.attributes);
+            let inventory = &game.player.inventory;
+            game.hand_equip.tick(
+                [
+                    &inventory.hotbar_slots()[core.input.selected_slot() as usize],
+                    inventory.offhand(),
+                ],
+                game.interaction.item_swap_scale(delay),
+            );
             game.player.effects.tick();
             game.player.tick_confusion();
             game.player.tick_sleep();
@@ -5086,7 +5098,10 @@ pub fn update_game(
             }
             _ => None,
         };
-        [held(main_stack, 0), held(inventory.offhand(), 1)]
+        // The hands show their stacks a moment behind a change of them
+        // (`ItemInHandRenderer.mainHandItem`).
+        let [main, off] = game.hand_equip.visible();
+        [held(main, 0), held(off, 1)]
     };
     // Vanilla `submitArmWithItem`: a stack with a map id shows as its map,
     // blank until the server has sent it.
@@ -5097,7 +5112,7 @@ pub fn update_game(
     let held_maps = if benchmark_running {
         [None, None]
     } else {
-        [held_map(main_stack), held_map(inventory.offhand())]
+        game.hand_equip.visible().map(held_map)
     };
     // Last element pushed: vanilla draws the saving indicator on its own
     // stratum above screens, with the GUI hidden (F1) included.
@@ -5155,6 +5170,7 @@ pub fn update_game(
         hide_cursor,
         elements,
         swing_progress,
+        game.hand_equip.lowered(partial_tick),
         use_anim,
         held_items,
         held_maps.map(|held| held.map(|id| (id, game.maps.get(id)))),

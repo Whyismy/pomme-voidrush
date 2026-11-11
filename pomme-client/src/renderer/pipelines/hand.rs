@@ -120,13 +120,14 @@ impl HandPipeline {
         aspect: f32,
         hud_fov: f32,
         swing_progress: f32,
+        lowered: f32,
         right_arm: bool,
         bob: Mat4,
         hand_pose: Mat4,
         light: LightLevels,
         cardinal_light: CardinalLightType,
     ) {
-        let model = arm_matrix(swing_progress, arm_invert(right_arm));
+        let model = arm_matrix(swing_progress, arm_invert(right_arm), lowered);
         self.draw_arm(
             pass,
             frame,
@@ -267,7 +268,8 @@ pub(super) fn map_hand_matrix(invert: f32) -> Mat4 {
 }
 
 /// Vanilla `ItemInHandRenderer.renderPlayerArm`, mirrored by `invert`.
-pub(super) fn arm_matrix(swing_progress: f32, invert: f32) -> Mat4 {
+/// `lowered` is its `inverseArmHeight`: 0 up, 1 dropped out of view.
+pub(super) fn arm_matrix(swing_progress: f32, invert: f32, lowered: f32) -> Mat4 {
     let sp = swing_progress;
     let sqrt_sp = sp.sqrt();
     let pi = std::f32::consts::PI;
@@ -281,7 +283,7 @@ pub(super) fn arm_matrix(swing_progress: f32, invert: f32) -> Mat4 {
 
     Mat4::from_translation(Vec3::new(
         invert * (x_off + 0.64),
-        y_off - 0.6,
+        y_off - 0.6 + lowered * -0.6,
         z_off - 0.72,
     )) * Mat4::from_rotation_y((invert * 45.0_f32).to_radians())
         * Mat4::from_rotation_y(swing_y)
@@ -461,9 +463,9 @@ mod tests {
     fn the_left_arm_mirrors_the_right() {
         let flip = Mat4::from_scale(Vec3::new(-1.0, 1.0, 1.0));
         for swing in [0.0, 0.3, 0.7, 1.0] {
-            let mirrored = flip * arm_matrix(swing, 1.0) * flip;
+            let mirrored = flip * arm_matrix(swing, 1.0, 0.0) * flip;
             assert!(
-                arm_matrix(swing, -1.0).abs_diff_eq(mirrored, 1e-4),
+                arm_matrix(swing, -1.0, 0.0).abs_diff_eq(mirrored, 1e-4),
                 "swing {swing}"
             );
         }

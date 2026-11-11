@@ -187,6 +187,9 @@ enum RenderMode<'a> {
         overlay: Vec<MenuElement>,
         /// The main hand's then the offhand's, as for `held_items`.
         swing_progress: [f32; 2],
+        /// How far each hand has dropped out of view (vanilla's
+        /// `inverseArmHeight`), 0 to 1.
+        hand_lowered: [f32; 2],
         use_anim: [Option<pipelines::held_item::UseAnim>; 2],
         /// The main hand's then the offhand's item.
         held_items: [Option<pipelines::held_item::HeldItemInfo>; 2],
@@ -1544,6 +1547,7 @@ impl Renderer {
         hide_cursor: bool,
         overlay: Vec<MenuElement>,
         swing_progress: [f32; 2],
+        hand_lowered: [f32; 2],
         use_anim: [Option<pipelines::held_item::UseAnim>; 2],
         held_items: [Option<(String, azalea_inventory::ItemStackData, bool, bool)>; 2],
         held_maps: [Option<(i32, Option<&crate::world::map::SavedMap>)>; 2],
@@ -1637,6 +1641,7 @@ impl Renderer {
                 block_render,
                 overlay,
                 swing_progress,
+                hand_lowered,
                 use_anim,
                 held_items,
                 held_maps,
@@ -2677,6 +2682,7 @@ impl Renderer {
                 block_render,
                 overlay,
                 swing_progress,
+                hand_lowered,
                 use_anim,
                 held_items,
                 held_maps,
@@ -2886,6 +2892,7 @@ impl Renderer {
                             let (map, [right, left]) = pipelines::held_item::two_handed_map_poses(
                                 x_rot,
                                 swing_progress[hand],
+                                hand_lowered[hand],
                             );
                             arms.extend([(right, true), (left, false)]);
                             map
@@ -2893,6 +2900,7 @@ impl Renderer {
                             let (map, arm) = pipelines::held_item::one_handed_map_poses(
                                 pipelines::hand::arm_invert(right_arm),
                                 swing_progress[hand],
+                                hand_lowered[hand],
                             );
                             arms.push((arm, right_arm));
                             map
@@ -2907,6 +2915,7 @@ impl Renderer {
                             aspect,
                             hud_fov,
                             swing_progress[0],
+                            hand_lowered[0],
                             *main_hand_right,
                             view_effect,
                             hand_pose,
@@ -2939,6 +2948,7 @@ impl Renderer {
                                 main_hand: i == 0,
                                 right_arm: *main_hand_right == (i == 0),
                                 swing_progress: swing_progress[i],
+                                lowered: hand_lowered[i],
                                 use_anim: use_anim[i],
                             })
                         })

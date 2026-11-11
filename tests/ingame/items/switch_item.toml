@@ -1,0 +1,42 @@
+# The first-person hand drops and comes back up with the new item when the
+# held slot changes (vanilla ItemInHandRenderer.tick): caught mid-way, then
+# settled.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/clear"
+
+[[step]]
+chat = "/item replace entity @s hotbar.0 with minecraft:diamond_sword"
+
+[[step]]
+chat = "/item replace entity @s hotbar.1 with minecraft:golden_apple"
+
+[[step]]
+chat = "/tp @s 0.5 -60 0.5 0 0"
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+screenshot = "sword"
+
+[[step]]
+press = { key = "key.keyboard.2" }
+
+[[step]]
+wait_ms = 90
+
+[[step]]
+screenshot = "switching"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "apple"
