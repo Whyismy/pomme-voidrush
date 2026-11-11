@@ -2,9 +2,8 @@
 //! `EnvironmentAttributes`' `visual/*` entries and `gameplay/sky_light_level`),
 //! resolved like `EnvironmentAttributeSystem`: the attribute's default, then
 //! the dimension's layer, the biomes around the camera, its timelines' tracks,
-//! and the weather.
-//! TODO: the client's lightning layer (`ClientLevel`'s sky flash, which lifts
-//! the sky colour and the sky light factor).
+//! and the weather. The client's lightning layer (`ClientLevel`'s sky flash)
+//! is applied where the attributes are sampled for a frame.
 
 use std::ops::{Add, Mul, Sub};
 

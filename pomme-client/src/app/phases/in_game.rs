@@ -365,6 +365,9 @@ pub struct GameState {
     pub maps: crate::world::map::MapStore,
     pub end_crystals: crate::entity::end_crystal::EndCrystalStore,
     pub item_frames: crate::entity::item_frame::ItemFrameStore,
+    pub lightning: crate::entity::lightning::LightningStore,
+    /// `ClientLevel.skyFlashTime`: ticks the sky stays lit by lightning.
+    pub sky_flash_time: u32,
     /// The first-person hands' heights and the stacks they show.
     pub hand_equip: crate::player::hand_equip::HandEquip,
     pub thrown_items: crate::entity::thrown_item::ThrownItemStore,
@@ -552,6 +555,8 @@ impl GameState {
             maps: Default::default(),
             end_crystals: Default::default(),
             item_frames: Default::default(),
+            lightning: Default::default(),
+            sky_flash_time: 0,
             hand_equip: Default::default(),
             thrown_items: Default::default(),
             arrows: Default::default(),
@@ -2751,6 +2756,34 @@ pub fn update_game(
         game.particle_store
             .tick(&game.chunk_store, game.block_registry.block_state_table());
         game.end_crystals.tick();
+        // `ClientLevel.tick` runs the sky flash down, then a live bolt's
+        // tick lights it again.
+        game.sky_flash_time = game.sky_flash_time.saturating_sub(1);
+        let lightning = game.lightning.tick();
+        if lightning.flash {
+            game.sky_flash_time = crate::entity::lightning::SKY_FLASH_TICKS;
+        }
+        for at in lightning.thunder {
+            // `LightningBolt.tick`: thunder heard from afar, and the strike.
+            let weather = crate::audio::SoundCategory::Weather as u8;
+            let at = Position::new(at.x, at.y, at.z);
+            core.audio.play_world_sound(
+                &SoundRef::event("entity.lightning_bolt.thunder"),
+                weather,
+                at,
+                10000.0,
+                0.8 + fastrand::f32() * 0.2,
+                fastrand::u64(..),
+            );
+            core.audio.play_world_sound(
+                &SoundRef::event("entity.lightning_bolt.impact"),
+                weather,
+                at,
+                2.0,
+                0.5 + fastrand::f32() * 0.2,
+                fastrand::u64(..),
+            );
+        }
         game.thrown_items.tick();
         game.fishing_hooks.tick();
         game.arrows
@@ -4808,7 +4841,7 @@ pub fn update_game(
     let horizon = if game.flat { f64::from(min_y) } else { 63.0 };
     let sky = crate::renderer::SkyState {
         partial_tick: clock_partial_tick,
-        attributes: game.environment_probe.at(clock_partial_tick),
+        attributes: sky_flash(game, game.environment_probe.at(clock_partial_tick)),
         skybox: game.environment.skybox,
         void_darkness: crate::renderer::fog::void_darkness(
             gfx.renderer.camera_render_position().y,
@@ -5164,6 +5197,13 @@ pub fn update_game(
         game.player.on_fire && !crate::player::is_spectator(game.player.game_mode),
     );
     let render_start = Instant::now();
+    gfx.renderer.set_lightning(
+        game.lightning
+            .bolts
+            .values()
+            .map(|bolt| (bolt.position, bolt.seed))
+            .collect(),
+    );
     let rendered = gfx.renderer.render_world(
         game.block_registry.render_view(),
         &gfx.window,
@@ -8072,9 +8112,9 @@ fn sky_partial_tick(core: &AppCore) -> f32 {
 
 /// Vanilla `LightmapRenderStateExtractor.extract`, which samples the
 /// attribute probe at the frame's partial tick.
-/// TODO: boss fog and the lightning and end flashes.
+/// TODO: boss fog and the end flashes.
 fn lightmap_info(game: &GameState, brightness: f32, partial_tick: f32) -> LightmapInfo {
-    let attributes = game.environment_probe.at(partial_tick);
+    let attributes = sky_flash(game, game.environment_probe.at(partial_tick));
     let with = |rgb: glam::Vec3, w: f32| rgb.extend(w).to_array();
     // Darkness (at the default darkness-effect scale of 1): the gamma it
     // takes off the brightness, and its pulse.
@@ -8093,6 +8133,20 @@ fn lightmap_info(game: &GameState, brightness: f32, partial_tick: f32) -> Lightm
         darkness_scale: darkness_scale(game.sky_state.game_time, darkness_gamma, partial_tick),
         ..bytemuck::Zeroable::zeroed()
     }
+}
+
+/// The client's lightning layer over the environment attributes
+/// (`ClientLevel`'s sky flash): while a bolt lights the sky, the sky colour
+/// lifts toward white and sky light is at full strength.
+fn sky_flash(
+    game: &GameState,
+    mut attributes: crate::world::environment::EnvAttributes,
+) -> crate::world::environment::EnvAttributes {
+    if game.sky_flash_time > 0 {
+        attributes.sky_color = attributes.sky_color.lerp(glam::Vec3::ONE, 0.22);
+        attributes.sky_light_factor = 1.0;
+    }
+    attributes
 }
 
 /// Vanilla `calculateDarknessScale`: Darkness's pulse, four seconds a beat

@@ -2722,6 +2722,9 @@ impl AppCore {
                     if entity_type == azalea_registry::builtin::EntityKind::EndCrystal {
                         game.end_crystals.spawn(id, position);
                     }
+                    if entity_type == azalea_registry::builtin::EntityKind::LightningBolt {
+                        game.lightning.spawn(id, position.into());
+                    }
                     if let azalea_registry::builtin::EntityKind::ItemFrame
                     | azalea_registry::builtin::EntityKind::GlowItemFrame = entity_type
                     {
@@ -2978,6 +2981,7 @@ impl AppCore {
                     game.interactions.remove(&ids);
                     game.end_crystals.remove(&ids);
                     game.item_frames.remove(&ids);
+                    game.lightning.remove(&ids);
                     game.thrown_items.remove(&ids);
                     game.arrows.remove(&ids);
                     game.fishing_hooks.remove(&ids);
@@ -3382,6 +3386,7 @@ impl AppCore {
                     game.interactions.clear();
                     game.end_crystals.clear();
                     game.item_frames.clear();
+                    game.lightning.clear();
                     game.thrown_items.clear();
                     game.arrows.clear();
                     game.fishing_hooks.clear();

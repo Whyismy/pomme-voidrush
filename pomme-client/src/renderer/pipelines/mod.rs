@@ -17,6 +17,7 @@ pub mod hit_outline;
 pub mod item_display;
 pub mod item_entity;
 pub mod lightmap;
+pub mod lightning;
 pub mod map;
 pub mod menu_overlay;
 pub mod panorama;

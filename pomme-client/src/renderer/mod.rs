@@ -289,6 +289,9 @@ pub struct Renderer {
     skin_preview: SkinPreviewPipeline,
     book_preview: BookPreviewPipeline,
     chunk_border_pipeline: ChunkBorderPipeline,
+    lightning_pipeline: pipelines::lightning::LightningPipeline,
+    /// This frame's lightning bolts: where each strikes, and its shape.
+    lightning_bolts: Vec<(glam::DVec3, u64)>,
     item_entity_pipeline: ItemEntityPipeline,
     /// Each block display mesh's tint palette, by mesh key; dropped with
     /// the item meshes.
@@ -548,6 +551,8 @@ impl Renderer {
             &ctx.device,
             swapchain_state.targets(),
         );
+        let lightning_pipeline =
+            pipelines::lightning::LightningPipeline::new(&ctx.device, swapchain_state.targets());
 
         let chunk_buffers = ChunkBufferStore::new(&ctx.device, ctx.indirect_draw);
 
@@ -628,6 +633,8 @@ impl Renderer {
             shader_pack_selected: None,
             pack_world: Default::default(),
             chunk_border_pipeline,
+            lightning_pipeline,
+            lightning_bolts: Vec::new(),
             item_entity_pipeline,
             block_display_tints: HashMap::new(),
             cursor_hidden: false,
@@ -1151,6 +1158,8 @@ impl Renderer {
                 .recreate_pipeline(&self.ctx.device, targets);
             self.chunk_border_pipeline
                 .recreate_pipeline(&self.ctx.device, targets);
+            self.lightning_pipeline
+                .recreate_pipeline(&self.ctx.device, targets);
         }
         self.entity_outline
             .resize(&self.ctx.device, self.swapchain.extent);
@@ -1528,6 +1537,12 @@ impl Renderer {
 
     pub fn render_assets(&self) -> &BlockRenderAssets {
         &self.render_assets
+    }
+
+    /// The lightning bolts to draw from now on: where each strikes, and
+    /// the seed of its shape.
+    pub fn set_lightning(&mut self, bolts: Vec<(glam::DVec3, u64)>) {
+        self.lightning_bolts = bolts;
     }
 
     pub fn update_chunk_borders(&mut self, min_y: i32, max_y: i32) {
@@ -2407,6 +2422,7 @@ impl Renderer {
             self.end_portal_pipeline.update_camera(frame, &uniform);
             self.hit_outline_pipeline.update_camera(frame, &uniform);
             self.chunk_border_pipeline.update_camera(frame, &uniform);
+            self.lightning_pipeline.update_camera(frame, &uniform);
             self.item_entity_pipeline.update_camera(frame, &uniform);
             self.world_text_pipeline.update_camera(frame, &uniform);
             self.weather_pipeline.update_camera(frame, &uniform);
@@ -2851,6 +2867,9 @@ impl Renderer {
                         weather,
                     );
 
+                    let eye = self.camera_render_position();
+                    self.lightning_pipeline
+                        .draw(&mut pass, frame, &self.lightning_bolts, eye);
                     if *show_chunk_borders {
                         self.chunk_border_pipeline.draw(&mut pass, frame);
                     }
@@ -3610,6 +3629,7 @@ impl Drop for Renderer {
         self.end_portal_pipeline.destroy(&self.ctx.device);
         self.hit_outline_pipeline.destroy(&self.ctx.device);
         self.chunk_border_pipeline.destroy(&self.ctx.device);
+        self.lightning_pipeline.destroy(&self.ctx.device);
         self.item_entity_pipeline.destroy(&self.ctx.device);
         self.held_item_pipeline.destroy(&self.ctx.device);
         self.map_pipeline.destroy(&self.ctx.device);

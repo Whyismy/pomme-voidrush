@@ -1,0 +1,32 @@
+# A lightning bolt (vanilla LightningBoltRenderer): the jagged glowing
+# trunk and its branches, 20 blocks ahead at night, caught while it lives.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/time set 18000"
+
+[[step]]
+chat = "/tp @s 0.5 -60 0.5 0 -20"
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+chat = "/summon minecraft:lightning_bolt 0.5 -60 20.5"
+
+[[step]]
+wait_ms = 150
+
+[[step]]
+screenshot = "strike"
+
+[[step]]
+wait_ms = 3000
+
+[[step]]
+screenshot = "after"
+
+[[step]]
+chat = "/time set 6000"

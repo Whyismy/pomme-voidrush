@@ -11,6 +11,7 @@ pub mod heads;
 pub mod interaction;
 pub mod item_frame;
 pub mod light;
+pub mod lightning;
 pub mod name_tags;
 pub mod shadow;
 pub mod thrown_item;
