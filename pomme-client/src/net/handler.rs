@@ -367,6 +367,12 @@ pub(crate) fn decode_raw_game_packet(
     })
     .or_else(|| {
         claimed(
+            "map_item_data",
+            super::map_wire::handle_raw_map_packet(packet_id, payload, event_tx),
+        )
+    })
+    .or_else(|| {
+        claimed(
             "update_advancements",
             super::advancement_wire::handle_raw_advancements(packet_id, payload, event_tx),
         )

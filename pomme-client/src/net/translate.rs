@@ -298,7 +298,8 @@
 //!   consumed component field via `json_to_nbt` (mixed arrays normalize to
 //!   compound lists) and the entity-data component serializers (5/6) transcode
 //!   in the metadata walk — `server_data` and `map_item_data` drop instead
-//!   (pomme never reads them), `server_data` once its secure-chat flag is read
+//!   (pomme doesn't read their old layout), `server_data` once its secure-chat
+//!   flag is read
 //! - `set_score` carries a method byte (its REMOVE arm becomes the
 //!   `reset_score` packet 1.20.3 added) and no display/numberFormat;
 //!   `set_objective` ends at the render type
@@ -663,8 +664,9 @@ struct Ids764 {
     set_score_id: u32,
     reset_score_id: u32,
     resource_pack_push_id: u32,
-    /// Dropped quietly: component-bearing packets pomme never consumes
-    /// (`server_data`, `map_item_data`).
+    /// Dropped quietly: component-bearing packets whose old layout pomme
+    /// doesn't read (`server_data`, `map_item_data`, so maps stay blank
+    /// there).
     drops: [u32; 2],
     /// Serverbound: native + wire ids for the resource_pack reply rewrite.
     resource_pack_response_id: u32,

@@ -1,0 +1,87 @@
+# A filled map held in first person (vanilla ItemInHandRenderer.renderMap):
+# in both hands with the other empty, tilting up as the view turns down;
+# in one hand with something in the other; and in the off hand alone.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/tp @s 0.5 -60 0.5 0 0"
+
+[[step]]
+chat = "/clear"
+
+[[step]]
+chat = "/item replace entity @s hotbar.0 with minecraft:map"
+
+[[step]]
+wait_ms = 1500
+
+# Opening the empty map makes a filled one of the ground here.
+[[step]]
+chat = "/gamemode survival"
+
+[[step]]
+wait_ms = 500
+
+[[step]]
+mouse_down = "right"
+
+[[step]]
+wait_ms = 400
+
+[[step]]
+mouse_up = "right"
+
+[[step]]
+wait_ms = 3000
+
+[[step]]
+screenshot = "level"
+
+[[step]]
+chat = "/tp @s 0.5 -60 0.5 0 30"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "tilting"
+
+[[step]]
+chat = "/tp @s 0.5 -60 0.5 0 80"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "looking_down"
+
+# Something in the other hand: the map goes to one hand.
+[[step]]
+chat = "/item replace entity @s weapon.offhand with minecraft:stick"
+
+[[step]]
+chat = "/tp @s 0.5 -60 0.5 0 20"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "one_handed"
+
+# The map in the off hand, the main hand empty.
+[[step]]
+chat = "/item replace entity @s weapon.offhand from entity @s hotbar.0"
+
+[[step]]
+chat = "/item replace entity @s hotbar.0 with minecraft:air"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "off_hand"

@@ -361,6 +361,8 @@ pub struct GameState {
     /// The loaded end portal and gateway blocks (`TheEndPortalRenderer`'s),
     /// found when their chunk loads and kept up as blocks change.
     pub end_portals: std::collections::HashSet<BlockPos>,
+    /// The level's maps, as the server has sent them.
+    pub maps: crate::world::map::MapStore,
     pub end_crystals: crate::entity::end_crystal::EndCrystalStore,
     pub thrown_items: crate::entity::thrown_item::ThrownItemStore,
     pub arrows: crate::entity::arrow::ArrowStore,
@@ -544,6 +546,7 @@ impl GameState {
             falling_blocks: Default::default(),
             interactions: Default::default(),
             end_portals: Default::default(),
+            maps: Default::default(),
             end_crystals: Default::default(),
             thrown_items: Default::default(),
             arrows: Default::default(),
@@ -5071,6 +5074,17 @@ pub fn update_game(
         };
         [held(main_stack, 0), held(inventory.offhand(), 1)]
     };
+    // Vanilla `submitArmWithItem`: a stack with a map id shows as its map,
+    // blank until the server has sent it.
+    let held_map = |stack: &azalea_inventory::ItemStack| {
+        let map = stack.get_component::<azalea_inventory::components::MapId>()?;
+        Some(map.id)
+    };
+    let held_maps = if benchmark_running {
+        [None, None]
+    } else {
+        [held_map(main_stack), held_map(inventory.offhand())]
+    };
     // Last element pushed: vanilla draws the saving indicator on its own
     // stratum above screens, with the GUI hidden (F1) included.
     if !benchmark_running && !game.deterministic && core.menu.show_autosave_indicator {
@@ -5129,6 +5143,7 @@ pub fn update_game(
         swing_progress,
         use_anim,
         held_items,
+        held_maps.map(|held| held.map(|id| (id, game.maps.get(id)))),
         core.menu.main_hand_right(),
         player_light,
         shown_hands,

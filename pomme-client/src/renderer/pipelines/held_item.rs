@@ -9,6 +9,7 @@ use crate::renderer::pipelines::hand;
 use crate::renderer::pipelines::item_display::{DisplayResolver, DisplayTransform};
 use crate::renderer::pipelines::item_entity::{self, ItemEntityPipeline, ItemPipelineShared};
 use crate::renderer::pipelines::lightmap::Lightmap;
+use crate::renderer::pipelines::map::MapQuad;
 use crate::renderer::rhi;
 use crate::world::block::model::CardinalLightType;
 
@@ -46,6 +47,76 @@ pub struct UseAnim {
     /// Vanilla `useItemRemaining - partialTick + 1`.
     pub curr_usage_time: f32,
     pub duration: f32,
+}
+
+/// A map held in first person: its quads, and where the map's own space
+/// (128 units a side) sits in view.
+pub struct HeldMap<'a> {
+    pub quads: &'a [MapQuad],
+    pub pose: Mat4,
+}
+
+/// The poses of a map held in both hands (vanilla
+/// `ItemInHandRenderer.renderTwoHandedMap`): the map's, then the right and
+/// left hands'. `x_rot` is the view's pitch in degrees and `attack` the
+/// swing's progress.
+pub fn two_handed_map_poses(x_rot: f32, attack: f32) -> (Mat4, [Mat4; 2]) {
+    let pi = std::f32::consts::PI;
+    let sqrt_attack = attack.sqrt();
+    let y_swing = -0.2 * (attack * pi).sin();
+    let z_swing = -0.4 * (sqrt_attack * pi).sin();
+    let tilt = map_tilt(x_rot);
+    let base = Mat4::from_translation(Vec3::new(0.0, -y_swing / 2.0, z_swing))
+        * Mat4::from_translation(Vec3::new(0.0, 0.04 + tilt * -0.5, -0.72))
+        * Mat4::from_rotation_x((tilt * -85.0).to_radians());
+    let hands = [1.0, -1.0].map(|invert| {
+        base * Mat4::from_rotation_y(90.0_f32.to_radians()) * hand::map_hand_matrix(invert)
+    });
+    let map = base
+        * Mat4::from_rotation_x(((sqrt_attack * pi).sin() * 20.0).to_radians())
+        * Mat4::from_scale(Vec3::splat(2.0))
+        * map_matrix();
+    (map, hands)
+}
+
+/// The poses of a map held in one hand (vanilla `renderOneHandedMap`): the
+/// map's, then its arm's. `invert` is [`hand::arm_invert`].
+pub fn one_handed_map_poses(invert: f32, attack: f32) -> (Mat4, Mat4) {
+    let pi = std::f32::consts::PI;
+    let sqrt_attack = attack.sqrt();
+    let x_swing = (sqrt_attack * pi).sin();
+    let base = Mat4::from_translation(Vec3::new(invert * 0.125, -0.125, 0.0));
+    let arm = base
+        * Mat4::from_rotation_z((invert * 10.0_f32).to_radians())
+        * hand::arm_matrix(attack, invert);
+    let map = base
+        * Mat4::from_translation(Vec3::new(invert * 0.51, -0.08, -0.75))
+        * Mat4::from_translation(Vec3::new(
+            invert * -0.5 * x_swing,
+            0.4 * (sqrt_attack * pi * 2.0).sin() - 0.3 * x_swing,
+            -0.3 * (attack * pi).sin(),
+        ))
+        * Mat4::from_rotation_x((x_swing * -45.0).to_radians())
+        * Mat4::from_rotation_y((invert * x_swing * -30.0).to_radians())
+        * map_matrix();
+    (map, arm)
+}
+
+/// Vanilla `ItemInHandRenderer.calculateMapTilt`: the map lies flat while
+/// the view is level and comes up to face it as the view turns down.
+fn map_tilt(x_rot: f32) -> f32 {
+    let tilt = (1.0 - x_rot / 45.0 + 0.1).clamp(0.0, 1.0);
+    -(tilt * std::f32::consts::PI).cos() * 0.5 + 0.5
+}
+
+/// Vanilla `ItemInHandRenderer.renderMap`: the map's 128-unit space, y down,
+/// turned to face the view and sized to the hand.
+fn map_matrix() -> Mat4 {
+    Mat4::from_rotation_y(std::f32::consts::PI)
+        * Mat4::from_rotation_z(std::f32::consts::PI)
+        * Mat4::from_scale(Vec3::splat(0.38))
+        * Mat4::from_translation(Vec3::new(-0.5, -0.5, 0.0))
+        * Mat4::from_scale(Vec3::splat(0.0078125))
 }
 
 /// Vanilla `ItemInHandRenderer.HandRenderSelection`: which hands first
@@ -116,6 +187,8 @@ impl HeldItemPipeline {
         aspect: f32,
         hud_fov: f32,
         hands: &[HeldHand<'_>],
+        maps: &[HeldMap<'_>],
+        map_vertices: rhi::backend::BufferHandle,
         meshes: &ItemEntityPipeline,
         bob: Mat4,
         hand_pose: Mat4,
@@ -128,8 +201,9 @@ impl HeldItemPipeline {
         self.shared.update_camera(frame, &uniform);
 
         let tint_count = hands.iter().map(|hand| hand.item.item_tints.len()).sum();
+        let map_quads: usize = maps.iter().map(|map| map.quads.len()).sum();
         self.shared
-            .begin_frame(device, frame, hands.len() + 1, tint_count);
+            .begin_frame(device, frame, hands.len() + 1 + map_quads, tint_count);
         self.shared.bind(pass, frame, self.pipeline);
         for hand in hands {
             let item = hand.item;
@@ -171,6 +245,26 @@ impl HeldItemPipeline {
             );
             pass.set_vertex_buffer(0, buffer);
             pass.draw(vertex_count, 1, 0, instance);
+        }
+        // A map's paper, picture and markers, each from a texture of its
+        // own in place of the atlas, lit as the hand is.
+        if map_quads > 0 {
+            pass.set_vertex_buffer(0, map_vertices);
+            for map in maps {
+                for quad in map.quads {
+                    let model = map.pose * quad.model;
+                    // Undoes the instance's own normal matrix, so the quad's
+                    // normal reaches the shader as built, whatever way the
+                    // map is turned: vanilla's text render type isn't shaded.
+                    let unturned = Mat3::from_mat4(model).transpose();
+                    let instance =
+                        self.shared
+                            .push_item(frame, &model, unturned, light.lane(), &[], 0);
+                    pass.set_bind_group(1, quad.texture);
+                    pass.draw(6, 1, quad.first_vertex, instance);
+                }
+            }
+            pass.set_bind_group(1, self.shared.atlas_set());
         }
         // Vanilla draws the burning overlay after the hands, in a pose
         // without the view bobbing, at full brightness.
@@ -298,6 +392,49 @@ fn default_first_person(has_3d_model: bool, right_arm: bool) -> DisplayTransform
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `calculateMapTilt`: flat while the view is level, upright once it
+    /// looks down past 49.5 degrees.
+    #[test]
+    fn a_map_tilts_up_as_the_view_turns_down() {
+        assert_eq!(map_tilt(0.0), 1.0);
+        assert_eq!(map_tilt(-30.0), 1.0);
+        assert!((map_tilt(27.0) - 0.5).abs() < 1e-6);
+        assert!(map_tilt(49.5).abs() < 1e-6);
+        assert_eq!(map_tilt(90.0), 0.0);
+    }
+
+    /// Looking straight down, a map in both hands faces the view squarely:
+    /// its first pixel up and to the left, its picture wound to face the
+    /// eye and in front of the paper.
+    #[test]
+    fn a_two_handed_map_faces_the_view() {
+        let (map, _) = two_handed_map_poses(90.0, 0.0);
+        let at = |x: f32, y: f32, z: f32| map.transform_point3(Vec3::new(x, y, z));
+        let near = |a: Vec3, b: Vec3| (a - b).length() < 1e-5;
+        assert!(near(at(64.0, 64.0, 0.0), Vec3::new(0.0, 0.04, -0.72)));
+        assert!(near(at(0.0, 0.0, 0.0), Vec3::new(-0.38, 0.42, -0.72)));
+        assert!(near(at(128.0, 128.0, 0.0), Vec3::new(0.38, -0.34, -0.72)));
+        // The picture's corners in the order its quad is built: they turn
+        // anticlockwise seen from the eye, the side the pipeline keeps.
+        let corners = [(0.0, 128.0), (128.0, 128.0), (128.0, 0.0)].map(|(x, y)| at(x, y, -0.01));
+        let facing = (corners[1] - corners[0]).cross(corners[2] - corners[1]);
+        assert!(facing.z > 0.0);
+        assert!(corners[0].z > at(0.0, 128.0, 0.0).z);
+    }
+
+    /// A map in one hand sits to that hand's side, mirrored for the other.
+    #[test]
+    fn a_one_handed_map_sits_by_its_hand() {
+        let centre = |invert: f32| {
+            one_handed_map_poses(invert, 0.0)
+                .0
+                .transform_point3(Vec3::new(64.0, 64.0, 0.0))
+        };
+        let (right, left) = (centre(1.0), centre(-1.0));
+        assert!((right - Vec3::new(0.635, -0.205, -0.75)).length() < 1e-5);
+        assert!((left - Vec3::new(-0.635, -0.205, -0.75)).length() < 1e-5);
+    }
 
     /// `m` reflected across the X axis, as the left hand mirrors the right.
     fn mirror(m: Mat4) -> Mat4 {

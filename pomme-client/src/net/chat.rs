@@ -733,7 +733,7 @@ pub(super) fn read_component(raw: &[u8], pos: &mut usize) -> Result<Component, S
 }
 
 /// A component's spans; `None`, logged, when it's unreadable.
-pub(super) fn component_spans(nbt: &[u8]) -> Option<Vec<TextSpan>> {
+pub(crate) fn component_spans(nbt: &[u8]) -> Option<Vec<TextSpan>> {
     component_spans_over(nbt, [1.0; 4])
 }
 

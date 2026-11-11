@@ -36,9 +36,11 @@ pub struct HandPipeline {
     pipeline_layout: rhi::backend::PipelineLayout,
     mvp_layout: rhi::backend::BindGroupLayout,
     skin_layout: rhi::backend::BindGroupLayout,
-    mvp_sets: Vec<rhi::backend::BindGroup>,
+    /// Each frame's uniforms, for the first arm drawn and the second (a map
+    /// held in both hands shows both).
+    mvp_sets: [Vec<rhi::backend::BindGroup>; 2],
     skin_set: rhi::backend::BindGroup,
-    mvp_buffers: Vec<rhi::backend::Buffer>,
+    mvp_buffers: [Vec<rhi::backend::Buffer>; 2],
     /// The shared [`Lightmap`]'s group, set 2.
     lightmap_set: rhi::backend::BindGroup,
     vertex_buffer: rhi::backend::Buffer,
@@ -66,12 +68,20 @@ impl HandPipeline {
 
         let pipeline = create_pipeline(device, targets, pipeline_layout);
 
-        let (mvp_sets, mvp_buffers) = util::create_uniform_sets(
+        let (first_sets, first_buffers) = util::create_uniform_sets(
             device,
             mvp_layout,
             size_of::<HandUniform>() as u64,
             "hand_uniform",
         );
+        let (second_sets, second_buffers) = util::create_uniform_sets(
+            device,
+            mvp_layout,
+            size_of::<HandUniform>() as u64,
+            "hand_uniform_second",
+        );
+        let mvp_sets = [first_sets, second_sets];
+        let mvp_buffers = [first_buffers, second_buffers];
 
         let (skin, skin_w, skin_h) = load_skin_texture(device, jar_assets_dir, asset_index);
 
@@ -116,9 +126,41 @@ impl HandPipeline {
         light: LightLevels,
         cardinal_light: CardinalLightType,
     ) {
-        let proj = projection(aspect, hud_fov);
         let model = arm_matrix(swing_progress, arm_invert(right_arm));
+        self.draw_arm(
+            pass,
+            frame,
+            0,
+            aspect,
+            hud_fov,
+            model,
+            right_arm,
+            bob,
+            hand_pose,
+            light,
+            cardinal_light,
+        );
+    }
 
+    /// Draws an arm posed by `model` (the bare arm's [`arm_matrix`], or a
+    /// map's hands). `slot` is 0 for the frame's first arm and 1 for its
+    /// second.
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_arm(
+        &mut self,
+        pass: &mut rhi::backend::RenderPassEncoder,
+        frame: usize,
+        slot: usize,
+        aspect: f32,
+        hud_fov: f32,
+        model: Mat4,
+        right_arm: bool,
+        bob: Mat4,
+        hand_pose: Mat4,
+        light: LightLevels,
+        cardinal_light: CardinalLightType,
+    ) {
+        let proj = projection(aspect, hud_fov);
         let mvp = proj * bob * model;
         let normal_matrix = Mat3::from_mat4(hand_pose * model).inverse().transpose();
         let nether = f32::from(u8::from(cardinal_light == CardinalLightType::Nether));
@@ -128,10 +170,13 @@ impl HandPipeline {
             light: [light.lane(), nether, 0.0, 0.0],
         };
         let bytes = bytemuck::bytes_of(&uniform);
-        self.mvp_buffers[frame].write(bytes);
+        self.mvp_buffers[slot][frame].write(bytes);
 
         pass.set_pipeline(&self.pipeline);
-        pass.set_bind_groups(0, &[self.mvp_sets[frame], self.skin_set, self.lightmap_set]);
+        pass.set_bind_groups(
+            0,
+            &[self.mvp_sets[slot][frame], self.skin_set, self.lightmap_set],
+        );
         pass.set_vertex_buffer(0, self.vertex_buffer.handle());
         let first_vertex = if right_arm { 0 } else { self.vertex_count };
         pass.draw(self.vertex_count, 1, first_vertex, 0);
@@ -178,7 +223,9 @@ impl HandPipeline {
     }
 
     pub fn destroy(&mut self, device: &rhi::backend::Device) {
-        util::destroy_buffers(device, &mut self.mvp_buffers);
+        for buffers in &mut self.mvp_buffers {
+            util::destroy_buffers(device, buffers);
+        }
         std::mem::take(&mut self.vertex_buffer).destroy(device);
 
         self.skin_sampler.destroy(device);
@@ -186,7 +233,9 @@ impl HandPipeline {
 
         self.pipeline.destroy(device);
         self.pipeline_layout.destroy(device);
-        util::destroy_bind_groups(device, self.mvp_sets.drain(..));
+        for sets in &mut self.mvp_sets {
+            util::destroy_bind_groups(device, sets.drain(..));
+        }
         self.skin_set.destroy(device);
         self.mvp_layout.destroy(device);
         self.skin_layout.destroy(device);
@@ -195,12 +244,30 @@ impl HandPipeline {
 
 /// Vanilla `ItemInHandRenderer`'s `invert`: 1 for the right arm, -1 for the
 /// left.
-pub(super) fn arm_invert(right_arm: bool) -> f32 {
+pub fn arm_invert(right_arm: bool) -> f32 {
     if right_arm { 1.0 } else { -1.0 }
 }
 
+/// Vanilla `PlayerRenderer.renderHand`'s arm part: `PlayerModel`'s arm
+/// pivots at (-5, 2, 0) on the right and (5, 2, 0) on the left, with its
+/// zRot set to 0.1 and -0.1.
+fn arm_part_matrix(invert: f32) -> Mat4 {
+    let pivot = Vec3::new(invert * -5.0 / 16.0, 2.0 / 16.0, 0.0);
+    Mat4::from_translation(pivot) * Mat4::from_rotation_z(invert * 0.1)
+}
+
+/// Vanilla `ItemInHandRenderer.renderMapHand`: one of the two hands holding
+/// a map's lower corners.
+pub(super) fn map_hand_matrix(invert: f32) -> Mat4 {
+    Mat4::from_rotation_y(92.0_f32.to_radians())
+        * Mat4::from_rotation_x(45.0_f32.to_radians())
+        * Mat4::from_rotation_z((invert * -41.0_f32).to_radians())
+        * Mat4::from_translation(Vec3::new(invert * 0.3, -1.1, 0.45))
+        * arm_part_matrix(invert)
+}
+
 /// Vanilla `ItemInHandRenderer.renderPlayerArm`, mirrored by `invert`.
-fn arm_matrix(swing_progress: f32, invert: f32) -> Mat4 {
+pub(super) fn arm_matrix(swing_progress: f32, invert: f32) -> Mat4 {
     let sp = swing_progress;
     let sqrt_sp = sp.sqrt();
     let pi = std::f32::consts::PI;
@@ -211,11 +278,6 @@ fn arm_matrix(swing_progress: f32, invert: f32) -> Mat4 {
 
     let swing_y = invert * (sqrt_sp * pi).sin() * 70.0_f32.to_radians();
     let swing_z = invert * (sp * sp * pi).sin() * (-20.0_f32).to_radians();
-
-    // `PlayerModel`'s arm pivots at (-5, 2, 0) on the right and (5, 2, 0)
-    // on the left; `renderHand` sets their zRot to 0.1 and -0.1.
-    let pivot = Vec3::new(invert * -5.0 / 16.0, 2.0 / 16.0, 0.0);
-    let arm_local_rot = Mat4::from_translation(pivot) * Mat4::from_rotation_z(invert * 0.1);
 
     Mat4::from_translation(Vec3::new(
         invert * (x_off + 0.64),
@@ -229,7 +291,7 @@ fn arm_matrix(swing_progress: f32, invert: f32) -> Mat4 {
         * Mat4::from_rotation_x(200.0_f32.to_radians())
         * Mat4::from_rotation_y((invert * -135.0_f32).to_radians())
         * Mat4::from_translation(Vec3::new(invert * 5.6, 0.0, 0.0))
-        * arm_local_rot
+        * arm_part_matrix(invert)
 }
 
 pub(super) fn projection(aspect: f32, hud_fov: f32) -> Mat4 {

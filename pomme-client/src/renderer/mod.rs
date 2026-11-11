@@ -190,6 +190,9 @@ enum RenderMode<'a> {
         use_anim: [Option<pipelines::held_item::UseAnim>; 2],
         /// The main hand's then the offhand's item.
         held_items: [Option<pipelines::held_item::HeldItemInfo>; 2],
+        /// The quads of the map each hand holds, which it shows in place of
+        /// the item.
+        held_maps: [Option<Vec<pipelines::map::MapQuad>>; 2],
         main_hand_right: bool,
         /// The local player's light, for the first-person arm (vanilla
         /// `renderHandsWithItems`).
@@ -298,6 +301,7 @@ pub struct Renderer {
     /// lookups know to redo theirs.
     display_assets_generation: u32,
     held_item_pipeline: pipelines::held_item::HeldItemPipeline,
+    map_pipeline: pipelines::map::MapPipeline,
     /// Whether first person shows the burning overlay this frame
     /// ([`Self::set_screen_fire`]).
     screen_fire: bool,
@@ -563,6 +567,8 @@ impl Renderer {
             jar_assets_dir,
             &lightmap,
         );
+        let map_pipeline =
+            pipelines::map::MapPipeline::new(&ctx.device, jar_assets_dir, asset_index);
 
         splash(&mut menu_pipeline, 0.95, "Caching item meshes...");
 
@@ -624,6 +630,7 @@ impl Renderer {
             item_display_resolvers: HashMap::new(),
             display_assets_generation: 0,
             held_item_pipeline,
+            map_pipeline,
             screen_fire: false,
             bedrock_ui_dir: Some(bedrock_ui_dir.to_path_buf()),
             sprite_packs: None,
@@ -1537,6 +1544,7 @@ impl Renderer {
         swing_progress: [f32; 2],
         use_anim: [Option<pipelines::held_item::UseAnim>; 2],
         held_items: [Option<(String, azalea_inventory::ItemStackData, bool, bool)>; 2],
+        held_maps: [Option<(i32, Option<&crate::world::map::SavedMap>)>; 2],
         main_hand_right: bool,
         hand_light: LightLevels,
         shown_hands: HandRenderSelection,
@@ -1562,6 +1570,10 @@ impl Renderer {
         self.camera.set_render_distance(render_distance);
         self.entity_renderer
             .ensure_trims(&self.ctx.device, entities);
+        self.map_pipeline.begin_frame(&self.ctx.device);
+        let held_maps = held_maps.map(|held| {
+            held.map(|(id, map)| self.map_pipeline.prepare(&self.ctx.device, id, map, false))
+        });
         let held_items = held_items.map(|held| {
             held.map(|(name, stack, in_use, cast)| {
                 let model = self.render_assets.stack_model_key(&name, &stack);
@@ -1614,6 +1626,7 @@ impl Renderer {
                 swing_progress,
                 use_anim,
                 held_items,
+                held_maps,
                 main_hand_right,
                 hand_light,
                 shown_hands,
@@ -2652,6 +2665,7 @@ impl Renderer {
                 swing_progress,
                 use_anim,
                 held_items,
+                held_maps,
                 main_hand_right,
                 hand_light,
                 shown_hands,
@@ -2836,10 +2850,40 @@ impl Renderer {
                     // empty main hand; held items render alone, and an empty
                     // offhand draws nothing. The main arm is the options' one,
                     // which the server echoes back as `getMainArm`.
-                    // TODO: map (`renderOneHandedMap`/`renderTwoHandedMap`)
-                    // and the crossbow loading pose, once crossbow use is
+                    // TODO: the crossbow loading pose, once crossbow use is
                     // tracked.
+                    let shown = [shown_hands.main, shown_hands.off];
+                    // A stack with a map id shows its map: in both hands when
+                    // it's the main hand's and the other is empty, else in
+                    // its own with that arm.
+                    // TODO: an invisible player's arms are hidden.
+                    let mut arms = Vec::new();
+                    let mut maps = Vec::new();
+                    for hand in 0..2 {
+                        let Some(quads) = held_maps[hand].as_ref().filter(|_| shown[hand]) else {
+                            continue;
+                        };
+                        let right_arm = *main_hand_right == (hand == 0);
+                        let pose = if hand == 0 && held_items[1].is_none() {
+                            let x_rot = self.camera.render_look_dir().x_rot_deg();
+                            let (map, [right, left]) = pipelines::held_item::two_handed_map_poses(
+                                x_rot,
+                                swing_progress[hand],
+                            );
+                            arms.extend([(right, true), (left, false)]);
+                            map
+                        } else {
+                            let (map, arm) = pipelines::held_item::one_handed_map_poses(
+                                pipelines::hand::arm_invert(right_arm),
+                                swing_progress[hand],
+                            );
+                            arms.push((arm, right_arm));
+                            map
+                        };
+                        maps.push(pipelines::held_item::HeldMap { quads, pose });
+                    }
                     if shown_hands.main && held_items[0].is_none() {
+                        arms.truncate(1);
                         self.hand_pipeline.update_and_draw(
                             &mut pass,
                             frame,
@@ -2853,9 +2897,25 @@ impl Renderer {
                             sky.cardinal_light,
                         );
                     }
-                    let shown = [shown_hands.main, shown_hands.off];
+                    // The bare arm above took the frame's first slot.
+                    let first = usize::from(shown_hands.main && held_items[0].is_none());
+                    for (slot, &(model, right_arm)) in arms.iter().enumerate() {
+                        self.hand_pipeline.draw_arm(
+                            &mut pass,
+                            frame,
+                            first + slot,
+                            aspect,
+                            hud_fov,
+                            model,
+                            right_arm,
+                            view_effect,
+                            hand_pose,
+                            *hand_light,
+                            sky.cardinal_light,
+                        );
+                    }
                     let hands: Vec<_> = (0..2)
-                        .filter(|&i| shown[i])
+                        .filter(|&i| shown[i] && held_maps[i].is_none())
                         .filter_map(|i| {
                             Some(HeldHand {
                                 item: held_items[i].as_ref()?,
@@ -2866,7 +2926,7 @@ impl Renderer {
                             })
                         })
                         .collect();
-                    if !hands.is_empty() || self.screen_fire {
+                    if !hands.is_empty() || !maps.is_empty() || self.screen_fire {
                         self.held_item_pipeline.update_and_draw(
                             &self.ctx.device,
                             &mut pass,
@@ -2874,6 +2934,8 @@ impl Renderer {
                             aspect,
                             hud_fov,
                             &hands,
+                            &maps,
+                            self.map_pipeline.vertex_buffer(),
                             &self.item_entity_pipeline,
                             view_effect,
                             hand_pose,
@@ -3523,6 +3585,7 @@ impl Drop for Renderer {
         self.chunk_border_pipeline.destroy(&self.ctx.device);
         self.item_entity_pipeline.destroy(&self.ctx.device);
         self.held_item_pipeline.destroy(&self.ctx.device);
+        self.map_pipeline.destroy(&self.ctx.device);
         self.weather_pipeline.destroy(&self.ctx.device);
         self.particle_pipeline.destroy(&self.ctx.device);
         self.cloud_pipeline.destroy(&self.ctx.device);

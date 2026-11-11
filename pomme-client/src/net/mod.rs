@@ -21,6 +21,7 @@ mod hud_wire;
 pub mod item_codec;
 pub mod known_packs;
 mod lifecycle_wire;
+mod map_wire;
 mod player_info_wire;
 mod player_wire;
 mod recipe_wire;
@@ -293,6 +294,8 @@ pub enum NetworkEvent {
     RecipeToastAdd {
         entries: Vec<crate::ui::toast::RecipeToastEntry>,
     },
+    /// A map's markers and colours (`ClientboundMapItemDataPacket`).
+    MapData(pomme_protocol::map::MapData),
     TitleText {
         spans: Vec<crate::ui::text::TextSpan>,
     },

@@ -790,6 +790,41 @@ const NO_ITEM_TINT: u32 = u32::MAX;
 /// The mesh [`ItemEntityPipeline::ensure_fire_overlay_mesh`] makes.
 pub const FIRE_OVERLAY_MESH: &str = "pomme:fire_overlay";
 
+/// Quads in the item vertex format, two triangles each, for pipelines that
+/// draw their own textures through the item shaders (maps). A quad's corners
+/// run round it, each a position and a texture coordinate. They're untinted
+/// and unshaded: the normal is the level's first light, which the shader's
+/// lighting leaves at full brightness in every dimension, as vanilla's text
+/// render type has no shading.
+pub(super) fn create_quad_buffer(
+    device: &rhi::backend::Device,
+    label: &str,
+    quads: &[[([f32; 3], [f32; 2]); 4]],
+) -> rhi::backend::Buffer {
+    let normal = pack_normal(glam::Vec3::new(0.2, 1.0, -0.7).normalize());
+    let light_tint = crate::renderer::chunk::mesher::pack_light_tint(
+        1.0,
+        crate::renderer::chunk::mesher::PACKED_WHITE_SHIFTED,
+    );
+    let vertices: Vec<ItemVertex> = quads
+        .iter()
+        .flat_map(|quad| [0, 1, 2, 2, 3, 0].map(|i| quad[i]))
+        .map(|(position, tex_coords)| ItemVertex {
+            position,
+            tex_coords,
+            light_tint,
+            normal,
+            tint_index: NO_ITEM_TINT,
+        })
+        .collect();
+    rhi::backend::Buffer::with_data(
+        device,
+        label,
+        bytemuck::cast_slice(&vertices),
+        rhi::BufferUsages::VERTEX,
+    )
+}
+
 fn tint_index_or_none(index: Option<u32>) -> u32 {
     index.unwrap_or(NO_ITEM_TINT)
 }

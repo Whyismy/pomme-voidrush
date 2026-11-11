@@ -6,5 +6,6 @@ pub mod clock;
 pub mod environment;
 pub mod level;
 pub mod light;
+pub mod map;
 pub mod piston;
 pub mod waypoints;

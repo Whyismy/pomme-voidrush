@@ -489,6 +489,8 @@ impl GameState {
         // The old level's block entities, moving blocks among them.
         self.block_entity_anim = Default::default();
         self.end_portals.clear();
+        // `ClientLevel.mapData` goes with the level.
+        self.maps.clear();
         self.position_set = false;
         // Login/respawn recreate vanilla's LocalPlayer, resetting
         // the XP display sentinel; waypoints persist.
@@ -2389,6 +2391,9 @@ impl AppCore {
                 }
                 NetworkEvent::RecipeToastAdd { entries } => {
                     game.toasts.add_recipes(entries);
+                }
+                NetworkEvent::MapData(data) => {
+                    game.maps.apply(data, crate::net::chat::component_spans);
                 }
                 NetworkEvent::TitleText { spans } => {
                     game.title.set_title(spans);
