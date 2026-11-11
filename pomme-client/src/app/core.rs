@@ -2722,6 +2722,9 @@ impl AppCore {
                     if entity_type == azalea_registry::builtin::EntityKind::EndCrystal {
                         game.end_crystals.spawn(id, position);
                     }
+                    if entity_type == azalea_registry::builtin::EntityKind::ExperienceOrb {
+                        game.experience_orbs.spawn(id, position, velocity);
+                    }
                     if entity_type == azalea_registry::builtin::EntityKind::LightningBolt {
                         game.lightning.spawn(id, position.into());
                     }
@@ -2794,6 +2797,7 @@ impl AppCore {
                     game.falling_blocks
                         .move_delta(id, dvec3(dx, dy, dz), on_ground);
                     game.interactions.move_delta(id, dvec3(dx, dy, dz));
+                    game.experience_orbs.move_delta(id, dvec3(dx, dy, dz));
                     game.end_crystals.move_delta(id, dvec3(dx, dy, dz));
                     game.display_store.move_delta(id, dvec3(dx, dy, dz), None);
                     if let Some(pos) = game.entity_positions.get_mut(&id) {
@@ -2826,6 +2830,7 @@ impl AppCore {
                     game.falling_blocks
                         .move_delta(id, dvec3(dx, dy, dz), on_ground);
                     game.interactions.move_delta(id, dvec3(dx, dy, dz));
+                    game.experience_orbs.move_delta(id, dvec3(dx, dy, dz));
                     game.display_store.move_delta(
                         id,
                         dvec3(dx, dy, dz),
@@ -2856,6 +2861,7 @@ impl AppCore {
                         game.player.velocity = velocity.into();
                     } else {
                         game.item_entity_store.set_motion(id, velocity);
+                        game.experience_orbs.set_motion(id, velocity);
                         game.falling_blocks.set_motion(id, velocity);
                         game.arrows.set_motion(id, velocity);
                         game.thrown_items.set_motion(id, velocity);
@@ -2890,6 +2896,7 @@ impl AppCore {
                     game.falling_blocks.teleport(id, position, velocity);
                     game.interactions.teleport(id, position);
                     game.end_crystals.teleport(id, position);
+                    game.experience_orbs.teleport(id, position);
                     game.item_frames.teleport(id, position);
                     game.thrown_items.teleport(id, position);
                     game.arrows.teleport(id, position);
@@ -2982,6 +2989,7 @@ impl AppCore {
                     game.end_crystals.remove(&ids);
                     game.item_frames.remove(&ids);
                     game.lightning.remove(&ids);
+                    game.experience_orbs.remove(&ids);
                     game.thrown_items.remove(&ids);
                     game.arrows.remove(&ids);
                     game.fishing_hooks.remove(&ids);
@@ -3055,6 +3063,7 @@ impl AppCore {
                     game.interactions.apply_entity_data(id, index, value);
                     game.end_crystals.apply_entity_data(id, index, value);
                     game.item_frames.apply_entity_data(id, index, value);
+                    game.experience_orbs.apply_entity_data(id, index, value);
                     game.arrows.apply_entity_data(id, index, &value);
                     game.name_store.apply_entity_data(id, index, value);
                     if index == 5
@@ -3242,6 +3251,17 @@ impl AppCore {
                                 game.player.position.z,
                             )
                         });
+                    if let Some(at) = game.experience_orbs.take(item_id) {
+                        // `handleTakeItemEntity`'s sound for an orb.
+                        self.audio.play_world_sound(
+                            &crate::audio::SoundRef::event("entity.experience_orb.pickup"),
+                            crate::audio::CATEGORY_PLAYERS,
+                            Position::new(at.x, at.y, at.z),
+                            0.1,
+                            (fastrand::f32() - fastrand::f32()) * 0.35 + 0.9,
+                            fastrand::u64(..),
+                        );
+                    }
                     if let Some(item_pos) =
                         game.item_entity_store.pickup(item_id, target_pos, amount)
                     {
@@ -3387,6 +3407,7 @@ impl AppCore {
                     game.end_crystals.clear();
                     game.item_frames.clear();
                     game.lightning.clear();
+                    game.experience_orbs.clear();
                     game.thrown_items.clear();
                     game.arrows.clear();
                     game.fishing_hooks.clear();

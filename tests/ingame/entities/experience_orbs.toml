@@ -1,0 +1,41 @@
+# Experience orbs (vanilla ExperienceOrbRenderer): small and large orbs
+# resting out of the player's reach, then one close enough to be drawn in.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/kill @e[type=!player]"
+
+[[step]]
+chat = "/gamemode spectator"
+
+[[step]]
+chat = "/tp @s 0.5 -59 0.5 0 20"
+
+[[step]]
+chat = "/summon minecraft:experience_orb -1.5 -60 3.5 {Value:1}"
+
+[[step]]
+chat = "/summon minecraft:experience_orb -0.5 -60 3.5 {Value:10}"
+
+[[step]]
+chat = "/summon minecraft:experience_orb 0.5 -60 3.5 {Value:100}"
+
+[[step]]
+chat = "/summon minecraft:experience_orb 1.5 -60 3.5 {Value:1000}"
+
+[[step]]
+chat = "/summon minecraft:experience_orb 2.5 -60 3.5 {Value:3000}"
+
+[[step]]
+wait_ms = 2500
+
+[[step]]
+screenshot = "orbs"
+
+[[step]]
+chat = "/gamemode creative"

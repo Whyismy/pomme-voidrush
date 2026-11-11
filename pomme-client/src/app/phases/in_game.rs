@@ -366,6 +366,7 @@ pub struct GameState {
     pub end_crystals: crate::entity::end_crystal::EndCrystalStore,
     pub item_frames: crate::entity::item_frame::ItemFrameStore,
     pub lightning: crate::entity::lightning::LightningStore,
+    pub experience_orbs: crate::entity::experience_orb::ExperienceOrbStore,
     /// `ClientLevel.skyFlashTime`: ticks the sky stays lit by lightning.
     pub sky_flash_time: u32,
     /// The first-person hands' heights and the stacks they show.
@@ -556,6 +557,7 @@ impl GameState {
             end_crystals: Default::default(),
             item_frames: Default::default(),
             lightning: Default::default(),
+            experience_orbs: Default::default(),
             sky_flash_time: 0,
             hand_equip: Default::default(),
             thrown_items: Default::default(),
@@ -2786,6 +2788,18 @@ pub fn update_game(
         }
         game.thrown_items.tick();
         game.fishing_hooks.tick();
+        // `ExperienceOrb.followNearbyPlayer`: orbs make for the middle of
+        // the eye height of a player who isn't spectating.
+        let draws_orbs = !crate::player::is_spectator(game.player.game_mode) && !game.dead;
+        let orb_target = draws_orbs.then(|| {
+            glam::DVec3::from(game.player.position)
+                + glam::DVec3::new(0.0, f64::from(game.player.eye_height) / 2.0, 0.0)
+        });
+        game.experience_orbs.tick(
+            &game.chunk_store,
+            game.block_registry.block_state_table(),
+            orb_target,
+        );
         game.arrows
             .tick(crate::physics::collision::CollisionWorld::new(
                 &game.chunk_store,
@@ -5092,6 +5106,7 @@ pub fn update_game(
     let fishing_lines = if benchmark_running {
         Vec::new()
     } else {
+        add_experience_orbs(game, &gfx.renderer, partial_tick, &mut particle_quads);
         add_fishing_hooks(game, core, &gfx.renderer, partial_tick, &mut particle_quads)
     };
     gfx.renderer.set_fishing_lines(fishing_lines);
@@ -6558,6 +6573,61 @@ fn cast_rod_hand(
         Some(1)
     } else {
         None
+    }
+}
+
+/// Vanilla `ExperienceOrbRenderer`: each orb is a camera-facing sprite from
+/// its sheet of sixteen, 0.3 of a block across and lifted a little, tinted
+/// by its pulse and half clear, lit seven levels brighter than its place.
+fn add_experience_orbs(
+    game: &GameState,
+    renderer: &Renderer,
+    partial_tick: f32,
+    out: &mut Vec<crate::renderer::pipelines::particle::ParticleQuad>,
+) {
+    use crate::renderer::pipelines::particle::ParticleQuad;
+    if game.experience_orbs.orbs.is_empty() {
+        return;
+    }
+    let Some(sheet) = crate::entity::experience_orb::TEXTURES
+        .iter()
+        .find_map(|texture| game.particle_store.item_region(texture))
+    else {
+        return;
+    };
+    let anchor = renderer.camera_anchor();
+    let world_light = WorldLight {
+        chunks: &game.chunk_store,
+        table: game.block_registry.block_state_table(),
+    };
+    let (width, height) = (sheet.u_max - sheet.u_min, sheet.v_max - sheet.v_min);
+    for orb in game.experience_orbs.orbs.values() {
+        let pos = orb
+            .prev_position
+            .lerp(orb.position, f64::from(partial_tick));
+        let icon = orb.icon();
+        let (column, row) = ((icon % 4) as f32, (icon / 4) as f32);
+        let light = entity_light(
+            &world_light,
+            EntityKind::ExperienceOrb,
+            Position::new(pos.x, pos.y, pos.z),
+            false,
+            0,
+        );
+        out.push(ParticleQuad {
+            // The quad spans y -0.25 to 0.75 at 0.3 scale, 0.1 up.
+            pos: (pos + glam::DVec3::new(0.0, 0.175, 0.0) - anchor)
+                .as_vec3()
+                .into(),
+            size: 0.15,
+            u0: sheet.u_min + width * column / 4.0,
+            u1: sheet.u_min + width * (column + 1.0) / 4.0,
+            v0: sheet.v_min + height * row / 4.0,
+            v1: sheet.v_min + height * (row + 1.0) / 4.0,
+            color: u32::from_le_bytes(orb.color(partial_tick)),
+            light: LightLevels::new(light.sky(), (light.block() + 7).min(15)).lane(),
+            translucent: true,
+        });
     }
 }
 

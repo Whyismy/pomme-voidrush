@@ -621,9 +621,13 @@ fn banner_pattern_textures(
         };
         for namespace in namespaces.flatten() {
             let ns = namespace.file_name().to_string_lossy().into_owned();
-            // The fishing bobber's sprite (`FishingHookRenderer`), in its
-            // 26.1 folder or the older place.
-            for sprite in FISHING_HOOK_TEXTURES {
+            // The fishing bobber's sprite (`FishingHookRenderer`) and the
+            // experience orbs' sheet, each in its 26.1 folder or the older
+            // place.
+            for sprite in FISHING_HOOK_TEXTURES
+                .into_iter()
+                .chain(crate::entity::experience_orb::TEXTURES)
+            {
                 if ns == "minecraft"
                     && namespace
                         .path()

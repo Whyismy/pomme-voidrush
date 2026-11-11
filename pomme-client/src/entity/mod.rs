@@ -4,6 +4,7 @@ pub mod dimensions;
 pub mod display;
 pub mod dragon;
 pub mod end_crystal;
+pub mod experience_orb;
 pub mod falling_block;
 pub mod fishing_hook;
 pub mod glowing;
