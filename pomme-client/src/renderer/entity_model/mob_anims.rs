@@ -271,6 +271,19 @@ pub fn end_crystal(model: &BakedEntityModel, age_in_ticks: f32) -> PartAnim {
     anim
 }
 
+/// `WindChargeModel.setupAnim`: the core and the wind around it spin 16
+/// degrees a tick, opposite ways.
+pub fn wind_charge(model: &BakedEntityModel, age_in_ticks: f32) -> PartAnim {
+    let mut anim = PartAnim::default();
+    let turn = (age_in_ticks * 16.0).to_radians();
+    for (name, y_rot) in [("wind_charge", -turn), ("wind", turn)] {
+        if let Some(i) = find_part(&model.parts, name) {
+            anim.rotation.push((i, Vec3::new(0.0, y_rot, 0.0)));
+        }
+    }
+    anim
+}
+
 /// What `EnderDragonModel.setupAnim` reads (vanilla `EnderDragonRenderState`).
 #[derive(Clone, Debug)]
 pub struct DragonPose {

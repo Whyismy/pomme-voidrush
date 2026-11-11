@@ -459,23 +459,125 @@ pub(crate) fn handle_raw_for_test(
     (took, out_rx)
 }
 
-/// Vanilla 26.2 `ClientboundExplodePacket` starts with the center, radius,
-/// block count and optional player knockback. azalea's typed codec misreads
-/// the particle tail (see
-/// `azalea_compat::azalea_explode_still_misdecodes_native_particles`),
-/// so the knockback prefix is read here and the frame consumed.
+/// Vanilla 26.2 `ClientboundExplodePacket`: the center, radius, block count
+/// and optional player knockback, then the blast's particle, its sound and
+/// the particles of the blocks it blew. azalea's typed codec misreads that
+/// tail (see
+/// `azalea_compat::azalea_explode_still_misdecodes_native_particles`), so
+/// the whole frame is read here.
 fn handle_raw_explode(r: &mut Reader, event_tx: &Sender<NetworkEvent>) -> DecodeResult<()> {
-    // TODO: vanilla `handleExplosion` also plays the explosion sound and
-    // spawns its particles from the center and the payload tail.
-    let _center = r.vec3()?;
-    let _radius = r.f32()?;
-    let _block_count = r.i32()?;
+    let center = r.vec3()?;
+    let radius = r.f32()?;
+    let block_count = r.i32()?;
 
     if r.bool()? {
         let delta = r.vec3()?;
         send_ordered(event_tx, NetworkEvent::PlayerKnockback { delta });
     }
+    // The knockback is sent first, so a tail that can't be read costs only
+    // the blast's look and sound.
+    match explosion_effects(r) {
+        Ok(Some((particle, sound, block_particles))) => send_ordered(
+            event_tx,
+            NetworkEvent::Explosion {
+                center,
+                radius,
+                block_count,
+                particle,
+                sound,
+                block_particles,
+            },
+        ),
+        Ok(None) => tracing::debug!("Explosion with a particle whose options aren't read"),
+        Err(_) => tracing::debug!("Explosion with unreadable effects"),
+    }
     Ok(())
+}
+
+/// An explosion's own particle, its sound and its block particles.
+type ExplosionEffects = (
+    Option<(
+        crate::particle::ServerParticleKind,
+        crate::particle::ParticleOptions,
+    )>,
+    Option<crate::audio::SoundRef>,
+    Vec<crate::particle::ExplosionParticle>,
+);
+
+/// What follows the knockback in `ClientboundExplodePacket`. `None` when
+/// the blast's own particle is one pomme doesn't draw and carries options,
+/// which can't be skipped; block particles stop at the first such.
+fn explosion_effects(r: &mut Reader) -> DecodeResult<Option<ExplosionEffects>> {
+    use pomme_protocol::sound::SoundEvent;
+    use pomme_protocol::{ClientRegistry, RegistryTable};
+
+    // A frame rewritten for its wire version already carries native ids;
+    // one passed through carries the wire version's.
+    let wire_ids = super::translate::active().is_some_and(|t| !t.rewrites_explode());
+    let native = |registry, id| {
+        if wire_ids {
+            super::translate::native_id(registry, id)
+        } else {
+            Some(id)
+        }
+    };
+    let Some(particle) = explosion_particle(r, &native)? else {
+        return Ok(None);
+    };
+    let sound = match pomme_protocol::sound::sound_event(r)? {
+        SoundEvent::Registered(id) => native(ClientRegistry::SoundEvent, id)
+            .and_then(|id| RegistryTable::native().name_of(ClientRegistry::SoundEvent, id))
+            .map(crate::audio::SoundRef::from_id),
+        SoundEvent::Direct { location, .. } => Some(crate::audio::SoundRef::from_id(&location)),
+    };
+    let mut block_particles = Vec::new();
+    // `WeightedList<ExplosionParticleInfo>`: each a particle, how far out
+    // it starts, its speed, then its weight.
+    for _ in 0..r.varint()? {
+        let Some(particle) = explosion_particle(r, &native)? else {
+            break;
+        };
+        let (scaling, speed, weight) = (r.f32()?, r.f32()?, r.varint()?);
+        if let Some((kind, options)) = particle {
+            block_particles.push(crate::particle::ExplosionParticle {
+                kind,
+                options,
+                scaling,
+                speed,
+                weight,
+            });
+        }
+    }
+    Ok(Some((particle, sound, block_particles)))
+}
+
+/// One particle of an explode packet, its id made native by `native`:
+/// `Some(None)` for a type pomme doesn't draw, `None` for one whose options
+/// it can't skip.
+#[allow(clippy::type_complexity)]
+fn explosion_particle(
+    r: &mut Reader,
+    native: &impl Fn(pomme_protocol::ClientRegistry, u32) -> Option<u32>,
+) -> DecodeResult<
+    Option<
+        Option<(
+            crate::particle::ServerParticleKind,
+            crate::particle::ParticleOptions,
+        )>,
+    >,
+> {
+    use pomme_protocol::{ClientRegistry, RegistryTable};
+
+    let Some(id) = native(ClientRegistry::ParticleType, r.varint()?) else {
+        return Ok(None);
+    };
+    Ok(match crate::particle::ServerParticleKind::from_id(id) {
+        Some(kind) => particle_options(r, kind)?.map(|options| Some((kind, options))),
+        None => RegistryTable::native()
+            .name_of(ClientRegistry::ParticleType, id)
+            .filter(|name| !super::translate::PAYLOAD_PARTICLES.contains(name))
+            .map(|_| None),
+    })
 }
 
 /// The native version whose explode layout [`handle_raw_explode`] reads.
@@ -833,6 +935,116 @@ mod tests {
         assert!(matches!(
             rx.recv().unwrap(),
             NetworkEvent::PlayerKnockback { delta } if delta == expected
+        ));
+    }
+
+    /// The tail of an explode frame: the particle `particle`, the sound
+    /// `sound`, and `blocks` as (particle, scaling, speed, weight).
+    fn explosion_tail(particle: &str, sound: &str, blocks: &[(&str, f32, f32, u32)]) -> Vec<u8> {
+        let table = pomme_protocol::RegistryTable::native();
+        let id = |registry, name| table.id_of(registry, name).unwrap();
+        let particle_id = |name| id(pomme_protocol::ClientRegistry::ParticleType, name);
+        let mut raw = Vec::new();
+        wire::write_varint(&mut raw, particle_id(particle));
+        wire::write_varint(
+            &mut raw,
+            id(pomme_protocol::ClientRegistry::SoundEvent, sound) + 1,
+        );
+        wire::write_varint(&mut raw, blocks.len() as u32);
+        for &(name, scaling, speed, weight) in blocks {
+            wire::write_varint(&mut raw, particle_id(name));
+            raw.extend_from_slice(&scaling.to_be_bytes());
+            raw.extend_from_slice(&speed.to_be_bytes());
+            wire::write_varint(&mut raw, weight);
+        }
+        raw
+    }
+
+    /// A wind charge's burst: the gust emitter and the burst's sound, and no
+    /// block particles. TNT: the explosion emitter, the blast, and the poof
+    /// and smoke of the blocks, less a particle pomme doesn't draw.
+    #[test]
+    fn raw_native_explosion_carries_its_particle_sound_and_debris() {
+        use crate::particle::{ParticleOptions, ServerParticleKind as K};
+        let read = |raw: &[u8]| {
+            let (tx, rx) = crossbeam_channel::unbounded();
+            assert!(handle_raw(raw, &tx));
+            rx.try_iter().collect::<Vec<_>>()
+        };
+
+        let mut raw = explosion_prefix(None);
+        raw.extend(explosion_tail(
+            "gust_emitter_large",
+            "entity.wind_charge.wind_burst",
+            &[],
+        ));
+        let events = read(&raw);
+        let [
+            NetworkEvent::Explosion {
+                center,
+                radius,
+                block_count,
+                particle,
+                sound,
+                block_particles,
+            },
+        ] = &events[..]
+        else {
+            panic!("expected one explosion");
+        };
+        assert_eq!(*center, glam::DVec3::new(12.5, 64.0, -3.25));
+        assert_eq!((*radius, *block_count), (4.0, 7));
+        assert_eq!(
+            *particle,
+            Some((K::GustEmitterLarge, ParticleOptions::None))
+        );
+        assert_eq!(
+            sound.as_ref().map(|sound| sound.event_name()),
+            Some("entity.wind_charge.wind_burst")
+        );
+        assert!(block_particles.is_empty());
+
+        let knockback = glam::DVec3::new(0.5, 1.0, -0.25);
+        let mut raw = explosion_prefix(Some(knockback));
+        raw.extend(explosion_tail(
+            "explosion_emitter",
+            "entity.generic.explode",
+            &[
+                ("poof", 0.5, 1.0, 1),
+                ("angry_villager", 1.0, 1.0, 9),
+                ("smoke", 1.0, 2.0, 3),
+            ],
+        ));
+        let events = read(&raw);
+        let [
+            NetworkEvent::PlayerKnockback { delta },
+            NetworkEvent::Explosion {
+                particle,
+                block_particles,
+                ..
+            },
+        ] = &events[..]
+        else {
+            panic!("expected the knockback, then the explosion");
+        };
+        assert_eq!(*delta, knockback);
+        assert_eq!(
+            *particle,
+            Some((K::ExplosionEmitter, ParticleOptions::None))
+        );
+        let debris: Vec<_> = block_particles
+            .iter()
+            .map(|p| (p.kind, p.scaling, p.speed, p.weight))
+            .collect();
+        assert_eq!(debris, [(K::Poof, 0.5, 1.0, 1), (K::Smoke, 1.0, 2.0, 3)]);
+
+        // A blast whose own particle carries options pomme can't size keeps
+        // its knockback and nothing else.
+        let mut raw = explosion_prefix(Some(knockback));
+        raw.extend(explosion_tail("vibration", "entity.generic.explode", &[]));
+        assert!(matches!(
+            &read(&raw)[..],
+            [NetworkEvent::PlayerKnockback { .. }]
         ));
     }
 

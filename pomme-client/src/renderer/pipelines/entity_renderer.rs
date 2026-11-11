@@ -443,6 +443,10 @@ enum OverlayKind {
     /// Additive, full-bright, depth-writing, scrolling UV — charged creeper
     /// swirl.
     SwirlAdditive,
+    /// A body drawn as `BodyTranslucent` with its texture sliding sideways
+    /// (vanilla `breezeWind`) — the wind charge.
+    // TODO: `breezeWind` has no directional shading.
+    Wind,
 }
 
 struct MobVariant {
@@ -644,6 +648,9 @@ fn expected_variant_count(kind: EntityKind) -> Option<usize> {
 const HURT_OVERLAY: [f32; 4] = [1.0, 0.0, 0.0, 178.0 / 255.0];
 const NO_OVERLAY: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 pub(super) const ENTITY_ALPHA_CUTOFF: f32 = 0.5;
+/// Vanilla's translucent entity shaders discard below a tenth; the wind
+/// charge's texture is half clear throughout.
+const WIND_ALPHA_CUTOFF: f32 = 0.1;
 pub(crate) const ARMOR_ALPHA_CUTOFF: f32 = 0.1;
 
 pub const WOOL_COLOR_RGBA: [[f32; 4]; 16] = [
@@ -1309,6 +1316,8 @@ enum AnimationType {
     ArmorStand,
     /// `EndCrystalModel.setupAnim`: the glass cubes spin and bob.
     EndCrystal,
+    /// `WindChargeModel.setupAnim`: the core and its wind counter-spin.
+    WindCharge,
     /// `EnderDragonModel.setupAnim`, from [`EntityRenderInfo::dragon`].
     EnderDragon,
 }
@@ -1615,6 +1624,24 @@ fn mob_definitions() -> Vec<MobDef> {
         VariantDef {
             overlay_kind: OverlayKind::BodyTranslucent,
             ..opaque(model, tex_variants, tex_size)
+        }
+    }
+
+    fn wind_charge(kind: EntityKind) -> MobDef {
+        MobDef {
+            kind,
+            anim: AnimationType::WindCharge,
+            adult: vec![VariantDef {
+                overlay_kind: OverlayKind::Wind,
+                ..opaque(
+                    entity_model::bake_exported(exported_data::WIND_CHARGE),
+                    tex_table!("projectiles" => "wind_charge"),
+                    64,
+                )
+            }],
+            baby: None,
+            adult_overlays: vec![],
+            baby_overlays: vec![],
         }
     }
 
@@ -2746,6 +2773,9 @@ fn mob_definitions() -> Vec<MobDef> {
             adult_overlays: vec![],
             baby_overlays: vec![],
         },
+        // `WindChargeRenderer`, for the player's charge and the breeze's.
+        wind_charge(EntityKind::WindCharge),
+        wind_charge(EntityKind::BreezeWindCharge),
         MobDef {
             kind: EntityKind::ArmorStand,
             anim: AnimationType::ArmorStand,
@@ -3659,6 +3689,9 @@ impl EntityRenderer {
             AnimationType::EndCrystal => {
                 entity_model::mob_anims::end_crystal(model, info.age_in_ticks)
             }
+            AnimationType::WindCharge => {
+                entity_model::mob_anims::wind_charge(model, info.age_in_ticks)
+            }
             AnimationType::ArmorStand => {
                 entity_model::compute_armor_stand_anim(model, &info.armor_stand_pose)
             }
@@ -3831,6 +3864,16 @@ impl EntityRenderer {
                     }
                     Route::Draw if base.overlay_kind == OverlayKind::BodyTranslucent => {
                         translucent_bodies.push((base, texture_set, member));
+                    }
+                    Route::Draw if base.overlay_kind == OverlayKind::Wind => {
+                        // `WindChargeRenderer.xOffset`: the texture slides
+                        // 0.03 of its width a tick.
+                        let slide = (v.info.age_in_ticks * 0.03).rem_euclid(1.0);
+                        translucent_bodies.push((
+                            base,
+                            texture_set,
+                            (vi, member.1, NO_OVERLAY, [slide, 0.0]),
+                        ));
                     }
                     Route::Draw => opaque.add(base, texture_set, member),
                     Route::Translucent => {
@@ -4272,6 +4315,11 @@ impl<'a> VariantGroups<'a> {
                     .map(|(vi, ..)| variant.model.compute_part_transforms(&vis[*vi].anim))
                     .collect()
             });
+            let alpha_cutoff = if variant.overlay_kind == OverlayKind::Wind {
+                WIND_ALPHA_CUTOFF
+            } else {
+                ENTITY_ALPHA_CUTOFF
+            };
             for (p, (start, part_count)) in variant.model.part_ranges.iter().enumerate() {
                 if *part_count == 0 {
                     continue;
@@ -4294,7 +4342,7 @@ impl<'a> VariantGroups<'a> {
                             model: model.to_cols_array_2d(),
                             tint: *tint,
                             overlay_color: *overlay,
-                            uv_params: [uv[0], uv[1], ENTITY_ALPHA_CUTOFF, light],
+                            uv_params: [uv[0], uv[1], alpha_cutoff, light],
                         },
                     );
                 }
@@ -4626,9 +4674,10 @@ fn build_variants(
         overlay_kind,
         invisible_outline,
     } = variant;
-    // The scrolling swirl needs REPEAT wrapping; everything else clamps.
+    // The sliding swirl and wind need REPEAT wrapping; everything else
+    // clamps.
     let sampler = match overlay_kind {
-        OverlayKind::SwirlAdditive => texture_sampler_repeat,
+        OverlayKind::SwirlAdditive | OverlayKind::Wind => texture_sampler_repeat,
         _ => texture_sampler,
     };
     let vert_bytes = bytemuck::cast_slice::<EntityVertex, u8>(&model.vertices);

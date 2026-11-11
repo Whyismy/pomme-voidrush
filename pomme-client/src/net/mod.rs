@@ -486,6 +486,21 @@ pub enum NetworkEvent {
     PlayerKnockback {
         delta: DVec3,
     },
+    /// What `ClientboundExplodePacket` shows and plays: the blast's own
+    /// particle and sound at its centre, and the particles thrown from the
+    /// `block_count` blocks it blew within `radius`. Particles pomme doesn't
+    /// draw are left out.
+    Explosion {
+        center: DVec3,
+        radius: f32,
+        block_count: i32,
+        particle: Option<(
+            crate::particle::ServerParticleKind,
+            crate::particle::ParticleOptions,
+        )>,
+        sound: Option<crate::audio::SoundRef>,
+        block_particles: Vec<crate::particle::ExplosionParticle>,
+    },
     EntityTeleported {
         id: i32,
         position: Position,

@@ -1462,6 +1462,16 @@ impl Translation {
         }
     }
 
+    /// Whether `explode` frames are rewritten for this wire version, so
+    /// they reach the raw reader with native particle and sound ids. The
+    /// versions between (1.21.9 to 26.1) share the native layout and pass
+    /// through with their own ids.
+    pub fn rewrites_explode(&self) -> bool {
+        self.game_ids
+            .as_ref()
+            .is_some_and(|ids| ids.v772.is_some() || ids.v777.is_some())
+    }
+
     /// The native-version particle id for a source-version one, for the raw
     /// `level_particles` path; `None` drops the particle.
     pub fn remap_particle(&self, id: u32) -> Option<u32> {
@@ -3903,7 +3913,7 @@ fn skip_metadata_value(cur: &mut Cursor<&[u8]>, serializer: u32) -> Option<bool>
 /// 26.2 particle names whose options carry a payload after the type id;
 /// every older supported version's payload set is a strict subset of this
 /// one, so a name outside it is a bare type id on both sides.
-const PAYLOAD_PARTICLES: &[&str] = &[
+pub(super) const PAYLOAD_PARTICLES: &[&str] = &[
     "block",
     "block_crumble",
     "block_marker",

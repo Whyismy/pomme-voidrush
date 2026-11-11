@@ -2,7 +2,8 @@
 //! eggs, ender pearls, potions, bottles o' enchanting, fireballs and eyes of
 //! ender. Servers dress them in any stack, so Void Rush's mage bolts are
 //! snowballs carrying a pack model. They fly on the client between the
-//! server's position updates, as vanilla's do.
+//! server's position updates, as vanilla's do. Wind charges fly here too,
+//! though they're drawn as their own model (`WindChargeRenderer`).
 
 use std::collections::HashMap;
 
@@ -68,7 +69,19 @@ pub fn is_thrown_item(kind: EntityKind) -> bool {
             | EntityKind::Fireball
             | EntityKind::SmallFireball
             | EntityKind::EyeOfEnder
-    )
+    ) || is_wind_charge(kind)
+}
+
+/// A player's wind charge or a breeze's.
+pub fn is_wind_charge(kind: EntityKind) -> bool {
+    matches!(kind, EntityKind::WindCharge | EntityKind::BreezeWindCharge)
+}
+
+/// What a projectile keeps of its speed each tick: a throwable's drag, or a
+/// wind charge's inertia of one (`AbstractWindCharge`, which also has no
+/// acceleration).
+fn drag(kind: EntityKind) -> f64 {
+    if is_wind_charge(kind) { 1.0 } else { 0.99 }
 }
 
 /// Each kind's `getDefaultGravity`; fireballs and eyes of ender fly level.
@@ -143,7 +156,7 @@ impl ThrownItemStore {
         for item in self.items.values_mut() {
             item.prev_position = item.position;
             item.position = (DVec3::from(item.position) + item.velocity).into();
-            item.velocity *= 0.99;
+            item.velocity *= drag(item.kind);
             if !item.no_gravity {
                 item.velocity.y -= gravity(item.kind);
             }
@@ -195,6 +208,20 @@ mod tests {
         assert_eq!(store.items[&3].position.y, 0.0, "a mage bolt doesn't");
         assert_eq!(store.items[&2].position.y, 0.0, "a fireball doesn't");
         assert_eq!(ThrownItem::default_item(EntityKind::Snowball), "snowball");
+
+        // A wind charge keeps its speed and its height.
+        store.spawn(
+            4,
+            EntityKind::WindCharge,
+            Position::new(0.0, 0.0, 0.0),
+            DVec3::new(1.5, 0.0, 0.0),
+        );
+        for _ in 0..10 {
+            store.tick();
+        }
+        let charge = &store.items[&4];
+        assert_eq!((charge.position.x, charge.position.y), (15.0, 0.0));
+        assert!(is_wind_charge(charge.kind) && !is_wind_charge(EntityKind::Fireball));
         assert_eq!(store.items[&2].scale(), 3.0);
     }
 }

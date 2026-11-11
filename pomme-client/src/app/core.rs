@@ -2872,6 +2872,53 @@ impl AppCore {
                     // Vanilla `handleExplosion`: `LocalPlayer.addDeltaMovement`.
                     *game.player.velocity += delta;
                 }
+                NetworkEvent::Explosion {
+                    center,
+                    radius,
+                    block_count,
+                    particle,
+                    sound,
+                    block_particles,
+                } => {
+                    // Vanilla `handleExplosion`: the blast's sound and its
+                    // particle at the centre, then the blown blocks' debris.
+                    if let Some(sound) = sound {
+                        self.audio.play_world_sound(
+                            &sound,
+                            crate::audio::CATEGORY_BLOCKS,
+                            Position::new(center.x, center.y, center.z),
+                            4.0,
+                            (1.0 + (fastrand::f32() - fastrand::f32()) * 0.2) * 0.7,
+                            fastrand::u64(..),
+                        );
+                    }
+                    let camera = renderer.camera_render_position();
+                    if let Some((kind, options)) = particle {
+                        let look = particle_look(game, options, center);
+                        game.particle_store.add_particles_from_packet(
+                            kind,
+                            options,
+                            look,
+                            false,
+                            center,
+                            glam::DVec3::X,
+                            1.0,
+                            0,
+                            camera,
+                        );
+                    }
+                    let block_particles = block_particles
+                        .into_iter()
+                        .map(|p| (p, particle_look(game, p.options, center)))
+                        .collect();
+                    game.particle_store.track_explosion(
+                        center,
+                        radius,
+                        block_count,
+                        block_particles,
+                        camera,
+                    );
+                }
                 NetworkEvent::EntityTeleported {
                     id,
                     position,

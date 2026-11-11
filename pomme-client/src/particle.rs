@@ -409,6 +409,23 @@ impl Particle {
         }
     }
 
+    /// `GustParticle` (`gust`, and `small_gust` at 0.15 of the size): a
+    /// still, full-bright puff played through its frames.
+    fn gust(pos: DVec3, small: bool) -> Self {
+        Self {
+            motion: Motion::Still,
+            light: Light::Bright,
+            animated: Some(if small {
+                SpriteSet::SmallGust
+            } else {
+                SpriteSet::Gust
+            }),
+            lifetime: 12 + fastrand::i32(0..4),
+            size: if small { 0.15 } else { 1.0 },
+            ..Self::at(pos)
+        }
+    }
+
     /// `AttackSweepParticle`.
     fn sweep(pos: DVec3, size_arg: f64) -> Self {
         Self {
@@ -898,6 +915,8 @@ enum SpriteSet {
     BubblePop,
     /// `ash`, `white_ash`: `generic_0` alone.
     Ash,
+    Gust,
+    SmallGust,
 }
 
 /// The sprites of each set, as atlas texture keys.
@@ -1083,6 +1102,35 @@ const SPRITE_SETS: &[(SpriteSet, &[&str])] = &[
         ],
     ),
     (SpriteSet::Ash, &["particle/generic_0"]),
+    (
+        SpriteSet::Gust,
+        &[
+            "particle/gust_0",
+            "particle/gust_1",
+            "particle/gust_2",
+            "particle/gust_3",
+            "particle/gust_4",
+            "particle/gust_5",
+            "particle/gust_6",
+            "particle/gust_7",
+            "particle/gust_8",
+            "particle/gust_9",
+            "particle/gust_10",
+            "particle/gust_11",
+        ],
+    ),
+    (
+        SpriteSet::SmallGust,
+        &[
+            "particle/small_gust_0",
+            "particle/small_gust_1",
+            "particle/small_gust_2",
+            "particle/small_gust_3",
+            "particle/small_gust_4",
+            "particle/small_gust_5",
+            "particle/small_gust_6",
+        ],
+    ),
 ];
 
 /// Frame order from `assets/minecraft/particles/end_rod.json`: frame 0 is
@@ -1161,6 +1209,11 @@ pub enum ServerParticleKind {
     LargeSmoke,
     Cloud,
     Explosion,
+    ExplosionEmitter,
+    Gust,
+    SmallGust,
+    GustEmitterLarge,
+    GustEmitterSmall,
     HappyVillager,
     Witch,
     Soul,
@@ -1204,6 +1257,11 @@ impl ServerParticleKind {
             "large_smoke" => Self::LargeSmoke,
             "cloud" => Self::Cloud,
             "explosion" => Self::Explosion,
+            "explosion_emitter" => Self::ExplosionEmitter,
+            "gust" => Self::Gust,
+            "small_gust" => Self::SmallGust,
+            "gust_emitter_large" => Self::GustEmitterLarge,
+            "gust_emitter_small" => Self::GustEmitterSmall,
             "happy_villager" => Self::HappyVillager,
             "witch" => Self::Witch,
             "entity_effect" => Self::EntityEffect,
@@ -1250,10 +1308,117 @@ impl ServerParticleKind {
             .flatten()
     }
 
-    /// Vanilla `ParticleType.getOverrideLimiter`.
+    /// Vanilla `ParticleType.getOverrideLimiter`: the types `ParticleTypes`
+    /// registers to show from any distance.
     fn override_limiter(self) -> bool {
-        false
+        matches!(
+            self,
+            Self::Explosion
+                | Self::ExplosionEmitter
+                | Self::Gust
+                | Self::GustEmitterLarge
+                | Self::GustEmitterSmall
+                | Self::SweepAttack
+                | Self::CampfireCosySmoke
+                | Self::CampfireSignalSmoke
+        )
     }
+}
+
+/// A particle that draws nothing and spawns others as it ages (vanilla's
+/// `NoRenderParticle`s).
+struct Seed {
+    kind: SeedKind,
+    pos: DVec3,
+    age: i32,
+}
+
+#[derive(Clone, Copy)]
+enum SeedKind {
+    /// `HugeExplosionSeedParticle` (`explosion_emitter`): six explosions a
+    /// tick within four blocks, for eight ticks, each smaller than the last.
+    Explosion,
+    /// `GustSeedParticle` (`gust_emitter_large` and `_small`): three gusts
+    /// within `scale` blocks, then `rest` ticks before the next three,
+    /// until it is `lifetime` old.
+    Gust {
+        scale: f64,
+        lifetime: i32,
+        rest: i32,
+    },
+}
+
+/// `HugeExplosionSeedParticle`'s lifetime.
+const EXPLOSION_SEED_TICKS: i32 = 8;
+
+impl Seed {
+    /// One tick: where it spawns its particles and what it hands each as
+    /// its size argument, and whether it lives on.
+    fn tick(&mut self) -> (Vec<DVec3>, f64, bool) {
+        let pos = self.pos;
+        let around = |scale: f64| {
+            let offset = || (fastrand::f64() - fastrand::f64()) * scale;
+            pos + dvec3(offset(), offset(), offset())
+        };
+        let age = self.age;
+        self.age += 1;
+        match self.kind {
+            SeedKind::Explosion => (
+                (0..6).map(|_| around(4.0)).collect(),
+                f64::from(age as f32 / EXPLOSION_SEED_TICKS as f32),
+                self.age != EXPLOSION_SEED_TICKS,
+            ),
+            SeedKind::Gust {
+                scale,
+                lifetime,
+                rest,
+            } => {
+                let spawns = if age % (rest + 1) == 0 {
+                    (0..3).map(|_| around(scale)).collect()
+                } else {
+                    Vec::new()
+                };
+                (spawns, 0.0, age != lifetime)
+            }
+        }
+    }
+}
+
+/// One of the particles an explosion throws from the blocks it blew
+/// (`ExplosionParticleInfo`, in the packet's weighted list).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ExplosionParticle {
+    pub kind: ServerParticleKind,
+    pub options: ParticleOptions,
+    /// How far along its line from the centre it starts.
+    pub scaling: f32,
+    pub speed: f32,
+    pub weight: u32,
+}
+
+/// An explosion waiting for the next tick's debris (`ClientExplosionTracker`).
+struct TrackedExplosion {
+    center: DVec3,
+    radius: f32,
+    block_count: u32,
+    particles: Vec<(ExplosionParticle, ParticleLook)>,
+    camera_pos: DVec3,
+}
+
+/// `ClientExplosionTracker.MAX_PARTICLES_PER_TICK`.
+const MAX_EXPLOSION_PARTICLES_PER_TICK: u32 = 512;
+
+/// `WeightedRandom.getRandomItem`: the item `pick` lands in, `pick` being
+/// below the weights' total.
+fn weighted_pick<T>(items: &[T], weight: impl Fn(&T) -> u32, mut pick: u32) -> Option<&T> {
+    items.iter().find(|item| {
+        let weight = weight(item);
+        if pick < weight {
+            return true;
+        }
+        pick -= weight;
+        false
+    })
 }
 
 /// A particle's options after its type id (`ParticleOptions` codecs).
@@ -1294,6 +1459,10 @@ pub struct ParticleStore {
     /// first physics tick is the tick after it spawns (vanilla
     /// `ParticleEngine.particlesToAdd`).
     pending: Vec<Particle>,
+    seeds: Vec<Seed>,
+    /// Seeds spawned this tick, which start ticking the next.
+    pending_seeds: Vec<Seed>,
+    explosions: Vec<TrackedExplosion>,
     uv_map: AtlasUVMap,
     sets: SpriteSets,
     grass_colormap: Arc<Colormap>,
@@ -1312,6 +1481,9 @@ impl ParticleStore {
         Self {
             particles: Vec::new(),
             pending: Vec::new(),
+            seeds: Vec::new(),
+            pending_seeds: Vec::new(),
+            explosions: Vec::new(),
             uv_map,
             sets,
             grass_colormap,
@@ -1726,6 +1898,28 @@ impl ParticleStore {
                 p.sprite_from_age(sets);
                 p
             }
+            K::ExplosionEmitter | K::GustEmitterLarge | K::GustEmitterSmall => {
+                let kind = match spawn.kind {
+                    K::ExplosionEmitter => SeedKind::Explosion,
+                    K::GustEmitterLarge => SeedKind::Gust {
+                        scale: 3.0,
+                        lifetime: 7,
+                        rest: 0,
+                    },
+                    _ => SeedKind::Gust {
+                        scale: 1.0,
+                        lifetime: 3,
+                        rest: 2,
+                    },
+                };
+                self.pending_seeds.push(Seed { kind, pos, age: 0 });
+                return;
+            }
+            K::Gust | K::SmallGust => {
+                let mut p = Particle::gust(pos, spawn.kind == K::SmallGust);
+                p.sprite_from_age(sets);
+                p
+            }
             K::SweepAttack => {
                 let mut p = Particle::sweep(pos, vel.x);
                 p.sprite_from_age(sets);
@@ -1852,9 +2046,107 @@ impl ParticleStore {
     pub fn clear(&mut self) {
         self.particles.clear();
         self.pending.clear();
+        self.seeds.clear();
+        self.pending_seeds.clear();
+        self.explosions.clear();
+    }
+
+    /// Vanilla `ClientExplosionTracker.track`: an explosion that blew
+    /// `block_count` blocks within `radius` of `center`, to throw
+    /// `particles` from them on the next tick.
+    pub fn track_explosion(
+        &mut self,
+        center: DVec3,
+        radius: f32,
+        block_count: i32,
+        particles: Vec<(ExplosionParticle, ParticleLook)>,
+        camera_pos: DVec3,
+    ) {
+        if !particles.is_empty() {
+            self.explosions.push(TrackedExplosion {
+                center,
+                radius,
+                block_count: block_count.max(0) as u32,
+                particles,
+                camera_pos,
+            });
+        }
+    }
+
+    /// Vanilla `ClientExplosionTracker.tick`: a particle for each block
+    /// blown since the last tick, 512 at most, shared among the explosions
+    /// by how many blocks each blew.
+    fn tick_explosions(&mut self, chunks: &ChunkStore, block_state_table: BlockStateTable) {
+        let explosions = std::mem::take(&mut self.explosions);
+        let total = explosions
+            .iter()
+            .fold(0u32, |sum, e| sum.saturating_add(e.block_count));
+        for _ in 0..total.min(MAX_EXPLOSION_PARTICLES_PER_TICK) {
+            let pick = fastrand::u32(0..total);
+            let Some(explosion) = weighted_pick(&explosions, |e| e.block_count, pick) else {
+                continue;
+            };
+            // `addParticle`: a point in the blast's ball, thrown outward
+            // faster the nearer the centre it starts.
+            let axis = || f64::from(fastrand::f32() * 2.0 - 1.0);
+            let direction = dvec3(axis(), axis(), axis()).normalize_or_zero();
+            let distance = fastrand::f32().cbrt() * explosion.radius;
+            let offset = direction * f64::from(distance);
+            let at = BlockPos::containing(explosion.center + offset);
+            let state = chunks.get_block_state(at.x, at.y, at.z);
+            if !block_state_table.block_state_data(state).is_air() {
+                continue;
+            }
+            let speed =
+                0.5 / (distance / explosion.radius + 0.1) * fastrand::f32() * fastrand::f32() + 0.3;
+            let weights = explosion
+                .particles
+                .iter()
+                .fold(0u32, |sum, (p, _)| sum.saturating_add(p.weight));
+            if weights == 0 {
+                continue;
+            }
+            let pick = fastrand::u32(0..weights);
+            let Some(&(info, look)) = weighted_pick(&explosion.particles, |(p, _)| p.weight, pick)
+            else {
+                continue;
+            };
+            self.add_server_particle(
+                Spawn {
+                    kind: info.kind,
+                    options: info.options,
+                    look,
+                    override_limiter: false,
+                },
+                explosion.center + offset * f64::from(info.scaling),
+                direction * f64::from(speed * info.speed),
+                explosion.camera_pos,
+            );
+        }
+    }
+
+    /// Ticks the seeds, which spawn their particles for the next tick.
+    fn tick_seeds(&mut self) {
+        let mut seeds = std::mem::take(&mut self.seeds);
+        seeds.retain_mut(|seed| {
+            let (spawns, size_arg, alive) = seed.tick();
+            for pos in spawns {
+                let mut p = match seed.kind {
+                    SeedKind::Explosion => Particle::explosion(pos, size_arg),
+                    SeedKind::Gust { .. } => Particle::gust(pos, false),
+                };
+                p.sprite_from_age(&self.sets);
+                self.push(p);
+            }
+            alive
+        });
+        seeds.append(&mut self.pending_seeds);
+        self.seeds = seeds;
     }
 
     pub fn tick(&mut self, chunks: &ChunkStore, block_state_table: BlockStateTable) {
+        self.tick_explosions(chunks, block_state_table);
+        self.tick_seeds();
         let sets = &self.sets;
         let pending = &mut self.pending;
         self.particles.retain_mut(|p| {
@@ -2040,7 +2332,180 @@ mod tests {
             Some(ServerParticleKind::DustColorTransition)
         );
         assert_eq!(ServerParticleKind::from_id(id("angry_villager")), None);
+        for (name, kind) in [
+            ("explosion_emitter", ServerParticleKind::ExplosionEmitter),
+            ("gust", ServerParticleKind::Gust),
+            ("small_gust", ServerParticleKind::SmallGust),
+            ("gust_emitter_large", ServerParticleKind::GustEmitterLarge),
+            ("gust_emitter_small", ServerParticleKind::GustEmitterSmall),
+        ] {
+            assert_eq!(ServerParticleKind::from_id(id(name)), Some(kind));
+        }
         assert_eq!(ServerParticleKind::from_id(9999), None);
+    }
+
+    fn new_store() -> ParticleStore {
+        let map = || Arc::new(Colormap::fallback());
+        ParticleStore::new(AtlasUVMap::whole_texture(), map(), map(), map())
+    }
+
+    fn spawn(store: &mut ParticleStore, kind: ServerParticleKind) {
+        store.add_particles_from_packet(
+            kind,
+            ParticleOptions::None,
+            ParticleLook::None,
+            false,
+            dvec3(0.5, 64.0, 0.5),
+            DVec3::X,
+            1.0,
+            0,
+            // Far off: these kinds show from any distance.
+            dvec3(500.0, 64.0, 0.5),
+        );
+    }
+
+    /// The emitters are seeds: the large gust throws three gusts a tick for
+    /// eight ticks, the small one three now and three more three ticks on,
+    /// and an explosion six a tick for eight, each smaller.
+    #[test]
+    fn emitters_spawn_their_particles_over_their_lives() {
+        use ServerParticleKind as K;
+        let chunks = ChunkStore::new(8);
+        let table = BlockStateTable::native();
+        for (kind, per_tick) in [
+            (K::GustEmitterLarge, vec![3, 3, 3, 3, 3, 3, 3, 3, 0]),
+            (K::GustEmitterSmall, vec![3, 0, 0, 3, 0]),
+            (K::ExplosionEmitter, vec![6, 6, 6, 6, 6, 6, 6, 6, 0]),
+        ] {
+            let mut store = new_store();
+            spawn(&mut store, kind);
+            // The seed itself starts the tick after it spawns.
+            store.tick(&chunks, table);
+            assert!(store.particles.is_empty(), "{kind:?}");
+            let mut spawned = Vec::new();
+            let mut total = 0;
+            for _ in 0..per_tick.len() {
+                store.tick(&chunks, table);
+                // Count what this tick added: every particle here outlives
+                // the test's few ticks or is counted before it dies.
+                let born = store.particles.iter().filter(|p| p.age == 0).count();
+                spawned.push(born);
+                total += born;
+            }
+            assert_eq!(spawned, per_tick, "{kind:?}");
+            assert!(store.seeds.is_empty(), "{kind:?}");
+            assert_eq!(total, per_tick.iter().sum::<usize>());
+        }
+
+        let mut store = new_store();
+        spawn(&mut store, K::Gust);
+        spawn(&mut store, K::SmallGust);
+        store.tick(&chunks, table);
+        // A small gust is the one kind here that only shows near the camera.
+        assert_eq!(store.particles.len(), 1);
+        store.add_particles_from_packet(
+            K::SmallGust,
+            ParticleOptions::None,
+            ParticleLook::None,
+            false,
+            dvec3(0.5, 64.0, 0.5),
+            DVec3::ZERO,
+            0.0,
+            0,
+            dvec3(8.0, 64.0, 0.5),
+        );
+        store.tick(&chunks, table);
+        let sizes: Vec<f32> = store.particles.iter().map(|p| p.quad_size(0.0)).collect();
+        assert_eq!(sizes, [1.0, 0.15]);
+        assert!(
+            store
+                .particles
+                .iter()
+                .all(|p| (12..16).contains(&p.lifetime))
+        );
+
+        // An explosion's later bursts are smaller: `1 - age / 8` of 2 down
+        // to half.
+        let mut seed = Seed {
+            kind: SeedKind::Explosion,
+            pos: DVec3::ZERO,
+            age: 4,
+        };
+        let (spawns, size_arg, alive) = seed.tick();
+        assert_eq!((spawns.len(), size_arg, alive), (6, 0.5, true));
+        assert_eq!(Particle::explosion(DVec3::ZERO, size_arg).size, 1.5);
+        assert!(spawns.iter().all(|p| p.abs().max_element() <= 4.0));
+    }
+
+    /// An explosion's debris: one particle for each block it blew, 512 a
+    /// tick at most, thrown outward from inside its radius, and only once.
+    #[test]
+    fn explosions_throw_debris_from_their_blocks() {
+        let chunks = ChunkStore::new(8);
+        let table = BlockStateTable::native();
+        let debris = |kind, scaling, weight| {
+            (
+                ExplosionParticle {
+                    kind,
+                    options: ParticleOptions::None,
+                    scaling,
+                    speed: 1.0,
+                    weight,
+                },
+                ParticleLook::None,
+            )
+        };
+        let center = dvec3(0.5, 64.0, 0.5);
+        let mut store = new_store();
+        store.track_explosion(
+            center,
+            4.0,
+            40,
+            vec![debris(ServerParticleKind::Poof, 0.5, 1)],
+            center,
+        );
+        // No block particles: nothing to track (a wind charge's burst).
+        store.track_explosion(center, 4.0, 1000, Vec::new(), center);
+        store.tick(&chunks, table);
+        assert_eq!(store.particles.len(), 40);
+        assert!(
+            store
+                .particles
+                .iter()
+                .all(|p| p.pos.distance(center) <= 2.0 + 1e-6)
+        );
+        store.tick(&chunks, table);
+        assert_eq!(store.particles.len(), 40, "tracked for one tick only");
+
+        let mut store = store_with(center, 100_000);
+        store.tick(&chunks, table);
+        assert_eq!(store.particles.len(), 512);
+
+        fn store_with(center: DVec3, blocks: i32) -> ParticleStore {
+            let mut store = new_store();
+            store.track_explosion(
+                center,
+                4.0,
+                blocks,
+                vec![(
+                    ExplosionParticle {
+                        kind: ServerParticleKind::Smoke,
+                        options: ParticleOptions::None,
+                        scaling: 1.0,
+                        speed: 1.0,
+                        weight: 3,
+                    },
+                    ParticleLook::None,
+                )],
+                center,
+            );
+            store
+        }
+
+        assert_eq!(weighted_pick(&[2u32, 3, 5], |w| *w, 0), Some(&2));
+        assert_eq!(weighted_pick(&[2u32, 3, 5], |w| *w, 4), Some(&3));
+        assert_eq!(weighted_pick(&[2u32, 3, 5], |w| *w, 9), Some(&5));
+        assert_eq!(weighted_pick(&[2u32, 3, 5], |w| *w, 10), None);
     }
 
     #[test]

@@ -1,0 +1,67 @@
+# Wind charges (vanilla WindChargeRenderer) and what bursts: a charge
+# hovering between a gust and a puff of small gusts, a charge bursting on the
+# ground (the explode packet's gust emitter and no debris), then a creeper's
+# blast (the explosion emitter and the blown blocks' poof and smoke).
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/gamemode spectator"
+
+[[step]]
+chat = "/tp @s 620.5 -59 616.5 0 10"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+chat = "/summon minecraft:wind_charge 620.5 -58.5 619.5"
+
+[[step]]
+wait_ms = 300
+
+[[step]]
+chat = "/particle minecraft:gust 618.5 -58.5 620.5"
+
+[[step]]
+chat = "/particle minecraft:small_gust 622.5 -58.5 620.5 0.3 0.3 0.3 0 12"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+screenshot = "charge"
+
+[[step]]
+chat = "/summon minecraft:wind_charge 620.5 -56 622.5 {Motion:[0.0d,-0.5d,0.0d]}"
+
+[[step]]
+wait_ms = 700
+
+[[step]]
+screenshot = "burst"
+
+[[step]]
+chat = "/kill @e[type=minecraft:wind_charge]"
+
+[[step]]
+wait_ms = 1000
+
+[[step]]
+chat = "/summon minecraft:creeper 620.5 -60 626.5 {Fuse:0,ignited:1b}"
+
+[[step]]
+wait_ms = 300
+
+[[step]]
+screenshot = "blast"
+
+[[step]]
+chat = "/gamemode creative"

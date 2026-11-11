@@ -91,7 +91,7 @@ pub fn read(name: &str, r: &mut Reader) -> Option<DecodeResult<SoundPacket>> {
 }
 
 /// `ByteBufCodecs.holder`: 0 for a direct value, else the registry id + 1.
-fn sound_event(r: &mut Reader) -> DecodeResult<SoundEvent> {
+pub fn sound_event(r: &mut Reader) -> DecodeResult<SoundEvent> {
     Ok(match r.varint()? {
         // SoundEvent.DIRECT_STREAM_CODEC
         0 => SoundEvent::Direct {

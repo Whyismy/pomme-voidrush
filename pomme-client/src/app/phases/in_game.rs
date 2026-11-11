@@ -4719,6 +4719,36 @@ pub fn update_game(
         }
     }
 
+    // Wind charges (`WindChargeRenderer`), from vanilla's own model layer:
+    // drawn about their feet, and like thrown items not for their first two
+    // ticks while still at the thrower's eye.
+    if !benchmark_running {
+        let eye = gfx.renderer.camera_render_position();
+        for charge in game.thrown_items.items.values() {
+            if !crate::entity::thrown_item::is_wind_charge(charge.kind) {
+                continue;
+            }
+            let feet = charge
+                .prev_position
+                .lerp(charge.position, partial_tick as f64);
+            if charge.age < 2 && (*feet - eye).length_squared() < 12.25 {
+                continue;
+            }
+            entity_renders.push(EntityRenderInfo {
+                position: feet,
+                entity_kind: charge.kind,
+                head_y_rot_deg: 180.0,
+                body_y_rot_deg: 180.0,
+                age_in_ticks: charge.age as f32 + partial_tick,
+                body_transform: Some(
+                    crate::renderer::pipelines::entity_renderer::unliving_model_frame(),
+                ),
+                light: entity_light(&world_light, charge.kind, feet, false, 0),
+                ..Default::default()
+            });
+        }
+    }
+
     // End crystals (`EndCrystalRenderer`), from vanilla's own model layer.
     if !benchmark_running {
         for crystal in game.end_crystals.crystals.values() {
@@ -6465,6 +6495,9 @@ fn build_thrown_items(
         glam::Vec4::W,
     );
     for item in game.thrown_items.items.values() {
+        if crate::entity::thrown_item::is_wind_charge(item.kind) {
+            continue;
+        }
         let position = item
             .prev_position
             .lerp(item.position, f64::from(partial_tick));
