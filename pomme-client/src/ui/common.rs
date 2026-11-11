@@ -565,10 +565,60 @@ pub(crate) fn push_item_decorations(
     data: &ItemStackData,
 ) {
     push_item_bar(elements, x, y, scale, data);
-    // TODO: itemCooldown overlay once item cooldowns are tracked.
     if data.count > 1 {
         push_item_count(elements, x, y, size, scale, data.count);
     }
+    push_item_cooldown(elements, x, y, scale, data);
+}
+
+thread_local! {
+    /// The running item cooldowns (group, part left) the frame's item
+    /// icons draw their covers from: every slot on every screen shows them,
+    /// so they're set once a frame rather than handed down to each.
+    static ITEM_COOLDOWNS: std::cell::RefCell<Vec<(String, f32)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Sets the cooldowns this frame's item icons show
+/// ([`crate::player::cooldowns::ItemCooldowns::view`]).
+pub(crate) fn set_item_cooldowns(cooldowns: Vec<(String, f32)>) {
+    ITEM_COOLDOWNS.with(|current| *current.borrow_mut() = cooldowns);
+}
+
+/// Vanilla `GuiGraphics.renderItemCooldown`: a half-clear white cover over
+/// the slot, as tall as the part of the cooldown left, standing on its
+/// bottom edge.
+fn push_item_cooldown(
+    elements: &mut Vec<MenuElement>,
+    x: f32,
+    y: f32,
+    scale: f32,
+    data: &ItemStackData,
+) {
+    let left = ITEM_COOLDOWNS.with(|cooldowns| {
+        let cooldowns = cooldowns.borrow();
+        if cooldowns.is_empty() {
+            return 0.0;
+        }
+        let group = crate::player::cooldowns::cooldown_group(data);
+        cooldowns
+            .iter()
+            .find(|(running, _)| *running == group)
+            .map_or(0.0, |(_, left)| *left)
+    });
+    if left <= 0.0 {
+        return;
+    }
+    let top = (16.0 * (1.0 - left)).floor();
+    elements.push(MenuElement::Rect {
+        x,
+        y: y + top * scale,
+        w: 16.0 * scale,
+        h: (16.0 * left).ceil() * scale,
+        corner_radius: 0.0,
+        // `Integer.MAX_VALUE` as ARGB.
+        color: [1.0, 1.0, 1.0, 127.0 / 255.0],
+    });
 }
 
 /// Vanilla `Item.MAX_BAR_WIDTH`.

@@ -185,6 +185,11 @@ pub enum NetworkEvent {
         food: u32,
         saturation: f32,
     },
+    /// `ClientboundCooldownPacket`: see [`crate::player::cooldowns`].
+    ItemCooldown {
+        group: String,
+        duration: i32,
+    },
     PlayerExperience {
         progress: f32,
         level: i32,

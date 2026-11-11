@@ -2692,6 +2692,7 @@ pub fn update_game(
             // LivingEntity.baseTick hurt/effects and Player.tick sleep state still
             // run on the tick-20 removal tick, then stop with future entity ticks.
             game.player.tick_hurt();
+            game.player.cooldowns.tick();
             game.player.effects.tick();
             game.player.tick_confusion();
             game.player.tick_sleep();
@@ -2969,6 +2970,7 @@ pub fn update_game(
     }));
     // Per-frame FOV interpolation; set before the frustum/view-projection reads.
     gfx.renderer.set_render_partial_tick(partial_tick);
+    crate::ui::common::set_item_cooldowns(game.player.cooldowns.view(partial_tick));
     gfx.renderer.set_death_time(if game.dead {
         game.player.death_time as f32 + partial_tick
     } else {

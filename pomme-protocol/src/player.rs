@@ -61,6 +61,12 @@ pub enum PlayerPacket {
     HeldSlot {
         slot: i32,
     },
+    /// A cooldown of `duration` ticks for a group of items (an item id, or
+    /// a `use_cooldown` component's group); none ends it.
+    Cooldown {
+        group: String,
+        duration: i32,
+    },
     Abilities {
         flags: u8,
         flying_speed: f32,
@@ -123,6 +129,13 @@ pub fn read(name: &str, r: &mut Reader) -> Option<DecodeResult<PlayerPacket>> {
         },
         // ClientboundSetHeldSlotPacket.java:19
         "set_held_slot" => |r| Ok(PlayerPacket::HeldSlot { slot: r.var_i32()? }),
+        // ClientboundCooldownPacket.java:13-18
+        "cooldown" => |r| {
+            Ok(PlayerPacket::Cooldown {
+                group: r.identifier()?.to_owned(),
+                duration: r.var_i32()?,
+            })
+        },
         // ClientboundPlayerAbilitiesPacket.java:37-64
         "player_abilities" => |r| {
             Ok(PlayerPacket::Abilities {
@@ -263,6 +276,14 @@ mod tests {
         assert_eq!(
             decode("set_held_slot", &[4]),
             PlayerPacket::HeldSlot { slot: 4 }
+        );
+        let cooldown = [&[21][..], b"minecraft:ender_pearl", &[20]].concat();
+        assert_eq!(
+            decode("cooldown", &cooldown),
+            PlayerPacket::Cooldown {
+                group: "minecraft:ender_pearl".into(),
+                duration: 20
+            }
         );
         let game_event = [&[3][..], &1.0f32.to_be_bytes()].concat();
         assert_eq!(

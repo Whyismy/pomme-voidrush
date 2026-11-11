@@ -101,6 +101,9 @@ fn event(packet: PlayerPacket) -> Option<NetworkEvent> {
             THUNDER_LEVEL_CHANGE => NetworkEvent::WeatherUpdate(Weather::ThunderLevel(param)),
             _ => return None,
         },
+        PlayerPacket::Cooldown { group, duration } => {
+            NetworkEvent::ItemCooldown { group, duration }
+        }
         PlayerPacket::CombatKill { player, message } => {
             let message = match super::chat::read_component(&message, &mut 0) {
                 Ok(message) => message.plain_text(),

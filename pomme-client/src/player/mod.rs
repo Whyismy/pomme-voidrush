@@ -1,3 +1,4 @@
+pub mod cooldowns;
 pub mod interaction;
 pub mod inventory;
 pub mod menu_click;
@@ -214,6 +215,7 @@ pub struct LocalPlayer {
     pub armor: u32,
     pub saturation: f32,
     pub inventory: Inventory,
+    pub cooldowns: cooldowns::ItemCooldowns,
     pub sprinting: bool,
     /// The physical CROUCHING pose, chosen by `Player.updatePlayerPose`.
     pub crouching: bool,
@@ -345,6 +347,7 @@ impl LocalPlayer {
             armor: 0,
             saturation: 5.0,
             inventory: Inventory::new(),
+            cooldowns: Default::default(),
             sprinting: false,
             crouching: false,
             movement_crouching: false,

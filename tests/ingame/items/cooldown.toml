@@ -1,0 +1,50 @@
+# Item cooldowns (vanilla ItemCooldowns): a thrown ender pearl puts every
+# pearl on a one-second cooldown, which covers its slot from the bottom up.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/clear"
+
+[[step]]
+chat = "/gamemode survival"
+
+[[step]]
+chat = "/item replace entity @s hotbar.0 with minecraft:ender_pearl 16"
+
+[[step]]
+chat = "/item replace entity @s hotbar.3 with minecraft:ender_pearl 4"
+
+[[step]]
+chat = "/tp @s 0.5 -60 0.5 0 -30"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+mouse_down = "right"
+
+[[step]]
+wait_ms = 100
+
+[[step]]
+mouse_up = "right"
+
+[[step]]
+wait_ms = 300
+
+[[step]]
+screenshot = "cooling"
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+screenshot = "ready"
+
+[[step]]
+chat = "/gamemode creative"

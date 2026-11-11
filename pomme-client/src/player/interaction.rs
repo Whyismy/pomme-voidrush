@@ -144,6 +144,9 @@ struct ActiveUse {
 
 pub struct InteractionState {
     pub target: Option<HitResult>,
+    /// Whether the main hand's item, then the off hand's, is on cooldown
+    /// (`ItemCooldowns.isOnCooldown`), as of this tick.
+    pub on_cooldown: [bool; 2],
     seq: u32,
     carried_slot: u8,
     last_teleport_seq: u32,
@@ -178,6 +181,7 @@ impl InteractionState {
     pub fn new() -> Self {
         Self {
             target: None,
+            on_cooldown: [false; 2],
             seq: 0,
             // Vanilla `MultiPlayerGameMode.carriedIndex` starts at 0, the slot
             // a fresh inventory selects, so a join sends nothing until it
@@ -953,8 +957,8 @@ impl InteractionState {
     /// Vanilla `MultiPlayerGameMode.useItem` + `Item.use`: sends
     /// `ServerboundUseItem` for any held item (the server decides what it
     /// does) and predicts the result, beginning the local use timer when the
-    /// item is consumable and edible right now.
-    // TODO: item cooldowns, which make vanilla's `useItem` pass.
+    /// item is consumable and edible right now. An item on cooldown still
+    /// sends, but nothing is predicted for it.
     #[allow(clippy::too_many_arguments)]
     fn use_item(
         &mut self,
@@ -977,6 +981,9 @@ impl InteractionState {
             y_rot: look.y_rot_deg(),
             x_rot: look.x_rot_deg(),
         }));
+        if self.on_cooldown[usize::from(hand == InteractionHand::OffHand)] {
+            return UseResult::Pass;
+        }
 
         // `BundleItem`: a 200-tick use. Its BUNDLE animation is the plain
         // swing pose, which `None` already draws.

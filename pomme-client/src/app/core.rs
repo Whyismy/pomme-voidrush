@@ -500,6 +500,7 @@ impl GameState {
         self.player.jump_riding_ticks = 0;
         self.player.jump_riding_scale = 0.0;
         self.player.reset_hurt_state();
+        self.player.cooldowns.clear();
         // The meshes went with the old level, so their bookkeeping
         // has to go too, or the new level's camera section reads as
         // already meshed.
@@ -1944,6 +1945,9 @@ impl AppCore {
                             flags: Default::default(),
                         },
                     ));
+                }
+                NetworkEvent::ItemCooldown { group, duration } => {
+                    game.player.cooldowns.set(group, duration);
                 }
                 NetworkEvent::PlayerHealth {
                     health,
@@ -3899,6 +3903,8 @@ impl AppCore {
             .map(Option::<&_>::cloned);
         let hand_stacks = hand_stacks.each_ref().map(Option::as_ref);
         let held_stack = hand_stacks[0];
+        game.interaction.on_cooldown =
+            hand_stacks.map(|stack| stack.is_some_and(|s| game.player.cooldowns.is_on_cooldown(s)));
         let creative = crate::player::is_creative(game.player.game_mode);
         let held_item = held_stack
             .as_ref()
