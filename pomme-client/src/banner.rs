@@ -153,6 +153,18 @@ fn path_of(asset: &str) -> &str {
     asset.split_once(':').map_or(asset, |(_, path)| path)
 }
 
+/// The first of a key's layers for a banner hung on a wall: no pattern,
+/// but a mark that the model is the wall banner's (`wall_banner`'s layers:
+/// the standing one's bar and flag lower and back against the wall, and no
+/// pole).
+pub const WALL: &str = "wall";
+
+/// Whether model key `key` is a wall banner's ([`WALL`]).
+pub fn is_wall_key(key: &str) -> bool {
+    key.split_once('~')
+        .is_some_and(|(_, layers)| layers.split(',').next() == Some(WALL))
+}
+
 /// A key without its pattern layers: the baked model it builds on.
 pub fn base_key(key: &str) -> &str {
     key.split_once('~').map_or(key, |(base, _)| base)

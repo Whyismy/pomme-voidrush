@@ -6613,8 +6613,7 @@ fn build_display_renders(
 /// Placed banners within 64 blocks (vanilla `BannerRenderer`): the banner
 /// item's own model, with the block entity's pattern layers, standing in
 /// the block turned to its sixteenth or hung against its wall.
-// TODO: the flag's sway, and a wall banner's model, which has a bar and no
-// pole (this draws the standing one, its pole behind the cloth).
+// TODO: the flag's sway.
 fn build_banners(
     game: &GameState,
     world_light: &WorldLight,
@@ -6646,9 +6645,13 @@ fn build_banners(
             None => (color, false),
         };
         // The model key a stack of this banner takes: its item, then each
-        // layer's pattern and colour (`crate::banner::layers`).
+        // layer's pattern and colour (`crate::banner::layers`), after the
+        // mark of a wall banner's model.
+        let mut layers = banner_layers(&be.nbt);
+        if wall {
+            layers.insert(0, crate::banner::WALL.to_owned());
+        }
         let mut key = format!("{color}_banner");
-        let layers = banner_layers(&be.nbt);
         if !layers.is_empty() {
             key.push('~');
             key.push_str(&layers.join(","));
@@ -6659,29 +6662,24 @@ fn build_banners(
             .item_tint_palette(&key, None, None)
             .into();
         let props = data.properties();
-        // The mesh is centred on its block; the banner turns about the
-        // pole's foot, at the middle of the block's floor.
-        let centre = Vec3::splat(0.5);
-        let foot = Vec3::new(0.0, 0.5, 0.0);
-        let placement = if wall {
-            let degrees = match props.get("facing") {
+        // The mesh is centred on its block; a standing banner turns in
+        // sixteenths, one on a wall faces out of it.
+        let degrees = if wall {
+            match props.get("facing") {
                 Some("west") => 90.0,
                 Some("north") => 180.0,
                 Some("east") => 270.0,
                 _ => 0.0_f32,
-            };
-            Mat4::from_translation(Vec3::new(0.5, -1.0 / 6.0, 0.5))
-                * Mat4::from_rotation_y((-degrees).to_radians())
-                * Mat4::from_translation(Vec3::new(0.0, -0.3125, -0.4375))
-                * Mat4::from_translation(foot)
+            }
         } else {
-            let sixteenths = props
+            props
                 .get("rotation")
                 .and_then(|r| r.parse::<f32>().ok())
-                .unwrap_or(0.0);
-            Mat4::from_translation(centre)
-                * Mat4::from_rotation_y((-sixteenths * 22.5).to_radians())
+                .unwrap_or(0.0)
+                * 22.5
         };
+        let placement = Mat4::from_translation(Vec3::splat(0.5))
+            * Mat4::from_rotation_y((-degrees).to_radians());
         out.push(ItemRenderInfo {
             item_name: key.into(),
             outline_color: None,

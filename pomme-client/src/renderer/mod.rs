@@ -2128,6 +2128,24 @@ impl Renderer {
                     quad
                 }));
             }
+            // A wall banner (`wall_banner`'s layers) is the standing one
+            // without its pole, 23.5 model pixels lower and 10.5 back; the
+            // item's model is two thirds of the layers' size.
+            if crate::banner::is_wall_key(name) {
+                let pixel = 2.0 / 3.0 / 16.0;
+                let on_pole = |p: &[f32; 3]| {
+                    (p[0] - 0.5).abs() <= pixel * 1.01 && (p[2] - 0.5).abs() <= pixel * 1.01
+                };
+                model
+                    .quads
+                    .retain(|quad| !quad.positions.iter().all(on_pole));
+                for quad in &mut model.quads {
+                    for p in &mut quad.positions {
+                        p[1] -= 23.5 * pixel;
+                        p[2] -= 10.5 * pixel;
+                    }
+                }
+            }
             self.item_entity_pipeline.ensure_mesh(
                 &self.ctx.device,
                 name,
