@@ -5181,6 +5181,8 @@ pub fn update_game(
             partial_tick,
             &mut item_renders,
         );
+        build_banners(game, &world_light, &mut gfx.renderer, &mut item_renders);
+        build_dragon_heads(game, &world_light, &mut gfx.renderer, &mut item_renders);
     }
     // What signs within 64 blocks say (vanilla `SignRenderer`): each line
     // of each side as its own one-line text, on the board.
@@ -6585,6 +6587,197 @@ fn build_display_renders(
         head_skins: heads,
         texts,
     }
+}
+
+/// Placed banners within 64 blocks (vanilla `BannerRenderer`): the banner
+/// item's own model, with the block entity's pattern layers, standing in
+/// the block turned to its sixteenth or hung against its wall.
+// TODO: the flag's sway, and a wall banner's model, which has a bar and no
+// pole (this draws the standing one, its pole behind the cloth).
+fn build_banners(
+    game: &GameState,
+    world_light: &WorldLight,
+    renderer: &mut Renderer,
+    out: &mut Vec<crate::renderer::pipelines::item_entity::ItemRenderInfo>,
+) {
+    use azalea_registry::builtin::BlockEntityKind;
+    use glam::{Mat4, Vec3};
+
+    use crate::renderer::pipelines::item_entity::ItemRenderInfo;
+    let eye = renderer.camera_render_position();
+    let anchor = renderer.camera_anchor();
+    for (pos, be) in &game.chunk_store.block_entities {
+        if be.kind != BlockEntityKind::Banner {
+            continue;
+        }
+        let corner = glam::DVec3::new(f64::from(pos.x), f64::from(pos.y), f64::from(pos.z));
+        if (corner + glam::DVec3::splat(0.5)).distance_squared(eye) > 64.0 * 64.0 {
+            continue;
+        }
+        let state = game.chunk_store.get_block_state(pos.x, pos.y, pos.z);
+        let data = game.block_registry.block_state_data(state);
+        let id = data.id();
+        let Some(color) = id.strip_suffix("_banner") else {
+            continue;
+        };
+        let (color, wall) = match color.strip_suffix("_wall") {
+            Some(color) => (color, true),
+            None => (color, false),
+        };
+        // The model key a stack of this banner takes: its item, then each
+        // layer's pattern and colour (`crate::banner::layers`).
+        let mut key = format!("{color}_banner");
+        let layers = banner_layers(&be.nbt);
+        if !layers.is_empty() {
+            key.push('~');
+            key.push_str(&layers.join(","));
+        }
+        renderer.ensure_item_mesh(&key);
+        let tints: Arc<[u32]> = renderer
+            .render_assets()
+            .item_tint_palette(&key, None, None)
+            .into();
+        let props = data.properties();
+        // The mesh is centred on its block; the banner turns about the
+        // pole's foot, at the middle of the block's floor.
+        let centre = Vec3::splat(0.5);
+        let foot = Vec3::new(0.0, 0.5, 0.0);
+        let placement = if wall {
+            let degrees = match props.get("facing") {
+                Some("west") => 90.0,
+                Some("north") => 180.0,
+                Some("east") => 270.0,
+                _ => 0.0_f32,
+            };
+            Mat4::from_translation(Vec3::new(0.5, -1.0 / 6.0, 0.5))
+                * Mat4::from_rotation_y((-degrees).to_radians())
+                * Mat4::from_translation(Vec3::new(0.0, -0.3125, -0.4375))
+                * Mat4::from_translation(foot)
+        } else {
+            let sixteenths = props
+                .get("rotation")
+                .and_then(|r| r.parse::<f32>().ok())
+                .unwrap_or(0.0);
+            Mat4::from_translation(centre)
+                * Mat4::from_rotation_y((-sixteenths * 22.5).to_radians())
+        };
+        out.push(ItemRenderInfo {
+            item_name: key.into(),
+            outline_color: None,
+            tints,
+            model_matrix: Mat4::from_translation((corner - anchor).as_vec3()) * placement,
+            light: block_lighter::light_coords(world_light, [pos.x, pos.y, pos.z]),
+            white_flash: false,
+        });
+    }
+}
+
+/// Placed dragon heads within 64 blocks (vanilla `SkullBlockRenderer` with
+/// `DragonHeadModel`): the head item's own model, on the floor at its
+/// sixteenth or on its wall. Decorated pots (`DecoratedPotRenderer`) and
+/// conduits (`ConduitRenderer`) likewise, as their items' models.
+// TODO: the head's jaw working while it is powered, a pot's wobble and
+// sherds, and an active conduit's cage, wind and eye.
+fn build_dragon_heads(
+    game: &GameState,
+    world_light: &WorldLight,
+    renderer: &mut Renderer,
+    out: &mut Vec<crate::renderer::pipelines::item_entity::ItemRenderInfo>,
+) {
+    use azalea_registry::builtin::BlockEntityKind;
+    use glam::{Mat4, Vec3};
+
+    use crate::renderer::pipelines::item_entity::ItemRenderInfo;
+    let eye = renderer.camera_render_position();
+    let anchor = renderer.camera_anchor();
+    for (pos, be) in &game.chunk_store.block_entities {
+        if !matches!(
+            be.kind,
+            BlockEntityKind::Skull | BlockEntityKind::DecoratedPot | BlockEntityKind::Conduit
+        ) {
+            continue;
+        }
+        let corner = glam::DVec3::new(f64::from(pos.x), f64::from(pos.y), f64::from(pos.z));
+        if (corner + glam::DVec3::splat(0.5)).distance_squared(eye) > 64.0 * 64.0 {
+            continue;
+        }
+        let state = game.chunk_store.get_block_state(pos.x, pos.y, pos.z);
+        let data = game.block_registry.block_state_data(state);
+        let props = data.properties();
+        // Each item's mesh is centred on its block.
+        let centre = Mat4::from_translation(Vec3::splat(0.5));
+        let (item, placement) = match data.id() {
+            "dragon_head" | "dragon_wall_head" => {
+                let Some((offset, yaw)) =
+                    crate::entity::heads::placed_skull(props.get("rotation"), props.get("facing"))
+                else {
+                    continue;
+                };
+                // The item's head stands on the middle of the floor, facing
+                // the other way from a placed one.
+                let placement = Mat4::from_translation(offset.as_vec3())
+                    * Mat4::from_rotation_y((-yaw).to_radians())
+                    * Mat4::from_translation(Vec3::new(0.0, 0.5, 0.0));
+                ("dragon_head", placement)
+            }
+            // Turned to its facing; the item's faces north.
+            "decorated_pot" => {
+                let degrees = match props.get("facing") {
+                    Some("south") => 180.0,
+                    Some("west") => 90.0,
+                    Some("east") => 270.0,
+                    _ => 0.0_f32,
+                };
+                (
+                    "decorated_pot",
+                    centre * Mat4::from_rotation_y(degrees.to_radians()),
+                )
+            }
+            "conduit" => ("conduit", centre),
+            _ => continue,
+        };
+        renderer.ensure_item_mesh(item);
+        out.push(ItemRenderInfo {
+            item_name: Arc::from(item),
+            outline_color: None,
+            tints: Arc::from([]),
+            model_matrix: Mat4::from_translation((corner - anchor).as_vec3()) * placement,
+            light: block_lighter::light_coords(world_light, [pos.x, pos.y, pos.z]),
+            white_flash: false,
+        });
+    }
+}
+
+/// A banner block entity's pattern layers as [`crate::banner::layers`]
+/// reads them: each `pattern` (a registry id, whose asset shares its name,
+/// or one spelled out) with its dye's colour.
+fn banner_layers(nbt: &simdnbt::owned::NbtCompound) -> Vec<String> {
+    let Some(patterns) = nbt.list("patterns").and_then(|list| list.compounds()) else {
+        return Vec::new();
+    };
+    patterns
+        .iter()
+        .filter_map(|layer| {
+            let asset = match layer.string("pattern") {
+                Some(id) => id.to_str().into_owned(),
+                None => layer
+                    .compound("pattern")?
+                    .string("asset_id")?
+                    .to_str()
+                    .into_owned(),
+            };
+            let asset = if asset.contains(':') {
+                asset
+            } else {
+                format!("minecraft:{asset}")
+            };
+            let color = layer.string("color")?.to_str();
+            Some(format!(
+                "{asset}={:06x}",
+                crate::banner::dye_rgb_named(&color)
+            ))
+        })
+        .collect()
 }
 
 /// The rails of the loaded world, for a minecart's place on them.

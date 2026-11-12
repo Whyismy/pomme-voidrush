@@ -54,7 +54,11 @@ pub fn rendered_kind(name: &str) -> Option<BlockEntityKind> {
 /// Blocks that get a client entry from their state alone: [`rendered_kind`]'s,
 /// and the bell, whose body the pipeline draws over its frame's block model.
 fn synthesized_kind(name: &str) -> Option<BlockEntityKind> {
-    rendered_kind(name).or_else(|| (name == "bell").then_some(BlockEntityKind::Bell))
+    rendered_kind(name)
+        .or_else(|| (name == "bell").then_some(BlockEntityKind::Bell))
+        .or_else(|| name.ends_with("_banner").then_some(BlockEntityKind::Banner))
+        .or_else(|| (name == "decorated_pot").then_some(BlockEntityKind::DecoratedPot))
+        .or_else(|| (name == "conduit").then_some(BlockEntityKind::Conduit))
 }
 
 /// Kinds [`synthesized_kind`] synthesizes entries for; used to detect entries
@@ -67,6 +71,9 @@ fn is_rendered(kind: BlockEntityKind) -> bool {
             | BlockEntityKind::EnderChest
             | BlockEntityKind::ShulkerBox
             | BlockEntityKind::Bell
+            | BlockEntityKind::Banner
+            | BlockEntityKind::DecoratedPot
+            | BlockEntityKind::Conduit
     )
 }
 

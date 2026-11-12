@@ -1039,6 +1039,10 @@ pub fn bake_item_models(
                             exported_data::CONDUIT_SHELL,
                             "entity/conduit/base".to_owned(),
                         ),
+                        SpecialModel::DecoratedPot => (
+                            exported_data::DECORATED_POT_BASE,
+                            "entity/decorated_pot/decorated_pot_base".to_owned(),
+                        ),
                         SpecialModel::Banner { .. } => {
                             (exported_data::STANDING_BANNER, banner_texture.to_owned())
                         }
@@ -1047,6 +1051,14 @@ pub fn bake_item_models(
                     let mut baked = bake_exported_item(layer, &texture);
                     // `BannerRenderer.renderPatterns`: the flag, then the base
                     // pattern in the base colour (tint 0, the part's own).
+                    // The pot's four sides, in the plain side's texture.
+                    if matches!(special, SpecialModel::DecoratedPot) {
+                        let sides = bake_exported_item(
+                            exported_data::DECORATED_POT_SIDES,
+                            "entity/decorated_pot/decorated_pot_side",
+                        );
+                        baked.quads.extend(sides.quads);
+                    }
                     if matches!(special, SpecialModel::Banner { .. }) {
                         let flag = exported_data::STANDING_BANNER_FLAG;
                         baked
@@ -1366,7 +1378,7 @@ fn bake_chest_item_model(tex: &str, gui: DisplayTransform, gui_light: GuiLight) 
 
 /// The special item models pomme draws (vanilla `SpecialModelRenderer`s),
 /// each from vanilla's own model layer.
-// TODO: the shield's patterns, decorated pots and copper golem statues.
+// TODO: the shield's patterns and copper golem statues.
 #[derive(Clone, Debug, PartialEq)]
 enum SpecialModel {
     Shield,
@@ -1377,6 +1389,9 @@ enum SpecialModel {
     },
     /// `ConduitSpecialRenderer`: the conduit's shell.
     Conduit,
+    /// `DecoratedPotSpecialRenderer`: the pot, its four sides plain.
+    // TODO: a pot's sherds, each side's own pattern.
+    DecoratedPot,
     /// `BannerSpecialRenderer`: the standing banner, its flag in its base
     /// colour (`0xRRGGBB`); a stack's pattern layers go on per stack
     /// ([`crate::banner`]).
@@ -1459,6 +1474,7 @@ impl SpecialModel {
             "shield" => Some(Self::Shield),
             "trident" => Some(Self::Trident),
             "conduit" => Some(Self::Conduit),
+            "decorated_pot" => Some(Self::DecoratedPot),
             "player_head" => Some(Self::Head {
                 kind: HeadKind::Player,
                 texture: PLAYER_HEAD_TEXTURE.into(),
@@ -1506,6 +1522,8 @@ impl SpecialModel {
         match self {
             Self::Shield | Self::Trident => flip,
             Self::Conduit => Mat4::from_translation(Vec3::splat(0.5)),
+            // The pot's layers are built in the block already.
+            Self::DecoratedPot => Mat4::IDENTITY,
             Self::Banner { .. } => {
                 Mat4::from_translation(Vec3::new(0.5, 0.0, 0.5))
                     * Mat4::from_scale(Vec3::new(2.0, -2.0, -2.0) / 3.0)

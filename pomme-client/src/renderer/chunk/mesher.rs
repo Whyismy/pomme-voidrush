@@ -2268,6 +2268,10 @@ fn classify_block(block_state_data: &BlockStateData) -> BlockKind {
         // Drawn as a model's head (`entity::heads`); their block model is
         // only a particle texture, which would mesh as a full cube.
         id if crate::entity::heads::skull_model(id).is_some() => BlockKind::Air,
+        // Drawn as the banner item's model (`BannerRenderer`), likewise,
+        // and the dragon's head, a decorated pot and a conduit as theirs.
+        id if id.ends_with("_banner") => BlockKind::Air,
+        "dragon_head" | "dragon_wall_head" | "decorated_pot" | "conduit" => BlockKind::Air,
         _ => BlockKind::Solid,
     }
 }

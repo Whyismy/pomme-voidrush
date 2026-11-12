@@ -1,0 +1,123 @@
+# Blocks vanilla draws with a block entity renderer, in a row left to right
+# (from the east): a sign, banner, bed, bell, decorated pot, conduit, skull,
+# player head, lectern, enchanting table, campfire, brewing stand, beacon,
+# ender chest, spawner, trial spawner, vault, dragon head and creeper head;
+# on the wall behind a wall sign, wall banner, wall skull, dragon wall head
+# and a wall hanging sign, and a hanging sign under a block at the west end.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/gamemode spectator"
+
+[[step]]
+chat = "/tp @s 1200.5 -57.5 598.0 0 18"
+
+[[step]]
+wait_ms = 2500
+
+[[step]]
+chat = "/fill 1191 -60 606 1209 -56 606 minecraft:smooth_stone"
+
+[[step]]
+chat = "/setblock 1209 -60 603 minecraft:oak_sign[rotation=8]{front_text:{messages:[\"Hello\",\"world\",\"\",\"\"]}}"
+
+[[step]]
+chat = "/setblock 1208 -60 603 minecraft:red_banner[rotation=8]"
+
+[[step]]
+chat = "/setblock 1207 -60 603 minecraft:red_bed[facing=north,part=foot]"
+
+[[step]]
+chat = "/setblock 1206 -60 603 minecraft:bell[attachment=floor]"
+
+[[step]]
+chat = "/setblock 1205 -60 603 minecraft:decorated_pot"
+
+[[step]]
+chat = "/setblock 1204 -60 603 minecraft:conduit[waterlogged=false]"
+
+[[step]]
+chat = "/setblock 1203 -60 603 minecraft:skeleton_skull[rotation=8]"
+
+[[step]]
+chat = "/setblock 1202 -60 603 minecraft:player_head[rotation=8]"
+
+[[step]]
+chat = "/setblock 1201 -60 603 minecraft:lectern[facing=north]"
+
+[[step]]
+chat = "/setblock 1200 -60 603 minecraft:enchanting_table"
+
+[[step]]
+chat = "/setblock 1199 -60 603 minecraft:campfire"
+
+[[step]]
+chat = "/setblock 1198 -60 603 minecraft:brewing_stand"
+
+[[step]]
+chat = "/setblock 1197 -60 603 minecraft:beacon"
+
+[[step]]
+chat = "/setblock 1196 -60 603 minecraft:ender_chest[facing=north]"
+
+[[step]]
+chat = "/setblock 1195 -60 603 minecraft:spawner"
+
+[[step]]
+chat = "/setblock 1194 -60 603 minecraft:trial_spawner"
+
+[[step]]
+chat = "/setblock 1193 -60 603 minecraft:vault[facing=north]"
+
+[[step]]
+chat = "/setblock 1192 -60 603 minecraft:dragon_head[rotation=8]"
+
+[[step]]
+chat = "/setblock 1191 -60 603 minecraft:creeper_head[rotation=8]"
+
+[[step]]
+chat = "/setblock 1208 -58 605 minecraft:oak_wall_sign[facing=north]{front_text:{messages:[\"Wall\",\"sign\",\"\",\"\"]}}"
+
+[[step]]
+chat = "/setblock 1205 -58 605 minecraft:red_wall_banner[facing=north]"
+
+[[step]]
+chat = "/setblock 1202 -58 605 minecraft:skeleton_wall_skull[facing=north]"
+
+[[step]]
+chat = "/setblock 1199 -58 605 minecraft:dragon_wall_head[facing=north]"
+
+[[step]]
+chat = "/setblock 1196 -58 605 minecraft:oak_wall_hanging_sign[facing=east]{front_text:{messages:[\"Hang\",\"\",\"\",\"\"]}}"
+
+[[step]]
+chat = "/setblock 1192 -56 603 minecraft:smooth_stone"
+
+[[step]]
+chat = "/setblock 1192 -57 603 minecraft:oak_hanging_sign[rotation=8]{front_text:{messages:[\"Sign\",\"\",\"\",\"\"]}}"
+
+[[step]]
+wait_ms = 4000
+
+[[step]]
+screenshot = "row"
+
+[[step]]
+chat = "/fill 1191 -60 603 1209 -56 606 minecraft:air"
+
+[[step]]
+wait_ms = 300
+
+[[step]]
+chat = "/kill @e[type=minecraft:item,distance=..60]"
+
+[[step]]
+chat = "/gamemode creative"

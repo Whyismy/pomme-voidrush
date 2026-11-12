@@ -1,0 +1,66 @@
+# Placed banners (vanilla BannerRenderer): a plain red banner standing on
+# the ground, a white one turned an eighth with a creeper face and a
+# border, a blue one hung on the wall and a patterned one beside it.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/gamemode spectator"
+
+[[step]]
+chat = "/tp @s 1300.5 -58.6 599.5 0 0"
+
+[[step]]
+wait_ms = 2500
+
+[[step]]
+chat = "/fill 1296 -60 605 1305 -56 605 minecraft:smooth_stone"
+
+[[step]]
+chat = "/setblock 1303 -60 603 minecraft:red_banner[rotation=8]"
+
+[[step]]
+chat = "/setblock 1301 -60 603 minecraft:white_banner[rotation=6]{patterns:[{pattern:\"minecraft:creeper\",color:\"green\"},{pattern:\"minecraft:border\",color:\"black\"}]}"
+
+[[step]]
+chat = "/setblock 1299 -58 604 minecraft:blue_wall_banner[facing=north]"
+
+[[step]]
+chat = "/setblock 1297 -58 604 minecraft:yellow_wall_banner[facing=north]{patterns:[{pattern:\"minecraft:stripe_bottom\",color:\"red\"},{pattern:\"minecraft:circle\",color:\"black\"}]}"
+
+[[step]]
+chat = "/setblock 1303 -60 601 minecraft:stone"
+
+[[step]]
+wait_ms = 3000
+
+[[step]]
+screenshot = "banners"
+
+[[step]]
+chat = "/tp @s 1294.0 -58.0 601.5 -75 5"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "side"
+
+[[step]]
+chat = "/fill 1296 -60 601 1305 -56 605 minecraft:air"
+
+[[step]]
+wait_ms = 300
+
+[[step]]
+chat = "/kill @e[type=minecraft:item,distance=..60]"
+
+[[step]]
+chat = "/gamemode creative"
