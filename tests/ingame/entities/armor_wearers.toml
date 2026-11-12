@@ -1,0 +1,43 @@
+# Armor on the mobs that wear it besides zombies and skeletons: a piglin,
+# a baby piglin, a piglin brute, a zombified piglin, a wither skeleton and
+# a parched, each in gold. (Piglins shake in the overworld; they are still
+# themselves for the few seconds this takes.)
+
+[[step]]
+chat = "/tp @s 2100.5 -60 600.5 0 5"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+chat = "/summon minecraft:piglin 2105.5 -60 605.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f],IsImmuneToZombification:1b,equipment:{head:{id:\"minecraft:golden_helmet\",count:1},chest:{id:\"minecraft:golden_chestplate\",count:1},legs:{id:\"minecraft:golden_leggings\",count:1},feet:{id:\"minecraft:golden_boots\",count:1}}}"
+
+[[step]]
+chat = "/summon minecraft:piglin 2103.5 -60 605.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f],IsImmuneToZombification:1b,IsBaby:1b,equipment:{head:{id:\"minecraft:golden_helmet\",count:1},chest:{id:\"minecraft:golden_chestplate\",count:1},legs:{id:\"minecraft:golden_leggings\",count:1},feet:{id:\"minecraft:golden_boots\",count:1}}}"
+
+[[step]]
+chat = "/summon minecraft:piglin_brute 2101.5 -60 605.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f],IsImmuneToZombification:1b,equipment:{head:{id:\"minecraft:golden_helmet\",count:1},chest:{id:\"minecraft:golden_chestplate\",count:1},legs:{id:\"minecraft:golden_leggings\",count:1},feet:{id:\"minecraft:golden_boots\",count:1}}}"
+
+[[step]]
+chat = "/summon minecraft:zombified_piglin 2099.5 -60 605.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f],equipment:{head:{id:\"minecraft:golden_helmet\",count:1},chest:{id:\"minecraft:golden_chestplate\",count:1},legs:{id:\"minecraft:golden_leggings\",count:1},feet:{id:\"minecraft:golden_boots\",count:1}}}"
+
+[[step]]
+chat = "/summon minecraft:wither_skeleton 2097.5 -60 605.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f],equipment:{head:{id:\"minecraft:golden_helmet\",count:1},chest:{id:\"minecraft:golden_chestplate\",count:1},legs:{id:\"minecraft:golden_leggings\",count:1},feet:{id:\"minecraft:golden_boots\",count:1}}}"
+
+[[step]]
+chat = "/summon minecraft:parched 2095.5 -60 605.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f],equipment:{head:{id:\"minecraft:golden_helmet\",count:1},chest:{id:\"minecraft:golden_chestplate\",count:1},legs:{id:\"minecraft:golden_leggings\",count:1},feet:{id:\"minecraft:golden_boots\",count:1}}}"
+
+[[step]]
+expect = { entity = "parched" }
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+press = { action = "key.toggleGui" }
+
+[[step]]
+wait_ms = 300
+
+[[step]]
+screenshot = "wearers"

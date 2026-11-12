@@ -600,6 +600,9 @@ struct ArmorMeshes {
     /// `ArmorStandArmorModel`'s layers (`armor_stand#helmet`...), whose
     /// head and legs sit where the stand's do; then a small stand's.
     armor_stand: [[ArmorMesh; 4]; 2],
+    /// `PiglinModel.createArmorMeshSet`'s layers (`piglin#helmet`...), which
+    /// the brute and the zombified piglin share; then a baby's.
+    piglin: [[ArmorMesh; 4]; 2],
 }
 
 impl MobEntry {
@@ -1198,6 +1201,26 @@ fn build_armor_meshes(device: &rhi::backend::Device) -> ArmorMeshes {
                 set.map(|layer| build_armor_mesh(device, entity_model::bake_exported(layer)))
             })
         },
+        piglin: {
+            use entity_model::exported_data as layers;
+            [
+                [
+                    layers::PIGLIN_HELMET,
+                    layers::PIGLIN_CHESTPLATE,
+                    layers::PIGLIN_LEGGINGS,
+                    layers::PIGLIN_BOOTS,
+                ],
+                [
+                    layers::PIGLIN_BABY_HELMET,
+                    layers::PIGLIN_BABY_CHESTPLATE,
+                    layers::PIGLIN_BABY_LEGGINGS,
+                    layers::PIGLIN_BABY_BOOTS,
+                ],
+            ]
+            .map(|set| {
+                set.map(|layer| build_armor_mesh(device, entity_model::bake_exported(layer)))
+            })
+        },
     }
 }
 
@@ -1216,9 +1239,6 @@ fn destroy_armor_assets(device: &rhi::backend::Device, assets: &mut HashMap<Stri
 }
 
 impl ArmorMeshes {
-    // TODO: the other vanilla `HumanoidArmorLayer` wearers once pomme renders
-    // them: wither skeleton (1.2 scale), parched, piglin / piglin brute /
-    // zombified piglin (`PiglinModel.createArmorMeshSet`), giant.
     fn for_entity(&self, kind: EntityKind, baby: bool, slot: usize) -> Option<&ArmorMesh> {
         if slot >= 4 {
             return None;
@@ -1226,6 +1246,12 @@ impl ArmorMeshes {
         // A small stand is the stand's "baby" (`ArmorStand.isBaby`).
         if kind == EntityKind::ArmorStand {
             return Some(&self.armor_stand[usize::from(baby)][slot]);
+        }
+        if matches!(
+            kind,
+            EntityKind::Piglin | EntityKind::PiglinBrute | EntityKind::ZombifiedPiglin
+        ) {
+            return Some(&self.piglin[usize::from(baby)][slot]);
         }
         if baby {
             let set = match kind {
@@ -1245,7 +1271,13 @@ impl ArmorMeshes {
             | EntityKind::Drowned
             | EntityKind::Skeleton
             | EntityKind::Stray
-            | EntityKind::Bogged => Some(&self.humanoid[slot]),
+            | EntityKind::Bogged
+            // The game's layers for these are the skeleton's and the
+            // zombie's own; the wither skeleton's and the giant's size is
+            // their renderer's scale, which the armor takes with the mob.
+            | EntityKind::WitherSkeleton
+            | EntityKind::Parched
+            | EntityKind::Giant => Some(&self.humanoid[slot]),
             _ => None,
         }
     }
@@ -5063,6 +5095,7 @@ impl EntityRenderer {
             .chain(self.armor_meshes.llama_decor.iter_mut())
             .chain([&mut self.armor_meshes.baby_llama_decor])
             .chain(self.armor_meshes.armor_stand.iter_mut().flatten())
+            .chain(self.armor_meshes.piglin.iter_mut().flatten())
         {
             std::mem::take(&mut mesh.vertex_buffer).destroy(device);
         }
