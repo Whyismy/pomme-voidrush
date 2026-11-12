@@ -1266,6 +1266,67 @@ pub fn build_saving_indicator(
     });
 }
 
+/// The resource pack loading bar's size and its gap from the screen's left
+/// edge, in GUI pixels.
+const PACK_BAR_SIZE: (f32, f32) = (80.0, 6.0);
+const PACK_BAR_LEFT: f32 = 6.0;
+
+/// Where the resource pack loading bar sits: its frame's left, top, width
+/// and height, half way down the left edge of the screen.
+pub fn pack_loading_bar_rect(screen_h: f32, gs: f32) -> [f32; 4] {
+    let (w, h) = (PACK_BAR_SIZE.0 * gs, PACK_BAR_SIZE.1 * gs);
+    [
+        (PACK_BAR_LEFT * gs).round(),
+        ((screen_h - h) / 2.0).round(),
+        w,
+        h,
+    ]
+}
+
+/// A small bar half way down the left edge of the screen while a resource
+/// pack is downloading or loading: what is happening over it, and a white
+/// frame filling from the left as it goes (`fraction`, 0 to 1), on a dark
+/// backing so it reads over any world.
+pub fn build_pack_loading_bar(
+    elements: &mut Vec<MenuElement>,
+    screen_h: f32,
+    gs: f32,
+    label: &str,
+    fraction: f32,
+) {
+    let [x, y, w, h] = pack_loading_bar_rect(screen_h, gs);
+    let rect = |x: f32, y: f32, w: f32, h: f32, color: [f32; 4]| MenuElement::Rect {
+        x,
+        y,
+        w,
+        h,
+        corner_radius: 0.0,
+        color,
+    };
+    let fs = FONT_SIZE * gs;
+    elements.push(MenuElement::McText {
+        x,
+        y: (y - 11.0 * gs).round(),
+        spans: vec![TextSpan::new(label.into(), WHITE)],
+        scale: fs,
+        centered: false,
+        shadow: true,
+    });
+    // The frame, the dark inside it, and the fill a pixel in from both.
+    elements.push(rect(x, y, w, h, WHITE));
+    elements.push(rect(
+        x + gs,
+        y + gs,
+        w - 2.0 * gs,
+        h - 2.0 * gs,
+        [0.0, 0.0, 0.0, 0.75],
+    ));
+    let fill = (w - 4.0 * gs) * fraction.clamp(0.0, 1.0);
+    if fill > 0.0 {
+        elements.push(rect(x + 2.0 * gs, y + 2.0 * gs, fill, h - 4.0 * gs, WHITE));
+    }
+}
+
 /// Right-aligned status icon x, matching vanilla `xRight - i * 8 - 9`.
 fn icon_row_x_rtl(x_right: f32, i: i32, gs: f32) -> f32 {
     (x_right - i as f32 * ICON_STRIDE * gs - ICON_SIZE * gs).round()
@@ -1847,6 +1908,24 @@ fn facing(y_rot_deg: f32) -> (&'static str, &'static str) {
 
 #[cfg(test)]
 mod tests {
+    /// The pack loading bar sits half way down the left edge, and fills
+    /// from the left inside its frame.
+    #[test]
+    fn the_pack_loading_bar_is_at_the_middle_left() {
+        let [x, y, w, h] = super::pack_loading_bar_rect(720.0, 2.0);
+        assert_eq!((x, w, h), (12.0, 160.0, 12.0));
+        assert_eq!(y + h / 2.0, 360.0);
+        let mut elements = Vec::new();
+        super::build_pack_loading_bar(&mut elements, 720.0, 2.0, "Loading", 0.5);
+        let Some(super::MenuElement::Rect { x, w, .. }) = elements.last() else {
+            panic!("the fill is drawn last");
+        };
+        assert_eq!((*x, *w), (16.0, 76.0));
+        let mut empty = Vec::new();
+        super::build_pack_loading_bar(&mut empty, 720.0, 2.0, "Loading", 0.0);
+        assert_eq!(empty.len(), elements.len() - 1);
+    }
+
     use super::*;
 
     #[test]

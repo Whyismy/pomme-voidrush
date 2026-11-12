@@ -1,6 +1,65 @@
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 
 pub const CURRENT_PACK_FORMAT: u32 = 84;
+
+/// What loading a resource pack is doing ([`PackProgress`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PackStage {
+    Downloading,
+    Unpacking,
+    /// Its assets are being rebuilt.
+    Loading,
+}
+
+/// How far a resource pack's loading has got, shared with the thread that
+/// downloads it, for the bar the game shows meanwhile.
+#[derive(Default)]
+pub struct PackProgress {
+    downloaded: AtomicU64,
+    /// The download's size, 0 while the server hasn't said.
+    total: AtomicU64,
+    stage: AtomicU8,
+}
+
+impl PackProgress {
+    /// One already on disk, whose assets are being rebuilt.
+    pub fn loading() -> Self {
+        let progress = Self::default();
+        progress.set_stage(PackStage::Loading);
+        progress
+    }
+
+    pub fn stage(&self) -> PackStage {
+        match self.stage.load(Ordering::Relaxed) {
+            0 => PackStage::Downloading,
+            1 => PackStage::Unpacking,
+            _ => PackStage::Loading,
+        }
+    }
+
+    pub fn set_stage(&self, stage: PackStage) {
+        self.stage.store(stage as u8, Ordering::Relaxed);
+    }
+
+    /// The whole of it as one share, 0 to 1: the download takes the first
+    /// six tenths by its bytes, unpacking the next, and the assets'
+    /// rebuilding (`loading`, itself 0 to 1) the last three.
+    pub fn fraction(&self, loading: f32) -> f32 {
+        match self.stage() {
+            PackStage::Downloading => {
+                let total = self.total.load(Ordering::Relaxed);
+                if total == 0 {
+                    return 0.0;
+                }
+                let done = self.downloaded.load(Ordering::Relaxed) as f32 / total as f32;
+                0.6 * done.clamp(0.0, 1.0)
+            }
+            PackStage::Unpacking => 0.65,
+            PackStage::Loading => 0.7 + 0.3 * loading.clamp(0.0, 1.0),
+        }
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum PackCompat {
@@ -108,16 +167,34 @@ impl ResourcePackManager {
         server_cache_dir: &Path,
         url: &str,
         hash: &str,
+        progress: &PackProgress,
     ) -> Result<PathBuf, PackError> {
+        use std::io::Read;
         let dir = server_cache_dir.join(hash);
         if !dir.is_dir() {
-            let data = crate::net::http::blocking_builder()
+            let mut response = crate::net::http::blocking_builder()
                 .build()
                 .and_then(|client| client.get(url).send())
-                .map_err(|e| PackError::Download(e.to_string()))?
-                .bytes()
                 .map_err(|e| PackError::Download(e.to_string()))?;
+            let total = response.content_length().unwrap_or(0);
+            progress.total.store(total, Ordering::Relaxed);
+            // Read a piece at a time, so the bar can follow it.
+            let mut data = Vec::with_capacity(total.min(256 << 20) as usize);
+            let mut piece = vec![0_u8; 64 << 10];
+            loop {
+                let read = response
+                    .read(&mut piece)
+                    .map_err(|e| PackError::Download(e.to_string()))?;
+                if read == 0 {
+                    break;
+                }
+                data.extend_from_slice(&piece[..read]);
+                progress
+                    .downloaded
+                    .fetch_add(read as u64, Ordering::Relaxed);
+            }
             tracing::info!("Downloaded {} bytes", data.len());
+            progress.set_stage(PackStage::Unpacking);
             validate_hash(&data, hash)?;
             extract_zip(&data, &dir)?;
         }
@@ -451,4 +528,27 @@ fn extract_zip(data: &[u8], dest: &Path) -> Result<(), PackError> {
 
     tracing::info!("Extracted resource pack to {}", dest.display());
     Ok(())
+}
+
+#[cfg(test)]
+mod progress_tests {
+    use std::sync::atomic::Ordering;
+
+    use super::{PackProgress, PackStage};
+
+    /// The bar's share runs through the download by its bytes, then the
+    /// unpacking, then the assets' rebuilding.
+    #[test]
+    fn a_pack_s_progress_is_one_share() {
+        let progress = PackProgress::default();
+        assert_eq!(progress.fraction(0.0), 0.0);
+        progress.total.store(200, Ordering::Relaxed);
+        progress.downloaded.store(100, Ordering::Relaxed);
+        assert!((progress.fraction(0.0) - 0.3).abs() < 1e-6);
+        progress.set_stage(PackStage::Unpacking);
+        assert_eq!(progress.fraction(0.0), 0.65);
+        progress.set_stage(PackStage::Loading);
+        assert!((progress.fraction(0.5) - 0.85).abs() < 1e-6);
+        assert_eq!(PackProgress::loading().fraction(1.0), 1.0);
+    }
 }

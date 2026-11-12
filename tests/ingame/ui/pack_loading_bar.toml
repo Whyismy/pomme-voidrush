@@ -1,0 +1,54 @@
+# The resource pack loading bar: while a server's pack downloads and its
+# assets load, a small bar half way down the left edge fills, with what is
+# happening over it. The pack is pushed in play, as a plugin's is, from
+# something serving it slowly enough to see:
+#   python -I serve.py build      (prints the SHA-1 below)
+#   python -I serve.py 18765
+
+[[step]]
+wait_ms = 1000
+
+[[step]]
+resource_pack = { url = "http://127.0.0.1:18765/pack.zip", sha1 = "5432288f550884b8b72c03682c29bcf55d8d8130" }
+
+[[step]]
+wait_ms = 600
+
+[[step]]
+screenshot = "bar_1"
+
+[[step]]
+wait_ms = 900
+
+[[step]]
+screenshot = "bar_2"
+
+[[step]]
+wait_ms = 900
+
+[[step]]
+screenshot = "bar_3"
+
+[[step]]
+wait_ms = 900
+
+[[step]]
+screenshot = "bar_4"
+
+[[step]]
+wait_ms = 900
+
+[[step]]
+screenshot = "bar_5"
+
+[[step]]
+wait_ms = 900
+
+[[step]]
+screenshot = "bar_6"
+
+[[step]]
+wait_ms = 6000
+
+[[step]]
+screenshot = "done"

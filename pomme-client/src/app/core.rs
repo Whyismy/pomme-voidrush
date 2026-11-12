@@ -988,6 +988,10 @@ pub struct AppCore {
     pub resource_packs: ResourcePackManager,
     pub(crate) block_definitions: Rc<BlockDefinitions>,
     pub pending_pack_download: Option<PendingPackDownload>,
+    /// A resource pack being downloaded or loaded, for the bar shown
+    /// meanwhile; and the share of it the bar shows, eased toward it.
+    pub pack_progress: Option<Arc<crate::resource_pack::PackProgress>>,
+    pub pack_bar: f32,
     /// Server packs applied whose assets are still preparing off the render
     /// thread; each is acknowledged once they're swapped in.
     pending_pack_acks: Vec<uuid::Uuid>,
@@ -1166,6 +1170,8 @@ impl AppCore {
             resource_packs,
             block_definitions: Rc::new(BlockDefinitions::new()),
             pending_pack_download: None,
+            pack_progress: None,
+            pack_bar: 0.0,
             pending_pack_acks: Vec::new(),
             pending_sounds: None,
             asset_index,
@@ -1745,10 +1751,66 @@ impl AppCore {
         renderer.remove_player_entity_skin(uuid);
     }
 
+    /// The resource pack loading bar: what it says and how full it is, 0
+    /// to 1, while a pack is being downloaded or loaded. The fill eases
+    /// toward where the loading has got over the `dt` seconds since the
+    /// last frame, so it never jumps, at any frame rate.
+    pub fn pack_loading_bar(
+        &mut self,
+        renderer: &Renderer,
+        dt: f32,
+    ) -> Option<(&'static str, f32)> {
+        use crate::resource_pack::PackStage;
+        let progress = self.pack_progress.as_ref()?;
+        let target = progress.fraction(renderer.asset_reload_fraction());
+        self.pack_bar += (target - self.pack_bar).max(0.0) * pack_bar_ease(dt);
+        let label = match progress.stage() {
+            PackStage::Downloading | PackStage::Unpacking => {
+                crate::lang::translate("resourcepack.downloading")
+                    .unwrap_or("Downloading Resource Pack")
+            }
+            PackStage::Loading => "Loading Resource Pack",
+        };
+        Some((label, self.pack_bar))
+    }
+
+    /// A server's resource pack, to fetch on a worker thread: what a pack
+    /// push starts, in configuration or in play.
+    pub fn push_resource_pack(
+        &mut self,
+        id: uuid::Uuid,
+        url: String,
+        hash: String,
+        required: bool,
+    ) {
+        tracing::info!("Resource pack push: {id} url={url} required={required}");
+        let cache_dir = self.resource_packs.server_cache_dir().to_path_buf();
+        let progress = Arc::new(crate::resource_pack::PackProgress::default());
+        self.pack_progress = Some(Arc::clone(&progress));
+        self.pack_bar = 0.0;
+        self.pending_pack_download = Some(PendingPackDownload {
+            id,
+            required,
+            hash: hash.clone(),
+            handle: std::thread::spawn(move || {
+                ResourcePackManager::download_server_pack(&cache_dir, &url, &hash, &progress)
+            }),
+        });
+    }
+
     /// Starts rebuilding the assets for a pack change in game: they prepare
     /// on a worker thread while the world keeps running on the old ones, and
     /// [`Self::finish_live_resource_reload`] swaps them in.
     fn begin_live_resource_reload(&mut self, renderer: &mut Renderer) {
+        // The bar goes on (or starts, for a pack already on disk) with the
+        // assets' rebuilding.
+        match &self.pack_progress {
+            Some(progress) => progress.set_stage(crate::resource_pack::PackStage::Loading),
+            None => {
+                self.pack_progress = Some(Arc::new(crate::resource_pack::PackProgress::loading()));
+                self.pack_bar = 0.0;
+            }
+        }
         self.menu.active_packs = self.resource_packs.active_pack_info();
         renderer.begin_asset_reload(&self.resource_packs, self.menu.font_options());
         self.pending_sounds = self.audio.begin_sounds_reload(&self.resource_packs);
@@ -3591,18 +3653,7 @@ impl AppCore {
                     url,
                     hash,
                     required,
-                } => {
-                    tracing::info!("Resource pack push: {id} url={url} required={required}");
-                    let cache_dir = self.resource_packs.server_cache_dir().to_path_buf();
-                    self.pending_pack_download = Some(PendingPackDownload {
-                        id,
-                        required,
-                        hash: hash.clone(),
-                        handle: std::thread::spawn(move || {
-                            ResourcePackManager::download_server_pack(&cache_dir, &url, &hash)
-                        }),
-                    });
-                }
+                } => self.push_resource_pack(id, url, hash, required),
                 NetworkEvent::ResourcePackPop { id } => {
                     // A server may pop an id it already popped, or never pushed.
                     let removed = match id {
@@ -3719,6 +3770,8 @@ impl AppCore {
             };
 
             if let Some(action) = action {
+                // It failed: nothing is loading any more.
+                self.pack_progress = None;
                 connection
                     .packet_tx
                     .send(ServerboundGamePacket::ResourcePack(
@@ -3732,6 +3785,7 @@ impl AppCore {
         }
 
         if renderer.finish_asset_reload() {
+            self.pack_progress = None;
             self.finish_live_resource_reload(game, renderer);
             use azalea_protocol::packets::game::s_resource_pack;
             for id in self.pending_pack_acks.drain(..) {
@@ -4951,8 +5005,27 @@ fn pickables(game: &GameState, hand_holds: bool) -> Vec<crate::player::interacti
         .collect()
 }
 
+/// How much of the way to where the loading has got the pack bar's fill
+/// goes in `dt` seconds: most of it in a quarter of a second, whatever the
+/// frame rate.
+fn pack_bar_ease(dt: f32) -> f32 {
+    1.0 - (-dt.max(0.0) * 10.0).exp()
+}
+
 #[cfg(test)]
 mod tests {
+    /// The pack bar's fill moves by time, not by frame: two half-length
+    /// frames take it as far as one whole one, and it never overshoots.
+    #[test]
+    fn the_pack_bar_eases_by_time() {
+        let whole = super::pack_bar_ease(0.02);
+        let half = super::pack_bar_ease(0.01);
+        assert!((1.0 - (1.0 - half) * (1.0 - half) - whole).abs() < 1e-6);
+        assert_eq!(super::pack_bar_ease(0.0), 0.0);
+        assert!(super::pack_bar_ease(10.0) <= 1.0);
+        assert!(super::pack_bar_ease(0.25) > 0.9);
+    }
+
     /// The fullscreen key never needs a second press to change the screen:
     /// a window goes fullscreen, in the kind last used, and either kind of
     /// fullscreen goes back to a window.

@@ -218,6 +218,11 @@ pub fn draw_status(
 
     core.input.clear_just_pressed_actions();
 
+    // A pack the server sends while connecting loads behind this screen.
+    if let Some((label, fraction)) = core.pack_loading_bar(&gfx.renderer, dt) {
+        crate::ui::hud::build_pack_loading_bar(&mut elements, sh, gs, label, fraction);
+    }
+
     if let Err(e) = gfx
         .renderer
         .render_menu(&gfx.window, panorama.scroll(), elements, cursor, None)

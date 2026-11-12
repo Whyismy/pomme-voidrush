@@ -331,6 +331,8 @@ pub struct Renderer {
     /// A pack reload preparing its assets on a worker thread
     /// ([`Self::begin_asset_reload`]).
     pending_reload: Option<std::thread::JoinHandle<PreparedAssets>>,
+    /// How many of [`RELOAD_STEPS`] the reload preparing has passed.
+    reload_steps: Arc<std::sync::atomic::AtomicU8>,
 
     atlas: TextureAtlas,
     entity_renderer: EntityRenderer,
@@ -658,6 +660,7 @@ impl Renderer {
             gui_item_atlas,
             font_options,
             pending_reload: None,
+            reload_steps: Arc::default(),
             chunk_buffers,
             frames,
             screenshot: screenshot::ScreenshotCapture::new(game_dir.to_path_buf()),
@@ -1743,6 +1746,7 @@ impl Renderer {
             self.bedrock_ui_dir.as_deref(),
             font_options,
             self.menu_pipeline.font_layer_limit(),
+            &self.reload_steps,
         );
         self.apply_assets(prepared);
     }
@@ -1762,6 +1766,8 @@ impl Renderer {
         let asset_index = self.asset_index.clone();
         let bedrock_ui_dir = self.bedrock_ui_dir.clone();
         let layer_limit = self.menu_pipeline.font_layer_limit();
+        let steps = Arc::clone(&self.reload_steps);
+        steps.store(0, std::sync::atomic::Ordering::Relaxed);
         self.pending_reload = std::thread::Builder::new()
             .name("asset-reload".into())
             .spawn(move || {
@@ -1772,10 +1778,18 @@ impl Renderer {
                     bedrock_ui_dir.as_deref(),
                     font_options,
                     layer_limit,
+                    &steps,
                 )
             })
             .inspect_err(|error| tracing::error!("Couldn't start the asset reload: {error}"))
             .ok();
+    }
+
+    /// How far the reload [`Self::begin_asset_reload`] started has got, 0
+    /// to 1, by the steps of it that are done.
+    pub fn asset_reload_fraction(&self) -> f32 {
+        f32::from(self.reload_steps.load(std::sync::atomic::Ordering::Relaxed))
+            / f32::from(RELOAD_STEPS)
     }
 
     /// Swaps in the assets [`Self::begin_asset_reload`] prepared once they're
@@ -3388,6 +3402,10 @@ struct PreparedAssets {
 /// can run off the render thread: the block and item models, then the
 /// atlas and the item meshes cut from it, with the sky, equipment and fonts
 /// alongside.
+/// The steps [`prepare_assets`] counts off as it goes: the models, the
+/// atlas, the item meshes, and the rest joined.
+const RELOAD_STEPS: u8 = 4;
+
 fn prepare_assets(
     packs: &crate::resource_pack::ResourcePackManager,
     jar_assets_dir: &Path,
@@ -3395,8 +3413,10 @@ fn prepare_assets(
     bedrock_ui_dir: Option<&Path>,
     font_options: FontOptions,
     font_layer_limit: u32,
+    steps: &std::sync::atomic::AtomicU8,
 ) -> PreparedAssets {
     let start = std::time::Instant::now();
+    let step = |done: u8| steps.store(done, std::sync::atomic::Ordering::Relaxed);
     std::thread::scope(|scope| {
         let custom_sky = scope.spawn(|| pipelines::sky::prepare_custom_sky(packs));
         let celestial =
@@ -3425,6 +3445,7 @@ fn prepare_assets(
         });
         let render_assets = BlockRenderAssets::load(jar_assets_dir, asset_index, None, Some(packs));
         let models = start.elapsed();
+        step(1);
         let (texture_names, generated_item_textures) =
             chunk::atlas::atlas_texture_names(&render_assets);
         let atlas = TextureAtlas::prepare(
@@ -3435,6 +3456,7 @@ fn prepare_assets(
             Some(packs),
         );
         let atlas_done = start.elapsed();
+        step(2);
         let item_meshes = render_assets
             .item_names()
             .filter_map(|name| match render_assets.get_item_model(name) {
@@ -3448,6 +3470,7 @@ fn prepare_assets(
                 ),
             })
             .collect();
+        step(3);
         let prepared = PreparedAssets {
             custom_sky: custom_sky.join().expect("preparing the sky panicked"),
             celestial: celestial
@@ -3462,6 +3485,7 @@ fn prepare_assets(
             item_meshes,
             prepare_laps: String::new(),
         };
+        step(RELOAD_STEPS);
         PreparedAssets {
             prepare_laps: format!(
                 "{:.2?} (models {models:.0?}, atlas {:.0?}, item meshes {:.0?})",

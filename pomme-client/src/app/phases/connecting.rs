@@ -128,6 +128,9 @@ fn draw_server_dialog(
         None,
         &text_events,
     );
+    if let Some((label, fraction)) = core.pack_loading_bar(&gfx.renderer, dt) {
+        crate::ui::hud::build_pack_loading_bar(&mut elements, sh, gs, label, fraction);
+    }
 
     let cursor = core.input.cursor_pos();
     if let Err(e) = gfx

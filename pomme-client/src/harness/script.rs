@@ -48,6 +48,7 @@ struct StepFile {
     bind: Option<protocol::Bind>,
     option: Option<protocol::OptionSet>,
     deterministic: Option<bool>,
+    resource_pack: Option<ResourcePack>,
     hover: Option<protocol::Hover>,
     cursor: Option<[f32; 2]>,
     scroll: Option<f32>,
@@ -59,6 +60,14 @@ struct StepFile {
     timeout_ms: Option<u64>,
     /// How many pixels `match_screenshots` lets differ (default 0).
     max_differing_pixels: Option<usize>,
+}
+
+/// A `resource_pack` step's pack: where it is and its SHA-1.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ResourcePack {
+    url: String,
+    sha1: String,
 }
 
 /// What an `expect` step waits for, told apart by its fields.
@@ -305,6 +314,9 @@ impl StepFile {
         }
         if self.deterministic == Some(true) {
             steps.push(Step::Run(Command::Deterministic));
+        }
+        if let Some(ResourcePack { url, sha1 }) = self.resource_pack {
+            steps.push(Step::Run(Command::ResourcePack { url, sha1 }));
         }
         if let Some(hover) = self.hover {
             steps.push(Step::Run(Command::Hover(hover)));

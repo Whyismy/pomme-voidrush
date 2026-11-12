@@ -5712,6 +5712,14 @@ pub fn update_game(
     } else {
         game.hand_equip.visible().map(held_map)
     };
+    // A resource pack downloading or loading: its bar, half way down the
+    // left edge, over everything.
+    if !benchmark_running
+        && let Some((label, fraction)) = core.pack_loading_bar(&gfx.renderer, raw_dt)
+    {
+        hud::build_pack_loading_bar(&mut elements, sh, gs, label, fraction);
+    }
+
     // Last element pushed: vanilla draws the saving indicator on its own
     // stratum above screens, with the GUI hidden (F1) included.
     if !benchmark_running && !game.deterministic && core.menu.show_autosave_indicator {

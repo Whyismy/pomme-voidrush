@@ -75,6 +75,12 @@ pub enum Command {
     Screenshot {
         path: PathBuf,
     },
+    /// Has the client fetch and load the resource pack at `url`, whose
+    /// SHA-1 is `sha1`, as a server pushing one in play would.
+    ResourcePack {
+        url: String,
+        sha1: String,
+    },
     /// Holds what varies frame to frame still for the rest of the session:
     /// block light flicker, particles, animated textures, clouds, view
     /// bobbing and the autosave indicator, so two runs of a script draw the

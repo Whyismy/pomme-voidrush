@@ -78,6 +78,15 @@ pub fn run(command: &Command, core: &mut AppCore, phase: &mut AppPhase) -> Outco
         Command::Press(press) => press_key(core, press),
         Command::Bind(bind) => bind_keys(core, bind),
         Command::Option(options) => set_options(core, options),
+        Command::ResourcePack { url, sha1 } => {
+            core.push_resource_pack(
+                uuid::Uuid::new_v3(&uuid::Uuid::NAMESPACE_URL, url.as_bytes()),
+                url.clone(),
+                sha1.clone(),
+                false,
+            );
+            Ok(Value::Null)
+        }
         Command::Deterministic => {
             game.deterministic = true;
             game.block_light_flicker = 0.0;
