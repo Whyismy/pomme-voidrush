@@ -286,6 +286,8 @@ pub struct EntityRenderInfo {
     pub blocking_arm: Option<bool>,
     /// The arms holding a spear out (`ArmPose.SPEAR`) and any charge.
     pub spear: entity_model::spear::SpearPose,
+    /// The arms on a crossbow (`ArmPose.CROSSBOW_HOLD` and `_CHARGE`).
+    pub crossbow: entity_model::crossbow::CrossbowPose,
     /// Skip frustum/distance culling (the 3rd-person self entity, which sits at
     /// the camera and must never blink out).
     pub skip_cull: bool,
@@ -384,6 +386,7 @@ impl Default for EntityRenderInfo {
             attack_stabs: false,
             blocking_arm: None,
             spear: entity_model::spear::SpearPose::default(),
+            crossbow: entity_model::crossbow::CrossbowPose::None,
             skip_cull: false,
             outline_color: None,
             visibility: Visibility::Visible,
@@ -3791,6 +3794,13 @@ impl EntityRenderer {
                 },
             );
         }
+        entity_model::crossbow::pose_arms(
+            model,
+            &mut anim,
+            info.crossbow,
+            info.head_x_rot_deg.to_radians(),
+            crate::entity::wrap_degrees(info.head_y_rot_deg - info.body_y_rot_deg).to_radians(),
+        );
         if info.head_only {
             // Children follow their parent's scale, so hiding the other roots
             // hides everything but the head and its hat.

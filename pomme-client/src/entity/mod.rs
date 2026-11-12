@@ -910,6 +910,8 @@ pub struct LivingEntity {
     pub copper_golem: CopperGolemAnim,
     /// Sulfur cube fuse ticks left, -1 while unprimed (`SulfurCube.fuse`).
     pub sulfur_fuse: i32,
+    /// `Pillager.IS_CHARGING_CROSSBOW` and `Piglin.DATA_IS_CHARGING_CROSSBOW`.
+    pub charging_crossbow: bool,
     /// `WitherBoss.DATA_ID_INV`: ticks of the spawning invulnerability left.
     pub wither_invulnerable_ticks: i32,
     pub fox: FoxSim,
@@ -1299,6 +1301,7 @@ impl LivingEntity {
             copper_golem: CopperGolemAnim::default(),
             sulfur_fuse: -1,
             wither_invulnerable_ticks: 0,
+            charging_crossbow: false,
             fox: FoxSim::default(),
             panda: PandaSim::default(),
             axolotl: AxolotlSim::default(),
@@ -2301,6 +2304,10 @@ impl EntityStore {
             // `SulfurCube.onSyncedDataUpdated` primes the fuse from MAX_FUSE.
             (EntityKind::SulfurCube, 19, Int(f)) => entity.sulfur_fuse = f,
             (EntityKind::Wither, 19, Int(t)) => entity.wither_invulnerable_ticks = t,
+            // After a raider's celebrating flag, and a piglin's baby one.
+            (EntityKind::Pillager, 17, Bool(b)) | (EntityKind::Piglin, 18, Bool(b)) => {
+                entity.charging_crossbow = b
+            }
             (EntityKind::Allay, 16, Bool(b)) => entity.allay.dancing = b,
             (EntityKind::EnderDragon, dragon::PHASE_DATA, Int(phase)) => {
                 entity.dragon.phase = phase

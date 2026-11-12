@@ -7,6 +7,7 @@ mod armadillo;
 mod axolotl;
 mod bee;
 mod copper_golem_anim;
+pub mod crossbow;
 mod dolphin;
 pub(crate) mod exported;
 pub(crate) mod exported_data;

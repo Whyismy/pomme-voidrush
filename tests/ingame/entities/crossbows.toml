@@ -1,0 +1,51 @@
+# Arms on a crossbow (vanilla AnimationUtils.animateCrossbowHold): a
+# pillager and a piglin level theirs along their look, a zombie holding an
+# unloaded one keeps its own arms, and one with a loaded crossbow levels it.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/gamemode spectator"
+
+[[step]]
+chat = "/tp @s 1150.5 -58.6 599.0 0 8"
+
+[[step]]
+wait_ms = 2500
+
+[[step]]
+chat = "/summon minecraft:pillager 1153.5 -60 603.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[160f,0f],equipment:{mainhand:{id:\"minecraft:crossbow\"}}}"
+
+[[step]]
+chat = "/summon minecraft:piglin 1151.5 -60 603.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,IsImmuneToZombification:1b,Rotation:[180f,0f],equipment:{mainhand:{id:\"minecraft:crossbow\"}}}"
+
+[[step]]
+chat = "/summon minecraft:skeleton 1149.5 -60 603.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f],equipment:{mainhand:{id:\"minecraft:crossbow\"},head:{id:\"minecraft:leather_helmet\"}}}"
+
+[[step]]
+chat = "/summon minecraft:skeleton 1147.5 -60 603.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[200f,0f],equipment:{mainhand:{id:\"minecraft:crossbow\",components:{\"minecraft:charged_projectiles\":[{id:\"minecraft:arrow\"}]}},head:{id:\"minecraft:leather_helmet\"}}}"
+
+[[step]]
+wait_ms = 3000
+
+[[step]]
+screenshot = "crossbows"
+
+[[step]]
+chat = "/kill @e[type=!minecraft:player,distance=..40]"
+
+[[step]]
+wait_ms = 300
+
+[[step]]
+chat = "/kill @e[type=minecraft:item,distance=..40]"
+
+[[step]]
+chat = "/gamemode creative"

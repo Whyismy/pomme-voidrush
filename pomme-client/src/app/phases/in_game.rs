@@ -4621,6 +4621,17 @@ pub fn update_game(
                         e.use_ticks as f32 + partial_tick,
                         e.swing_time > 0,
                     ),
+                    crossbow: crossbow_pose(
+                        e.entity_type,
+                        [
+                            azalea_inventory::components::EquipmentSlot::Mainhand,
+                            azalea_inventory::components::EquipmentSlot::Offhand,
+                        ]
+                        .map(|slot| e.equipment(slot).and_then(|stack| stack.as_present())),
+                        e.using_hand,
+                        e.use_ticks as f32 + partial_tick,
+                        e.charging_crossbow,
+                    ),
                     skip_cull: false,
                     shadow: ShadowCaster {
                         position: *interp_pos,
@@ -4991,6 +5002,19 @@ pub fn update_game(
                     .map(|hand| u8::from(hand != crate::player::interaction::HANDS[0])),
                 game.interaction.ticks_using(partial_tick),
                 swing_progress[0].max(swing_progress[1]) > 0.0,
+            ),
+            crossbow: crossbow_pose(
+                EntityKind::Player,
+                [
+                    game.player.inventory.hotbar_slots()[core.input.selected_slot() as usize]
+                        .as_present(),
+                    game.player.inventory.offhand().as_present(),
+                ],
+                game.interaction
+                    .using_hand()
+                    .map(|hand| u8::from(hand != crate::player::interaction::HANDS[0])),
+                game.interaction.ticks_using(partial_tick),
+                false,
             ),
             skip_cull: true,
             // Players drop their render offset before the shadow.
@@ -6966,6 +6990,51 @@ fn spear_pose(
         arms,
         hanging,
         using,
+    }
+}
+
+/// How a humanoid of `kind` holds a crossbow (`hands`: main, then off), as
+/// its renderer's `getArmPose` has it: drawn back while it loads one (the
+/// hand in `using`, `use_ticks` in, or a mob's own `charging` flag), and
+/// levelled once the one in its main hand is loaded. Pillagers and piglins
+/// level theirs loaded or not.
+fn crossbow_pose(
+    kind: EntityKind,
+    hands: [Option<&azalea_inventory::ItemStackData>; 2],
+    using: Option<u8>,
+    use_ticks: f32,
+    charging: bool,
+) -> crate::renderer::entity_model::crossbow::CrossbowPose {
+    use azalea_inventory::components::ChargedProjectiles;
+    use azalea_registry::builtin::ItemKind;
+
+    use crate::renderer::entity_model::crossbow::{CHARGE_TICKS, CrossbowPose};
+    if !holds_items(kind) {
+        return CrossbowPose::None;
+    }
+    fn crossbow(
+        stack: Option<&azalea_inventory::ItemStackData>,
+    ) -> Option<&azalea_inventory::ItemStackData> {
+        stack.filter(|stack| stack.kind == ItemKind::Crossbow)
+    }
+    let loading = using.is_some_and(|hand| crossbow(hands[usize::from(hand)]).is_some());
+    if loading || charging && crossbow(hands[0]).is_some() {
+        return CrossbowPose::Charge(use_ticks / CHARGE_TICKS);
+    }
+    let Some(held) = crossbow(hands[0]) else {
+        return CrossbowPose::None;
+    };
+    let loaded = held
+        .get_component::<ChargedProjectiles>()
+        .is_some_and(|charged| !charged.items.is_empty());
+    let always = matches!(
+        kind,
+        EntityKind::Pillager | EntityKind::Piglin | EntityKind::PiglinBrute
+    );
+    if loaded || always {
+        CrossbowPose::Hold
+    } else {
+        CrossbowPose::None
     }
 }
 
