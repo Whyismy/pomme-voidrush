@@ -377,6 +377,13 @@ pub struct GameState {
     pub paintings: crate::entity::painting::PaintingStore,
     pub effect_clouds: crate::entity::effect_cloud::EffectCloudStore,
     pub leashes: crate::entity::leash::LeashStore,
+    /// Each nearby spawner's spin, last tick's and this one's, in the
+    /// tenths of a degree vanilla counts it in (`BaseSpawner.spin`).
+    pub spawner_spins: HashMap<BlockPos, (f32, f32)>,
+    /// The books over the enchanting tables near the player.
+    pub enchanting_books: HashMap<BlockPos, crate::world::book::BookAnim>,
+    /// Each beacon's beam as last worked out, and the tick it was.
+    pub beacon_beams: HashMap<BlockPos, (u64, Vec<crate::world::beacon::BeamSection>)>,
     /// The laid-out labels of named map markers, by their text, so a label
     /// drawn every frame keeps its glyphs.
     pub map_labels: HashMap<String, Arc<crate::entity::display::TextLayout>>,
@@ -573,6 +580,9 @@ impl GameState {
             paintings: Default::default(),
             effect_clouds: Default::default(),
             leashes: Default::default(),
+            beacon_beams: HashMap::new(),
+            enchanting_books: HashMap::new(),
+            spawner_spins: HashMap::new(),
             map_labels: HashMap::new(),
             fishing_hooks: Default::default(),
             rain_sound_time: 0,
@@ -2843,6 +2853,9 @@ pub fn update_game(
             );
         }
         tick_model_entities(game, gfx.renderer.camera_render_position());
+        update_beacon_beams(game);
+        tick_enchanting_books(game);
+        tick_spawners(game, gfx.renderer.camera_render_position());
         // `AreaEffectCloud.clientTick`: its particles, shown from any
         // distance (`addAlwaysVisibleParticle`).
         for particle in game.effect_clouds.tick() {
@@ -4859,6 +4872,14 @@ pub fn update_game(
         }
     }
 
+    // Beacon beams (`BeaconRenderer`): each coloured section as the beam
+    // turning slowly inside its faint glow, the texture running upward.
+    if !benchmark_running {
+        build_beacon_beams(game, partial_tick, &mut entity_renders);
+        build_books(game, &world_light, partial_tick, &mut entity_renders);
+        build_spawner_mobs(game, &world_light, partial_tick, &mut entity_renders);
+    }
+
     // Wind charges (`WindChargeRenderer`), from vanilla's own model layer:
     // drawn about their feet, and like thrown items not for their first two
     // ticks while still at the thrower's eye.
@@ -6778,6 +6799,349 @@ fn banner_layers(nbt: &simdnbt::owned::NbtCompound) -> Vec<String> {
             ))
         })
         .collect()
+}
+
+/// Runs the books of the enchanting tables within 64 blocks
+/// (`bookAnimationTick`): each opens to the nearest player within three
+/// blocks of its table's middle.
+fn tick_enchanting_books(game: &mut GameState) {
+    use azalea_registry::builtin::BlockEntityKind;
+    let me = *game.player.position;
+    // A spectator doesn't count as near (`EntitySelector.NO_SPECTATORS`).
+    let watching = crate::player::is_spectator(game.player.game_mode);
+    let players: Vec<glam::DVec3> = (!watching)
+        .then_some(me)
+        .into_iter()
+        .chain(
+            game.entity_store
+                .living
+                .values()
+                .filter(|e| e.entity_type == EntityKind::Player)
+                .map(|e| *e.position),
+        )
+        .collect();
+    let mut near = Vec::new();
+    for (pos, be) in &game.chunk_store.block_entities {
+        if be.kind != BlockEntityKind::EnchantingTable {
+            continue;
+        }
+        let middle = glam::DVec3::new(
+            f64::from(pos.x) + 0.5,
+            f64::from(pos.y) + 0.5,
+            f64::from(pos.z) + 0.5,
+        );
+        if middle.distance_squared(me) > 64.0 * 64.0 {
+            continue;
+        }
+        let reader = players
+            .iter()
+            .map(|p| (p.distance_squared(middle), *p))
+            .filter(|(distance, _)| *distance < 9.0)
+            .min_by(|a, b| a.0.total_cmp(&b.0))
+            .map(|(_, p)| (p.x - middle.x, p.z - middle.z));
+        game.enchanting_books.entry(*pos).or_default().tick(reader);
+        near.push(*pos);
+    }
+    game.enchanting_books.retain(|pos, _| near.contains(pos));
+}
+
+/// `BaseSpawner.clientTick`: a spawner with a player within 16 blocks
+/// throws a wisp of smoke and a flame inside its cage each tick, and its
+/// mob spins.
+// TODO: the spin speeds up as the spawn nears (the synced delay); this
+// holds the delay at its 20 ticks.
+fn tick_spawners(game: &mut GameState, camera: glam::DVec3) {
+    use azalea_registry::builtin::BlockEntityKind;
+
+    use crate::particle::{ParticleLook, ParticleOptions, ServerParticleKind};
+    let me = *game.player.position;
+    let watching = crate::player::is_spectator(game.player.game_mode);
+    let players: Vec<glam::DVec3> = (!watching)
+        .then_some(me)
+        .into_iter()
+        .chain(
+            game.entity_store
+                .living
+                .values()
+                .filter(|e| e.entity_type == EntityKind::Player)
+                .map(|e| *e.position),
+        )
+        .collect();
+    let mut active = Vec::new();
+    for (pos, be) in &game.chunk_store.block_entities {
+        if be.kind != BlockEntityKind::MobSpawner {
+            continue;
+        }
+        let corner = glam::DVec3::new(f64::from(pos.x), f64::from(pos.y), f64::from(pos.z));
+        let middle = corner + glam::DVec3::splat(0.5);
+        if !players.iter().any(|p| p.distance_squared(middle) < 256.0) {
+            continue;
+        }
+        active.push((*pos, corner));
+    }
+    for (pos, corner) in &active {
+        let at = *corner + glam::DVec3::new(fastrand::f64(), fastrand::f64(), fastrand::f64());
+        for kind in [ServerParticleKind::Smoke, ServerParticleKind::Flame] {
+            game.particle_store.add_particles_from_packet(
+                kind,
+                ParticleOptions::None,
+                ParticleLook::None,
+                false,
+                at,
+                glam::DVec3::ZERO,
+                1.0,
+                0,
+                camera,
+            );
+        }
+        let spin = game.spawner_spins.entry(*pos).or_insert((0.0, 0.0));
+        *spin = (spin.1, (spin.1 + 1000.0 / 220.0) % 360.0);
+    }
+    game.spawner_spins
+        .retain(|pos, _| active.iter().any(|(p, _)| p == pos));
+}
+
+/// The mob a spawner is set to, small and spinning in its cage
+/// (`SpawnerRenderer`).
+fn build_spawner_mobs(
+    game: &GameState,
+    world_light: &WorldLight,
+    partial_tick: f32,
+    out: &mut Vec<EntityRenderInfo>,
+) {
+    use azalea_registry::builtin::BlockEntityKind;
+    use glam::{Mat4, Vec3};
+
+    use crate::entity::dimensions::EntityDimensions;
+    let eye = *game.player.position;
+    for (pos, be) in &game.chunk_store.block_entities {
+        if be.kind != BlockEntityKind::MobSpawner {
+            continue;
+        }
+        let corner = glam::DVec3::new(f64::from(pos.x), f64::from(pos.y), f64::from(pos.z));
+        if corner.distance_squared(eye) > 64.0 * 64.0 {
+            continue;
+        }
+        let Some(kind) = be
+            .nbt
+            .compound("SpawnData")
+            .and_then(|data| data.compound("entity"))
+            .and_then(|entity| entity.string("id"))
+            .and_then(|id| id.to_str().parse::<EntityKind>().ok())
+            .filter(|kind| crate::entity::is_living_mob(kind) && *kind != EntityKind::Player)
+        else {
+            continue;
+        };
+        let size = EntityDimensions::of(kind);
+        let largest = size.width.max(size.height);
+        let scale = if largest > 1.0 {
+            0.53125 / largest
+        } else {
+            0.53125
+        };
+        let (before, now) = game.spawner_spins.get(pos).copied().unwrap_or_default();
+        // The spin never wraps mid-tick the long way: it only grows.
+        let spin = if now < before {
+            now
+        } else {
+            before + (now - before) * partial_tick
+        };
+        // The mob faces south as its renderer draws it; the cage's pose
+        // goes round that.
+        let facing = Mat4::from_rotation_y(std::f32::consts::PI);
+        let cage = Mat4::from_rotation_y((spin * 10.0).to_radians())
+            * Mat4::from_translation(Vec3::new(0.0, -0.2, 0.0))
+            * Mat4::from_rotation_x((-30.0_f32).to_radians())
+            * Mat4::from_scale(Vec3::splat(scale));
+        out.push(EntityRenderInfo {
+            position: Position::new(corner.x + 0.5, corner.y + 0.4, corner.z + 0.5),
+            entity_kind: kind,
+            body_transform: Some(facing.inverse() * cage * facing),
+            light: block_lighter::light_coords(world_light, [pos.x, pos.y, pos.z]),
+            ..Default::default()
+        });
+    }
+}
+
+/// The book floating over each enchanting table (`EnchantTableRenderer`)
+/// and lying open on each lectern that holds one (`LecternRenderer`).
+fn build_books(
+    game: &GameState,
+    world_light: &WorldLight,
+    partial_tick: f32,
+    out: &mut Vec<EntityRenderInfo>,
+) {
+    use azalea_registry::builtin::BlockEntityKind;
+    use glam::{Mat4, Vec3};
+
+    use crate::renderer::pipelines::entity_renderer::{BOOK_KIND, unliving_model_frame};
+    let unliving = unliving_model_frame();
+    let book = |at: glam::DVec3, pose: Mat4, pos: &BlockPos| EntityRenderInfo {
+        position: Position::new(at.x, at.y, at.z),
+        entity_kind: BOOK_KIND,
+        head_y_rot_deg: 180.0,
+        body_y_rot_deg: 180.0,
+        body_transform: Some(pose * unliving),
+        light: block_lighter::light_coords(world_light, [pos.x, pos.y, pos.z]),
+        ..Default::default()
+    };
+    for (pos, anim) in &game.enchanting_books {
+        let time = anim.time as f32 + partial_tick;
+        let corner = glam::DVec3::new(f64::from(pos.x), f64::from(pos.y), f64::from(pos.z));
+        let bob = f64::from(0.1 + (time * 0.1).sin() * 0.01);
+        let pose = Mat4::from_rotation_y(-anim.rot_at(partial_tick))
+            * Mat4::from_rotation_z(80.0_f32.to_radians());
+        let [right, left] = anim.page_flips(partial_tick);
+        out.push(EntityRenderInfo {
+            age_in_ticks: time,
+            attack_time: anim.prev_open + (anim.open - anim.prev_open) * partial_tick,
+            flap: right,
+            flap_speed: left,
+            ..book(corner + glam::DVec3::new(0.5, 0.75 + bob, 0.5), pose, pos)
+        });
+    }
+    let eye = game.player.position;
+    for (pos, be) in &game.chunk_store.block_entities {
+        if be.kind != BlockEntityKind::Lectern {
+            continue;
+        }
+        let corner = glam::DVec3::new(f64::from(pos.x), f64::from(pos.y), f64::from(pos.z));
+        if corner.distance_squared(*eye) > 64.0 * 64.0 {
+            continue;
+        }
+        let state = game.chunk_store.get_block_state(pos.x, pos.y, pos.z);
+        let data = game.block_registry.block_state_data(state);
+        let props = data.properties();
+        if data.id() != "lectern" || props.get("has_book") != Some("true") {
+            continue;
+        }
+        // Turned to the facing's clockwise side, tipped onto the slope.
+        let degrees = match props.get("facing") {
+            Some("south") => 90.0,
+            Some("west") => 180.0,
+            Some("east") => 0.0,
+            _ => 270.0_f32,
+        };
+        let pose = Mat4::from_rotation_y((-degrees).to_radians())
+            * Mat4::from_rotation_z(67.5_f32.to_radians())
+            * Mat4::from_translation(Vec3::new(0.0, -0.125, 0.0));
+        out.push(EntityRenderInfo {
+            attack_time: 1.2,
+            flap: 0.1,
+            flap_speed: 0.9,
+            ..book(corner + glam::DVec3::new(0.5, 1.0625, 0.5), pose, pos)
+        });
+    }
+}
+
+/// How far up the last section of a beam is drawn. Vanilla draws 2048
+/// blocks of it; past a few hundred nothing of it is seen.
+const BEAM_TOP: u32 = 512;
+/// Vanilla's height for the last section, which sets where its texture is.
+const VANILLA_BEAM_TOP: f32 = 2048.0;
+
+/// Works out each loaded beacon's beam again once a second (vanilla scans
+/// ten blocks a tick, and checks the base every four seconds).
+fn update_beacon_beams(game: &mut GameState) {
+    use azalea_registry::builtin::BlockEntityKind;
+
+    use crate::world::beacon;
+    let now = game.tick_count;
+    let top = game.chunk_store.min_y() + game.chunk_store.section_count() * 16;
+    let block = |x: i32, y: i32, z: i32| {
+        game.block_registry
+            .block_state_data(game.chunk_store.get_block_state(x, y, z))
+    };
+    let mut seen = Vec::new();
+    for (pos, be) in &game.chunk_store.block_entities {
+        if be.kind != BlockEntityKind::Beacon || block(pos.x, pos.y, pos.z).id() != "beacon" {
+            continue;
+        }
+        seen.push(*pos);
+        // Spread the beacons' scans over the second.
+        let due = game
+            .beacon_beams
+            .get(pos)
+            .is_none_or(|(at, _)| now.saturating_sub(*at) >= 20);
+        if due {
+            // `updateBase`: a full layer of base blocks under it.
+            let based = (-1..=1).all(|dx| {
+                (-1..=1)
+                    .all(|dz| beacon::is_base_block(block(pos.x + dx, pos.y - 1, pos.z + dz).id()))
+            });
+            let sections = if based {
+                beacon::beam_sections((pos.y..top).map(|y| {
+                    let data = block(pos.x, y, pos.z);
+                    let opaque = game
+                        .block_registry
+                        .render_view()
+                        .is_opaque_full_cube(game.chunk_store.get_block_state(pos.x, y, pos.z));
+                    beacon::beam_block(data.id(), opaque)
+                }))
+            } else {
+                Vec::new()
+            };
+            game.beacon_beams.insert(*pos, (now, sections));
+        }
+    }
+    game.beacon_beams.retain(|pos, _| seen.contains(pos));
+}
+
+/// The beacons' beams as last worked out ([`update_beacon_beams`]).
+fn build_beacon_beams(game: &GameState, partial_tick: f32, out: &mut Vec<EntityRenderInfo>) {
+    use glam::Mat4;
+
+    use crate::renderer::entity_model::beam_pieces;
+    use crate::renderer::pipelines::entity_renderer::{BEAM_KIND, unliving_model_frame};
+
+    // `renderBeaconBeam`: the beam turns 2.25 degrees a tick, and the
+    // texture runs up a fifth of a repeat a tick.
+    let time = (game.sky_state.game_time.rem_euclid(40)) as f32 + partial_tick;
+    let run = (-time * 0.2 - (-time * 0.1).floor()).rem_euclid(1.0);
+    let unliving = unliving_model_frame();
+    let turn = Mat4::from_rotation_y((time * 2.25 - 45.0).to_radians());
+    for (pos, (_, sections)) in &game.beacon_beams {
+        let mut foot = 0;
+        for (i, section) in sections.iter().enumerate() {
+            let last = i + 1 == sections.len();
+            let (height, vanilla_height) = if last {
+                (BEAM_TOP, VANILLA_BEAM_TOP)
+            } else {
+                (section.height, section.height as f32)
+            };
+            let [r, g, b] =
+                [16, 8, 0].map(|shift| ((section.color >> shift) & 0xFF) as f32 / 255.0);
+            // The texture's place at the section's foot, as vanilla has it.
+            let slide = (vanilla_height * 2.5 + run).rem_euclid(1.0);
+            for (offset, length) in beam_pieces(height) {
+                let position = Position::new(
+                    f64::from(pos.x) + 0.5,
+                    f64::from(pos.y) + f64::from(foot + offset),
+                    f64::from(pos.z) + 0.5,
+                );
+                // The beam, then the glow round it at an eighth.
+                for (glow, tint, pose) in [
+                    (0, [r, g, b, 1.0], turn * unliving),
+                    (1, [r, g, b, 32.0 / 255.0], unliving),
+                ] {
+                    out.push(EntityRenderInfo {
+                        position,
+                        entity_kind: BEAM_KIND,
+                        head_y_rot_deg: 180.0,
+                        body_y_rot_deg: 180.0,
+                        variant_index: (length * 2 + glow) as u32,
+                        base_tint: tint,
+                        body_transform: Some(pose),
+                        flap: slide,
+                        skip_cull: true,
+                        light: LightLevels::FULL_BRIGHT,
+                        ..Default::default()
+                    });
+                }
+            }
+            foot += height;
+        }
+    }
 }
 
 /// The rails of the loaded world, for a minecart's place on them.

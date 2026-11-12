@@ -1,0 +1,67 @@
+# The book over an enchanting table (vanilla EnchantTableRenderer), shut
+# while the player watches from afar as a spectator and open toward a
+# player standing by it, the book lying on a lectern (LecternRenderer), and
+# a zombie spinning in a spawner with its smoke and flame (SpawnerRenderer).
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/gamemode spectator"
+
+[[step]]
+chat = "/tp @s 1400.5 -58.6 600.5 0 12"
+
+[[step]]
+wait_ms = 2500
+
+[[step]]
+chat = "/setblock 1401 -60 603 minecraft:enchanting_table"
+
+[[step]]
+chat = "/setblock 1399 -60 603 minecraft:lectern[facing=north,has_book=true]{Book:{id:\"minecraft:writable_book\",count:1}}"
+
+[[step]]
+chat = "/setblock 1403 -60 603 minecraft:spawner{SpawnData:{entity:{id:\"minecraft:zombie\"}}}"
+
+[[step]]
+wait_ms = 3000
+
+[[step]]
+screenshot = "shut"
+
+[[step]]
+chat = "/gamemode creative"
+
+[[step]]
+chat = "/tp @s 1401.5 -60 601.2 0 25"
+
+[[step]]
+wait_ms = 2500
+
+[[step]]
+screenshot = "open"
+
+[[step]]
+chat = "/tp @s 1403.5 -59.6 601.4 0 20"
+
+[[step]]
+wait_ms = 1200
+
+[[step]]
+screenshot = "spawner"
+
+[[step]]
+chat = "/fill 1399 -60 603 1403 -60 603 minecraft:air"
+
+[[step]]
+wait_ms = 300
+
+[[step]]
+chat = "/kill @e[type=minecraft:item,distance=..40]"

@@ -357,6 +357,35 @@ pub fn end_crystal(model: &BakedEntityModel, age_in_ticks: f32) -> PartAnim {
     anim
 }
 
+/// `BookModel.setupAnim`: the covers and pages fan out as the book opens
+/// (`open`, 0 shut to about 1.2 lying flat), breathing a little with
+/// `time`, and the two loose pages lie as far across as `flips` (right,
+/// then left; 0 to 1).
+pub fn book(model: &BakedEntityModel, time: f32, flips: [f32; 2], open: f32) -> PartAnim {
+    let mut anim = PartAnim::default();
+    let mut parts = Parts {
+        model,
+        anim: &mut anim,
+    };
+    let spread = ((time * 0.02).sin() * 0.1 + 1.25) * open;
+    for (name, y_rot) in [
+        ("left_lid", PI + spread),
+        ("right_lid", -spread),
+        ("left_pages", spread),
+        ("right_pages", -spread),
+        ("flip_page1", spread - spread * 2.0 * flips[0]),
+        ("flip_page2", spread - spread * 2.0 * flips[1]),
+    ] {
+        if let Some(rot) = parts.rot(name) {
+            rot.y = y_rot;
+        }
+    }
+    for name in ["left_pages", "right_pages", "flip_page1", "flip_page2"] {
+        parts.set_x(name, spread.sin());
+    }
+    anim
+}
+
 /// `BoatModel.setupAnim` (`animatePaddle`): each paddle at its place in
 /// the stroke, `rowing` being the left and right paddles' rowing times (0
 /// at rest, which holds them out of the water).

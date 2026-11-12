@@ -446,6 +446,9 @@ enum OverlayKind {
     /// Additive, full-bright, depth-writing, scrolling UV — charged creeper
     /// swirl.
     SwirlAdditive,
+    /// A beacon's beam: drawn with the translucent bodies, unlit, its
+    /// texture sliding up by [`EntityRenderInfo::flap`].
+    Beam,
     /// A body drawn as `BodyTranslucent` with its texture sliding sideways
     /// (vanilla `breezeWind`) — the wind charge.
     // TODO: `breezeWind` has no directional shading.
@@ -1324,6 +1327,10 @@ enum AnimationType {
     /// `EvokerFangsModel.setupAnim`, the bite's progress riding in
     /// [`EntityRenderInfo::attack_time`].
     EvokerFangs,
+    /// `BookModel.setupAnim`: how open it is riding in
+    /// [`EntityRenderInfo::attack_time`], its loose pages in `flap` (right)
+    /// and `flap_speed` (left).
+    Book,
     /// `BoatModel.setupAnim`: the paddles, their rowing times riding in
     /// [`EntityRenderInfo::flap`] (left) and `flap_speed` (right).
     Boat,
@@ -1354,7 +1361,54 @@ fn mob_definitions() -> Vec<MobDef> {
     let mut defs = mob_and_projectile_definitions();
     defs.extend(vehicle_definitions());
     defs.push(painting_definition());
+    defs.push(beam_definition());
+    defs.push(MobDef {
+        anim: AnimationType::Book,
+        ..still(
+            BOOK_KIND,
+            entity_model::exported_data::BOOK,
+            &[&[
+                "minecraft/textures/entity/enchantment/enchanting_table_book.png",
+                "minecraft/textures/entity/enchanting_table_book.png",
+            ]],
+        )
+    });
     defs
+}
+
+/// The entity kind the book over an enchanting table and on a lectern is
+/// drawn under: an interaction entity is never seen, so it is free.
+pub(crate) const BOOK_KIND: EntityKind = EntityKind::Interaction;
+
+/// The entity kind a beacon's beam is drawn under: beams aren't entities,
+/// and the client never draws a marker, so it is free.
+pub(crate) const BEAM_KIND: EntityKind = EntityKind::Marker;
+
+/// `BeaconRenderer`: for each of `BEAM_LENGTHS`, the beam and then its glow.
+fn beam_definition() -> MobDef {
+    const TEXTURE: &[&[&str]] = &[&[
+        "minecraft/textures/entity/beacon/beacon_beam.png",
+        "minecraft/textures/entity/beacon_beam.png",
+    ]];
+    let adult = entity_model::BEAM_LENGTHS
+        .iter()
+        .flat_map(|&length| [false, true].map(|glow| (length, glow)))
+        .map(|(length, glow)| VariantDef {
+            model: entity_model::bake_beam(length, glow),
+            tex_variants: TEXTURE,
+            tex_size: 16,
+            overlay_kind: OverlayKind::Beam,
+            invisible_outline: false,
+        })
+        .collect();
+    MobDef {
+        kind: BEAM_KIND,
+        anim: AnimationType::Static,
+        adult,
+        baby: None,
+        adult_overlays: vec![],
+        baby_overlays: vec![],
+    }
 }
 
 /// `PaintingRenderer`: a variant for each shipped painting's picture, then
@@ -4117,6 +4171,12 @@ impl EntityRenderer {
             AnimationType::Boat => {
                 entity_model::mob_anims::boat(model, [info.flap, info.flap_speed])
             }
+            AnimationType::Book => entity_model::mob_anims::book(
+                model,
+                info.age_in_ticks,
+                [info.flap, info.flap_speed],
+                info.attack_time,
+            ),
             AnimationType::ArmorStand => {
                 entity_model::compute_armor_stand_anim(model, &info.armor_stand_pose)
             }
@@ -4291,6 +4351,13 @@ impl EntityRenderer {
                     }
                     Route::Draw if base.overlay_kind == OverlayKind::BodyTranslucent => {
                         translucent_bodies.push((base, texture_set, member));
+                    }
+                    Route::Draw if base.overlay_kind == OverlayKind::Beam => {
+                        translucent_bodies.push((
+                            base,
+                            texture_set,
+                            (vi, member.1, NO_OVERLAY, [0.0, v.info.flap]),
+                        ));
                     }
                     Route::Draw if base.overlay_kind == OverlayKind::Wind => {
                         // `WindChargeRenderer.xOffset`: the texture slides
@@ -4750,7 +4817,8 @@ impl<'a> VariantGroups<'a> {
                     .map(|(vi, ..)| variant.model.compute_part_transforms(&vis[*vi].anim))
                     .collect()
             });
-            let alpha_cutoff = if variant.overlay_kind == OverlayKind::Wind {
+            let beam = variant.overlay_kind == OverlayKind::Beam;
+            let alpha_cutoff = if variant.overlay_kind == OverlayKind::Wind || beam {
                 WIND_ALPHA_CUTOFF
             } else {
                 ENTITY_ALPHA_CUTOFF
@@ -4766,7 +4834,7 @@ impl<'a> VariantGroups<'a> {
                         None => vis[*vi].part_transforms[p],
                     };
                     let model = vis[*vi].entity_mat * part;
-                    let light = if unlit {
+                    let light = if unlit || beam {
                         UNLIT_LANE
                     } else {
                         vis[*vi].info.light.lane()
@@ -5115,7 +5183,9 @@ fn build_variants(
     // The sliding swirl and wind need REPEAT wrapping; everything else
     // clamps.
     let sampler = match overlay_kind {
-        OverlayKind::SwirlAdditive | OverlayKind::Wind => texture_sampler_repeat,
+        OverlayKind::SwirlAdditive | OverlayKind::Wind | OverlayKind::Beam => {
+            texture_sampler_repeat
+        }
         _ => texture_sampler,
     };
     let vert_bytes = bytemuck::cast_slice::<EntityVertex, u8>(&model.vertices);

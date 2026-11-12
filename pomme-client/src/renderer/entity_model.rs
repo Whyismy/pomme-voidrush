@@ -5,6 +5,7 @@ use crate::renderer::rhi;
 
 mod armadillo;
 mod axolotl;
+mod beam;
 mod bee;
 mod copper_golem_anim;
 pub mod crossbow;
@@ -24,6 +25,7 @@ pub mod spear;
 mod turtle;
 pub use armadillo::*;
 pub use axolotl::*;
+pub(crate) use beam::{BEAM_LENGTHS, bake_beam, beam_pieces};
 pub use bee::*;
 pub use dolphin::*;
 pub(crate) use exported::{ExportedPart, bake_exported, bake_exported_hiding};

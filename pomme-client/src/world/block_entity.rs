@@ -59,6 +59,9 @@ fn synthesized_kind(name: &str) -> Option<BlockEntityKind> {
         .or_else(|| name.ends_with("_banner").then_some(BlockEntityKind::Banner))
         .or_else(|| (name == "decorated_pot").then_some(BlockEntityKind::DecoratedPot))
         .or_else(|| (name == "conduit").then_some(BlockEntityKind::Conduit))
+        // The server sends nothing for these; their books are the client's.
+        .or_else(|| (name == "enchanting_table").then_some(BlockEntityKind::EnchantingTable))
+        .or_else(|| (name == "lectern").then_some(BlockEntityKind::Lectern))
 }
 
 /// Kinds [`synthesized_kind`] synthesizes entries for; used to detect entries
@@ -74,6 +77,8 @@ fn is_rendered(kind: BlockEntityKind) -> bool {
             | BlockEntityKind::Banner
             | BlockEntityKind::DecoratedPot
             | BlockEntityKind::Conduit
+            | BlockEntityKind::EnchantingTable
+            | BlockEntityKind::Lectern
     )
 }
 

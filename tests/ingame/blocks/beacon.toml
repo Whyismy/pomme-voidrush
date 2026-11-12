@@ -1,0 +1,60 @@
+# Beacon beams (vanilla BeaconRenderer): a beacon on its base with a white
+# beam, one whose beam turns red through stained glass and then purple
+# through blue glass above it, and one under a stone roof with no beam.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/time set 13000"
+
+[[step]]
+chat = "/gamemode spectator"
+
+[[step]]
+chat = "/tp @s 1350.5 -56.0 588.0 0 -12"
+
+[[step]]
+wait_ms = 2500
+
+[[step]]
+chat = "/fill 1343 -60 603 1345 -60 605 minecraft:iron_block"
+
+[[step]]
+chat = "/setblock 1344 -59 604 minecraft:beacon"
+
+[[step]]
+chat = "/fill 1349 -60 603 1351 -60 605 minecraft:gold_block"
+
+[[step]]
+chat = "/setblock 1350 -59 604 minecraft:beacon"
+
+[[step]]
+chat = "/setblock 1350 -57 604 minecraft:red_stained_glass"
+
+[[step]]
+chat = "/setblock 1350 -52 604 minecraft:blue_stained_glass"
+
+[[step]]
+chat = "/fill 1355 -60 603 1357 -60 605 minecraft:emerald_block"
+
+[[step]]
+chat = "/setblock 1356 -59 604 minecraft:beacon"
+
+[[step]]
+chat = "/setblock 1356 -56 604 minecraft:stone"
+
+[[step]]
+wait_ms = 5000
+
+[[step]]
+screenshot = "beams"
+
+[[step]]
+chat = "/fill 1343 -60 603 1357 -50 605 minecraft:air"
+
+[[step]]
+chat = "/gamemode creative"
