@@ -605,6 +605,10 @@ pub enum NetworkEvent {
     },
     /// Registry/wire variant slot; meaning is per-kind. `kind` is the mob
     /// the emitting arm resolved for, guarding overloaded metadata indices.
+    /// Entity event 17 on a firework rocket: it goes off.
+    FireworkExplode {
+        id: i32,
+    },
     /// A painting's variant (`Painting.DATA_PAINTING_VARIANT_ID`).
     PaintingVariant {
         id: i32,

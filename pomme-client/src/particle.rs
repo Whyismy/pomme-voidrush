@@ -117,6 +117,15 @@ enum Extra {
     },
     /// `OverlayParticle`: dims each tick.
     Flash,
+    /// `FireworkParticles.SparkParticle` from a rocket's burst: fading
+    /// toward `fade`, leaving a spark behind every other tick of its first
+    /// half with `trail`, and blinking through its last two thirds with
+    /// `twinkle`.
+    Spark {
+        fade: Option<[f32; 3]>,
+        trail: bool,
+        twinkle: bool,
+    },
     /// `WaterDropParticle`: gone on landing half the time, or once it sinks
     /// into a block's shape or a fluid.
     WaterDrop,
@@ -765,6 +774,61 @@ impl Particle {
         p
     }
 
+    /// One spark of a rocket's burst
+    /// (`FireworkParticles.Starter.createParticle`).
+    fn burst_spark(pos: DVec3, vel: DVec3, explosion: &FireworkExplosion) -> Self {
+        let pick = |colors: &[u32]| unpack_rgb(colors[fastrand::usize(..colors.len())]);
+        let mut p = Self::firework(pos, vel);
+        p.color = if explosion.colors.is_empty() {
+            // `DyeColor.BLACK.getFireworkColor`.
+            unpack_rgb(0x1E1B1B)
+        } else {
+            pick(&explosion.colors)
+        };
+        p.extra = Extra::Spark {
+            fade: (!explosion.fade_colors.is_empty()).then(|| pick(&explosion.fade_colors)),
+            trail: explosion.trail,
+            twinkle: explosion.twinkle,
+        };
+        p
+    }
+
+    /// The spark a trailing one leaves behind: still, half way through its
+    /// life already (`SparkParticle.tick`).
+    fn trail_spark(&self) -> Option<Self> {
+        let Extra::Spark {
+            fade,
+            trail: true,
+            twinkle,
+        } = self.extra
+        else {
+            return None;
+        };
+        if self.age >= self.lifetime / 2 || (self.age + self.lifetime) % 2 != 0 {
+            return None;
+        }
+        let mut p = Self::firework(self.pos, DVec3::ZERO);
+        p.color = self.color;
+        p.age = p.lifetime / 2;
+        p.extra = Extra::Spark {
+            fade,
+            trail: false,
+            twinkle,
+        };
+        Some(p)
+    }
+
+    /// Whether it draws this tick: a twinkling spark blinks
+    /// (`SparkParticle.extract`).
+    fn shown(&self) -> bool {
+        match self.extra {
+            Extra::Spark { twinkle: true, .. } => {
+                self.age < self.lifetime / 3 || (self.age + self.lifetime) / 3 % 2 == 0
+            }
+            _ => true,
+        }
+    }
+
     /// `SnowflakeParticle`.
     fn snowflake(pos: DVec3, vel: DVec3) -> Self {
         let jitter = || (fastrand::f64() * 2.0 - 1.0) * f64::from(0.05f32);
@@ -1139,7 +1203,7 @@ impl Particle {
             }
         }
         match self.extra {
-            Extra::FadeOut(fade) => {
+            Extra::FadeOut(fade) | Extra::Spark { fade, .. } => {
                 if self.age > self.lifetime / 2 {
                     self.alpha = 1.0 - (self.age - self.lifetime / 2) as f32 / self.lifetime as f32;
                     if let Some(fade) = fade {
@@ -1994,6 +2058,135 @@ impl Seed {
     }
 }
 
+/// A firework star's shape (`FireworkExplosion.Shape`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum FireworkShape {
+    SmallBall,
+    LargeBall,
+    Star,
+    Creeper,
+    Burst,
+}
+
+/// One star of a rocket (`FireworkExplosion`): its shape, the colours its
+/// sparks take and fade to (RGB), and whether they trail and twinkle.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FireworkExplosion {
+    pub shape: FireworkShape,
+    pub colors: Vec<u32>,
+    pub fade_colors: Vec<u32>,
+    pub trail: bool,
+    pub twinkle: bool,
+}
+
+/// A rocket going off (`FireworkParticles.Starter`): a star every other
+/// tick, each with its flash.
+struct FireworkStarter {
+    pos: DVec3,
+    vel: DVec3,
+    explosions: Vec<FireworkExplosion>,
+    life: usize,
+}
+
+/// `FireworkParticles.Starter.STAR_PARTICLE_COORDS`: half a star's outline.
+const STAR_OUTLINE: [[f64; 2]; 6] = [
+    [0.0, 1.0],
+    [0.3455, 0.309],
+    [0.9511, 0.309],
+    [0.379_591_836_734_693_9, -0.126_530_612_244_897_95],
+    [0.612_244_897_959_183_7, -0.804_081_632_653_061_2],
+    [0.0, -0.359_183_673_469_387_73],
+];
+
+/// `CREEPER_PARTICLE_COORDS`: half a creeper face's outline.
+const CREEPER_OUTLINE: [[f64; 2]; 12] = [
+    [0.0, 0.2],
+    [0.2, 0.2],
+    [0.2, 0.6],
+    [0.6, 0.6],
+    [0.6, 0.2],
+    [0.2, 0.2],
+    [0.2, 0.0],
+    [0.4, 0.0],
+    [0.4, -0.6],
+    [0.2, -0.6],
+    [0.2, -0.4],
+    [0.0, -0.4],
+];
+
+impl FireworkStarter {
+    /// The velocities of one star's sparks, by its shape.
+    fn spark_velocities(&self, shape: FireworkShape) -> Vec<DVec3> {
+        let mut out = Vec::new();
+        let spread = || fastrand::f64() - fastrand::f64();
+        // `createParticleBall`: the shell of a cube of sparks, thrown out
+        // at about `speed`.
+        let mut ball = |speed: f64, radius: i32| {
+            for i in -radius..=radius {
+                for j in -radius..=radius {
+                    let mut k = -radius;
+                    while k <= radius {
+                        let v = dvec3(
+                            f64::from(j) + spread() * 0.5,
+                            f64::from(i) + spread() * 0.5,
+                            f64::from(k) + spread() * 0.5,
+                        );
+                        let scale = v.length() / speed + next_gaussian() * 0.05;
+                        out.push(v / scale);
+                        if i != -radius && i != radius && j != -radius && j != radius {
+                            k += radius * 2 - 1;
+                        }
+                        k += 1;
+                    }
+                }
+            }
+        };
+        match shape {
+            FireworkShape::SmallBall => ball(0.25, 2),
+            FireworkShape::LargeBall => ball(0.5, 4),
+            // `createParticleShape`: the outline and its mirror, drawn
+            // three times turned about the vertical (a creeper's face
+            // nearly flat).
+            FireworkShape::Star | FireworkShape::Creeper => {
+                let (outline, flat): (&[[f64; 2]], bool) = if shape == FireworkShape::Star {
+                    (&STAR_OUTLINE, false)
+                } else {
+                    (&CREEPER_OUTLINE, true)
+                };
+                let speed = 0.5;
+                out.push(dvec3(outline[0][0] * speed, outline[0][1] * speed, 0.0));
+                let start = f64::from(fastrand::f32()) * std::f64::consts::PI;
+                let step = if flat { 0.034 } else { 0.34 };
+                for turn in 0..3 {
+                    let angle = start + f64::from(turn) * std::f64::consts::PI * step;
+                    for pair in outline.windows(2) {
+                        for quarter in 1..=4 {
+                            let t = f64::from(quarter) * 0.25;
+                            let x = (pair[0][0] + (pair[1][0] - pair[0][0]) * t) * speed;
+                            let y = (pair[0][1] + (pair[1][1] - pair[0][1]) * t) * speed;
+                            let (x, z) = (x * angle.cos(), x * angle.sin());
+                            out.push(dvec3(x, y, z));
+                            out.push(dvec3(-x, y, -z));
+                        }
+                    }
+                }
+            }
+            // `createParticleBurst`: seventy sparks along the rocket's way.
+            FireworkShape::Burst => {
+                let (dx, dz) = (next_gaussian() * 0.05, next_gaussian() * 0.05);
+                for _ in 0..70 {
+                    out.push(dvec3(
+                        self.vel.x * 0.5 + next_gaussian() * 0.15 + dx,
+                        self.vel.y * 0.5 + fastrand::f64() * 0.5,
+                        self.vel.z * 0.5 + next_gaussian() * 0.15 + dz,
+                    ));
+                }
+            }
+        }
+        out
+    }
+}
+
 /// One of the particles an explosion throws from the blocks it blew
 /// (`ExplosionParticleInfo`, in the packet's weighted list).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -2087,6 +2280,7 @@ pub struct ParticleStore {
     /// Seeds spawned this tick, which start ticking the next.
     pending_seeds: Vec<Seed>,
     explosions: Vec<TrackedExplosion>,
+    fireworks: Vec<FireworkStarter>,
     uv_map: AtlasUVMap,
     sets: SpriteSets,
     grass_colormap: Arc<Colormap>,
@@ -2108,6 +2302,7 @@ impl ParticleStore {
             seeds: Vec::new(),
             pending_seeds: Vec::new(),
             explosions: Vec::new(),
+            fireworks: Vec::new(),
             uv_map,
             sets,
             grass_colormap,
@@ -2873,6 +3068,47 @@ impl ParticleStore {
         })
     }
 
+    /// A rocket goes off at `pos`, moving at `vel`
+    /// (`ClientLevel.createFireworks`): its stars burst one every other
+    /// tick from the next tick on.
+    pub fn start_fireworks(&mut self, pos: DVec3, vel: DVec3, explosions: Vec<FireworkExplosion>) {
+        if !explosions.is_empty() {
+            self.fireworks.push(FireworkStarter {
+                pos,
+                vel,
+                explosions,
+                life: 0,
+            });
+        }
+    }
+
+    /// `FireworkParticles.Starter.tick`.
+    fn tick_fireworks(&mut self) {
+        let mut starters = std::mem::take(&mut self.fireworks);
+        starters.retain_mut(|starter| {
+            if starter.life % 2 == 0 && starter.life / 2 < starter.explosions.len() {
+                let explosion = &starter.explosions[starter.life / 2];
+                for vel in starter.spark_velocities(explosion.shape) {
+                    let mut p = Particle::burst_spark(starter.pos, vel, explosion);
+                    p.sprite_from_age(&self.sets);
+                    self.push(p);
+                }
+                let color = explosion
+                    .colors
+                    .first()
+                    .map_or([0.0; 3], |c| unpack_rgb(*c));
+                let mut flash = Particle::flash(starter.pos, color);
+                if let Some(sprite) = self.sets.first(SpriteSet::Flash) {
+                    flash.set_sprite(&sprite);
+                }
+                self.push(flash);
+            }
+            starter.life += 1;
+            starter.life < starter.explosions.len() * 2
+        });
+        self.fireworks = starters;
+    }
+
     /// Vanilla `ParticleGroup` caps: hard limit plus probabilistic rejection
     /// once the reservoir fills.
     fn push(&mut self, particle: Particle) {
@@ -2894,6 +3130,7 @@ impl ParticleStore {
         self.pending.clear();
         self.seeds.clear();
         self.pending_seeds.clear();
+        self.fireworks.clear();
         self.explosions.clear();
     }
 
@@ -2993,6 +3230,7 @@ impl ParticleStore {
     pub fn tick(&mut self, chunks: &ChunkStore, block_state_table: BlockStateTable) {
         self.tick_explosions(chunks, block_state_table);
         self.tick_seeds();
+        self.tick_fireworks();
         let sets = &self.sets;
         let pending = &mut self.pending;
         self.particles.retain_mut(|p| {
@@ -3020,6 +3258,10 @@ impl ParticleStore {
                 }
                 pending.push(next);
             }
+            if alive && let Some(mut spark) = p.trail_spark() {
+                spark.sprite_from_age(sets);
+                pending.push(spark);
+            }
             alive && p.alpha > 0.0
         });
         self.particles.append(&mut self.pending);
@@ -3035,6 +3277,7 @@ impl ParticleStore {
     ) -> Vec<ParticleQuad> {
         self.particles
             .iter()
+            .filter(|p| p.shown())
             .map(|p| {
                 let pos = (p.prev_pos.lerp(p.pos, partial_tick as f64) - anchor).as_vec3();
                 let channel = |c: f32| (c.clamp(0.0, 1.0) * 255.0).round() as u8;
@@ -3367,6 +3610,101 @@ mod tests {
         assert_eq!(weighted_pick(&[2u32, 3, 5], |w| *w, 4), Some(&3));
         assert_eq!(weighted_pick(&[2u32, 3, 5], |w| *w, 9), Some(&5));
         assert_eq!(weighted_pick(&[2u32, 3, 5], |w| *w, 10), None);
+    }
+
+    /// A rocket's stars go off one every other tick: a small ball's 98
+    /// sparks and its flash, then a burst's 70, in the stars' own colours;
+    /// trailing sparks leave more behind, and twinkling ones blink.
+    #[test]
+    fn a_rocket_bursts_star_by_star() {
+        let chunks = ChunkStore::new(8);
+        let table = BlockStateTable::native();
+        let star = |shape, trail, twinkle| FireworkExplosion {
+            shape,
+            colors: vec![0xFF0000],
+            fade_colors: vec![0x0000FF],
+            trail,
+            twinkle,
+        };
+        let mut store = new_store();
+        let at = dvec3(0.5, 80.0, 0.5);
+        store.start_fireworks(
+            at,
+            dvec3(0.0, 1.0, 0.0),
+            vec![
+                star(FireworkShape::SmallBall, false, false),
+                star(FireworkShape::Burst, false, true),
+            ],
+        );
+        store.start_fireworks(at, DVec3::ZERO, Vec::new());
+        assert_eq!(store.fireworks.len(), 1, "an empty rocket is nothing");
+        store.tick(&chunks, table);
+        // A 5 x 5 x 5 cube's shell is 98 sparks, and the flash.
+        assert_eq!(store.particles.len(), 99);
+        assert!(
+            store.particles[..98]
+                .iter()
+                .all(|p| p.color == [1.0, 0.0, 0.0])
+        );
+        assert!(
+            store.particles[..98]
+                .iter()
+                .all(|p| (p.vel.length() - 0.25).abs() < 0.2)
+        );
+        store.tick(&chunks, table);
+        assert_eq!(store.particles.len(), 99);
+        store.tick(&chunks, table);
+        assert_eq!(store.particles.len(), 99 + 71);
+        // The burst goes the rocket's way.
+        assert!(store.particles[99..169].iter().all(|p| p.vel.y >= 0.5));
+
+        // The starter outlives its last star by a tick, as vanilla's does.
+        assert_eq!(store.fireworks.len(), 1);
+        store.tick(&chunks, table);
+        assert!(store.fireworks.is_empty());
+
+        // A twinkling spark blinks once past a third of its life.
+        let twinkler = store.particles[99..169]
+            .iter()
+            .find(|p| matches!(p.extra, Extra::Spark { twinkle: true, .. }))
+            .unwrap();
+        assert!(twinkler.shown());
+        let mut late =
+            Particle::burst_spark(at, DVec3::ZERO, &star(FireworkShape::Burst, false, true));
+        late.lifetime = 48;
+        late.age = 17;
+        assert!(!late.shown());
+        late.age = 24;
+        assert!(late.shown());
+
+        // A trailing spark leaves one behind on the ticks its age and life
+        // sum even, for its first half.
+        let mut trailing =
+            Particle::burst_spark(at, DVec3::ZERO, &star(FireworkShape::Star, true, false));
+        trailing.lifetime = 48;
+        trailing.age = 4;
+        let left = trailing.trail_spark().unwrap();
+        assert_eq!(left.color, trailing.color);
+        assert_eq!(left.age, left.lifetime / 2);
+        assert!(left.trail_spark().is_none());
+        trailing.age = 5;
+        assert!(trailing.trail_spark().is_none());
+        trailing.age = 30;
+        assert!(trailing.trail_spark().is_none());
+
+        // A star's outline: its tip, then 5 edges x 4 points x 2 sides x 3.
+        let starter = FireworkStarter {
+            pos: at,
+            vel: DVec3::ZERO,
+            explosions: Vec::new(),
+            life: 0,
+        };
+        assert_eq!(starter.spark_velocities(FireworkShape::Star).len(), 121);
+        assert_eq!(starter.spark_velocities(FireworkShape::Creeper).len(), 265);
+        assert_eq!(
+            starter.spark_velocities(FireworkShape::LargeBall).len(),
+            386
+        );
     }
 
     /// Spawns `kind` with `options` beside the camera, with the packet's

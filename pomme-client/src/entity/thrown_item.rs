@@ -3,7 +3,8 @@
 //! ender. Servers dress them in any stack, so Void Rush's mage bolts are
 //! snowballs carrying a pack model. They fly on the client between the
 //! server's position updates, as vanilla's do. Wind charges fly here too,
-//! though they're drawn as their own model (`WindChargeRenderer`).
+//! though they're drawn as their own model (`WindChargeRenderer`), and
+//! firework rockets, which climb faster as they go and trail sparks.
 
 use std::collections::HashMap;
 
@@ -27,6 +28,9 @@ pub struct ThrownItem {
     pub age: u32,
     /// `Entity.DATA_NO_GRAVITY`: Void Rush's mage bolts fly straight.
     no_gravity: bool,
+    /// `FireworkRocketEntity.DATA_SHOT_AT_ANGLE`: a rocket from a crossbow,
+    /// which keeps its speed.
+    shot_at_angle: bool,
 }
 
 impl ThrownItem {
@@ -41,6 +45,7 @@ impl ThrownItem {
             EntityKind::SplashPotion => "splash_potion",
             EntityKind::LingeringPotion => "lingering_potion",
             EntityKind::EyeOfEnder => "ender_eye",
+            EntityKind::FireworkRocket => "firework_rocket",
             _ => "fire_charge",
         }
     }
@@ -69,6 +74,7 @@ pub fn is_thrown_item(kind: EntityKind) -> bool {
             | EntityKind::Fireball
             | EntityKind::SmallFireball
             | EntityKind::EyeOfEnder
+            | EntityKind::FireworkRocket
     ) || is_wind_charge(kind)
 }
 
@@ -113,6 +119,7 @@ impl ThrownItemStore {
                 stack: None,
                 age: 0,
                 no_gravity: false,
+                shot_at_angle: false,
             },
         );
     }
@@ -150,11 +157,38 @@ impl ThrownItemStore {
         }
     }
 
+    /// `FireworkRocketEntity.DATA_SHOT_AT_ANGLE` (index 10).
+    pub fn set_shot_at_angle(&mut self, id: i32, shot_at_angle: bool) {
+        if let Some(item) = self.items.get_mut(&id)
+            && item.kind == EntityKind::FireworkRocket
+        {
+            item.shot_at_angle = shot_at_angle;
+        }
+    }
+
     /// `ThrowableProjectile.tick` on the client: move, then drag and fall.
+    /// A rocket instead speeds up as it goes (`FireworkRocketEntity.tick`);
+    /// returned are where each rocket's spark starts this tick and how it
+    /// moves.
     // TODO: water drag (0.8) and the eye of ender's own flight.
-    pub fn tick(&mut self) {
+    pub fn tick(&mut self) -> Vec<(DVec3, DVec3)> {
+        let mut sparks = Vec::new();
         for item in self.items.values_mut() {
             item.prev_position = item.position;
+            if item.kind == EntityKind::FireworkRocket {
+                if !item.shot_at_angle {
+                    item.velocity =
+                        item.velocity * DVec3::new(1.15, 1.0, 1.15) + DVec3::new(0.0, 0.04, 0.0);
+                }
+                item.position = (DVec3::from(item.position) + item.velocity).into();
+                item.age = item.age.saturating_add(1);
+                let drift = || crate::particle::next_gaussian() * 0.05;
+                sparks.push((
+                    DVec3::from(item.position),
+                    DVec3::new(drift(), -item.velocity.y * 0.5, drift()),
+                ));
+                continue;
+            }
             item.position = (DVec3::from(item.position) + item.velocity).into();
             item.velocity *= drag(item.kind);
             if !item.no_gravity {
@@ -162,6 +196,7 @@ impl ThrownItemStore {
             }
             item.age = item.age.saturating_add(1);
         }
+        sparks
     }
 
     pub fn remove(&mut self, ids: &[i32]) {
@@ -208,6 +243,34 @@ mod tests {
         assert_eq!(store.items[&3].position.y, 0.0, "a mage bolt doesn't");
         assert_eq!(store.items[&2].position.y, 0.0, "a fireball doesn't");
         assert_eq!(ThrownItem::default_item(EntityKind::Snowball), "snowball");
+
+        // A rocket speeds up sideways and climbs, sparking as it goes; one
+        // shot from a crossbow keeps its speed.
+        store.spawn(
+            5,
+            EntityKind::FireworkRocket,
+            Position::new(0.0, 0.0, 0.0),
+            DVec3::new(0.1, 0.5, 0.0),
+        );
+        store.spawn(
+            6,
+            EntityKind::FireworkRocket,
+            Position::new(0.0, 0.0, 0.0),
+            DVec3::new(0.1, 0.5, 0.0),
+        );
+        store.set_shot_at_angle(6, true);
+        store.set_shot_at_angle(1, true);
+        let sparks = store.tick();
+        assert_eq!(sparks.len(), 2);
+        let rocket = &store.items[&5];
+        assert!((rocket.velocity - DVec3::new(0.115, 0.54, 0.0)).length() < 1e-12);
+        assert_eq!(*rocket.position, rocket.velocity);
+        assert_eq!(store.items[&6].velocity, DVec3::new(0.1, 0.5, 0.0));
+        assert_eq!(
+            ThrownItem::default_item(EntityKind::FireworkRocket),
+            "firework_rocket"
+        );
+        store.remove(&[5, 6]);
 
         // A wind charge keeps its speed and its height.
         store.spawn(

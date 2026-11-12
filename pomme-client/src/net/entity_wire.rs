@@ -165,6 +165,7 @@ fn entity_event(id: i32, event: i8) -> Option<NetworkEvent> {
         9 => NetworkEvent::FinishUseItem { id },
         10 => NetworkEvent::SheepEatStart { id },
         11 => NetworkEvent::GolemOfferFlower { id, offering: true },
+        17 => NetworkEvent::FireworkExplode { id },
         19 => NetworkEvent::SquidTentacleReset { id },
         34 => NetworkEvent::GolemOfferFlower {
             id,

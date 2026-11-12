@@ -2819,7 +2819,20 @@ pub fn update_game(
                 fastrand::u64(..),
             );
         }
-        game.thrown_items.tick();
+        // A rocket's trail of sparks (`FireworkRocketEntity.tick`).
+        for (at, speed) in game.thrown_items.tick() {
+            game.particle_store.add_particles_from_packet(
+                crate::particle::ServerParticleKind::Firework,
+                crate::particle::ParticleOptions::None,
+                crate::particle::ParticleLook::None,
+                false,
+                at,
+                speed,
+                1.0,
+                0,
+                gfx.renderer.camera_render_position(),
+            );
+        }
         tick_model_entities(game, gfx.renderer.camera_render_position());
         game.fishing_hooks.tick();
         // `ExperienceOrb.followNearbyPlayer`: orbs make for the middle of

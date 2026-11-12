@@ -3144,6 +3144,11 @@ impl AppCore {
                     game.arrows.apply_entity_data(id, index, &value);
                     game.model_entities.apply_entity_data(id, index, value);
                     game.name_store.apply_entity_data(id, index, value);
+                    if index == 10
+                        && let crate::entity::MetaValue::Bool(shot_at_angle) = value
+                    {
+                        game.thrown_items.set_shot_at_angle(id, shot_at_angle);
+                    }
                     if index == 5
                         && let crate::entity::MetaValue::Bool(no_gravity) = value
                     {
@@ -3226,6 +3231,39 @@ impl AppCore {
                             game.player.eye_pos().into(),
                             game.player.look_dir,
                         );
+                    }
+                }
+                // `FireworkRocketEntity.handleEntityEvent`: the stars of the
+                // rocket's item burst where it is, with their blast.
+                NetworkEvent::FireworkExplode { id } => {
+                    if let Some(rocket) = game.thrown_items.items.get(&id) {
+                        let explosions = firework_explosions(rocket.stack.as_ref());
+                        let at = glam::DVec3::from(rocket.position);
+                        if !explosions.is_empty() {
+                            let large = explosions.len() >= 3
+                                || explosions
+                                    .iter()
+                                    .any(|e| e.shape == crate::particle::FireworkShape::LargeBall);
+                            let far =
+                                renderer.camera_render_position().distance_squared(at) >= 256.0;
+                            let sound = match (large, far) {
+                                (true, true) => "entity.firework_rocket.large_blast_far",
+                                (true, false) => "entity.firework_rocket.large_blast",
+                                (false, true) => "entity.firework_rocket.blast_far",
+                                (false, false) => "entity.firework_rocket.blast",
+                            };
+                            self.audio.play_world_sound(
+                                &crate::audio::SoundRef::event(sound),
+                                crate::audio::CATEGORY_AMBIENT,
+                                Position::new(at.x, at.y, at.z),
+                                20.0,
+                                0.95 + fastrand::f32() * 0.1,
+                                fastrand::u64(..),
+                            );
+                        }
+                        // TODO: the twinkle's crackle as the last star fades.
+                        game.particle_store
+                            .start_fireworks(at, rocket.velocity, explosions);
                     }
                 }
                 NetworkEvent::PaintingVariant { id, variant } => {
@@ -4596,6 +4634,36 @@ fn particle_look(
             }),
         _ => ParticleLook::None,
     }
+}
+
+/// The stars a rocket's item carries (its `fireworks` component).
+fn firework_explosions(
+    stack: Option<&azalea_inventory::ItemStackData>,
+) -> Vec<crate::particle::FireworkExplosion> {
+    use azalea_inventory::components::{FireworkExplosionShape, Fireworks};
+
+    use crate::particle::{FireworkExplosion, FireworkShape};
+    let Some(fireworks) = stack.and_then(|stack| stack.get_component::<Fireworks>()) else {
+        return Vec::new();
+    };
+    let rgb = |colors: &[i32]| colors.iter().map(|c| *c as u32 & 0xFF_FFFF).collect();
+    fireworks
+        .explosions
+        .iter()
+        .map(|explosion| FireworkExplosion {
+            shape: match explosion.shape {
+                FireworkExplosionShape::SmallBall => FireworkShape::SmallBall,
+                FireworkExplosionShape::LargeBall => FireworkShape::LargeBall,
+                FireworkExplosionShape::Star => FireworkShape::Star,
+                FireworkExplosionShape::Creeper => FireworkShape::Creeper,
+                FireworkExplosionShape::Burst => FireworkShape::Burst,
+            },
+            colors: rgb(&explosion.colors),
+            fade_colors: rgb(&explosion.fade_colors),
+            trail: explosion.has_trail,
+            twinkle: explosion.has_twinkle,
+        })
+        .collect()
 }
 
 /// An end portal or gateway block, which `TheEndPortalRenderer` draws.
