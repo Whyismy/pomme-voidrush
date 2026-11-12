@@ -59,6 +59,10 @@ fn synthesized_kind(name: &str) -> Option<BlockEntityKind> {
         .or_else(|| name.ends_with("_banner").then_some(BlockEntityKind::Banner))
         .or_else(|| (name == "decorated_pot").then_some(BlockEntityKind::DecoratedPot))
         .or_else(|| (name == "conduit").then_some(BlockEntityKind::Conduit))
+        .or_else(|| {
+            name.ends_with("copper_golem_statue")
+                .then_some(BlockEntityKind::CopperGolemStatue)
+        })
         // The server sends nothing for these; their books are the client's.
         .or_else(|| (name == "enchanting_table").then_some(BlockEntityKind::EnchantingTable))
         .or_else(|| (name == "lectern").then_some(BlockEntityKind::Lectern))
@@ -79,6 +83,7 @@ fn is_rendered(kind: BlockEntityKind) -> bool {
             | BlockEntityKind::Conduit
             | BlockEntityKind::EnchantingTable
             | BlockEntityKind::Lectern
+            | BlockEntityKind::CopperGolemStatue
     )
 }
 
@@ -150,7 +155,7 @@ pub fn is_block_entity_block(name: &str) -> bool {
         | "brewing_stand" | "lectern" | "campfire" | "soul_campfire"
         | "beehive" | "bee_nest" | "bell" | "suspicious_sand" | "suspicious_gravel"
         | "crafter"
-    )
+    ) || name.ends_with("copper_golem_statue")
 }
 
 /// Vanilla `RenderShape.INVISIBLE`: blocks with no model of their own.

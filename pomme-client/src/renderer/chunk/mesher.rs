@@ -2271,6 +2271,8 @@ fn classify_block(block_state_data: &BlockStateData) -> BlockKind {
         // Drawn as the banner item's model (`BannerRenderer`), likewise,
         // and the dragon's head, a decorated pot and a conduit as theirs.
         id if id.ends_with("_banner") => BlockKind::Air,
+        // Drawn as the golem's model in its pose.
+        id if id.ends_with("copper_golem_statue") => BlockKind::Air,
         "dragon_head" | "dragon_wall_head" | "decorated_pot" | "conduit" => BlockKind::Air,
         _ => BlockKind::Solid,
     }

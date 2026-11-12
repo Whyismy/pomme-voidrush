@@ -4882,6 +4882,7 @@ pub fn update_game(
     if !benchmark_running {
         build_beacon_beams(game, partial_tick, &mut entity_renders);
         build_gateway_beams(game, partial_tick, &mut entity_renders);
+        build_statues(game, &world_light, &mut entity_renders);
         build_books(game, &world_light, partial_tick, &mut entity_renders);
         build_spawner_mobs(game, &world_light, partial_tick, &mut entity_renders);
     }
@@ -7106,6 +7107,58 @@ fn build_books(
             flap: 0.1,
             flap_speed: 0.9,
             ..book(corner + glam::DVec3::new(0.5, 1.0625, 0.5), pose, pos)
+        });
+    }
+}
+
+/// Copper golem statues within 64 blocks (`CopperGolemStatueBlockRenderer`):
+/// the golem's model in the block's pose and weathering, standing on the
+/// middle of the block's floor, facing the block's way.
+fn build_statues(game: &GameState, world_light: &WorldLight, out: &mut Vec<EntityRenderInfo>) {
+    use azalea_registry::builtin::BlockEntityKind;
+
+    use crate::renderer::pipelines::entity_renderer::STATUE_KIND;
+    let eye = *game.player.position;
+    for (pos, be) in &game.chunk_store.block_entities {
+        if be.kind != BlockEntityKind::CopperGolemStatue {
+            continue;
+        }
+        let corner = glam::DVec3::new(f64::from(pos.x), f64::from(pos.y), f64::from(pos.z));
+        if corner.distance_squared(eye) > 64.0 * 64.0 {
+            continue;
+        }
+        let state = game.chunk_store.get_block_state(pos.x, pos.y, pos.z);
+        let data = game.block_registry.block_state_data(state);
+        let Some(weathering) = data.id().strip_suffix("copper_golem_statue") else {
+            continue;
+        };
+        let weathering = match weathering.strip_prefix("waxed_").unwrap_or(weathering) {
+            "exposed_" => 1,
+            "weathered_" => 2,
+            "oxidized_" => 3,
+            _ => 0,
+        };
+        let props = data.properties();
+        let pose = match props.get("copper_golem_pose") {
+            Some("sitting") => 1,
+            Some("running") => 2,
+            Some("star") => 3,
+            _ => 0,
+        };
+        let yaw = match props.get("facing") {
+            Some("west") => 90.0,
+            Some("north") => 180.0,
+            Some("east") => 270.0,
+            _ => 0.0,
+        };
+        out.push(EntityRenderInfo {
+            position: Position::new(corner.x + 0.5, corner.y, corner.z + 0.5),
+            entity_kind: STATUE_KIND,
+            head_y_rot_deg: yaw,
+            body_y_rot_deg: yaw,
+            variant_index: pose * 4 + weathering,
+            light: block_lighter::light_coords(world_light, [pos.x, pos.y, pos.z]),
+            ..Default::default()
         });
     }
 }

@@ -1,0 +1,51 @@
+# Copper golem statues (vanilla CopperGolemStatueBlockRenderer): the four
+# poses facing the camera, each a stage further weathered: standing,
+# sitting exposed, running weathered, and a waxed oxidized star.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/gamemode spectator"
+
+[[step]]
+chat = "/tp @s 1550.5 -58.8 600.6 0 12"
+
+[[step]]
+wait_ms = 2500
+
+[[step]]
+chat = "/setblock 1553 -60 603 minecraft:copper_golem_statue[facing=north,copper_golem_pose=standing]"
+
+[[step]]
+chat = "/setblock 1551 -60 603 minecraft:exposed_copper_golem_statue[facing=north,copper_golem_pose=sitting]"
+
+[[step]]
+chat = "/setblock 1549 -60 603 minecraft:weathered_copper_golem_statue[facing=north,copper_golem_pose=running]"
+
+[[step]]
+chat = "/setblock 1547 -60 603 minecraft:waxed_oxidized_copper_golem_statue[facing=east,copper_golem_pose=star]"
+
+[[step]]
+wait_ms = 3000
+
+[[step]]
+screenshot = "statues"
+
+[[step]]
+chat = "/fill 1547 -60 603 1553 -60 603 minecraft:air"
+
+[[step]]
+wait_ms = 300
+
+[[step]]
+chat = "/kill @e[type=minecraft:item,distance=..40]"
+
+[[step]]
+chat = "/gamemode creative"

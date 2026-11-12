@@ -1362,6 +1362,7 @@ fn mob_definitions() -> Vec<MobDef> {
     defs.extend(vehicle_definitions());
     defs.push(painting_definition());
     defs.push(beam_definition());
+    defs.push(statue_definition());
     defs.push(MobDef {
         anim: AnimationType::Book,
         ..still(
@@ -1374,6 +1375,45 @@ fn mob_definitions() -> Vec<MobDef> {
         )
     });
     defs
+}
+
+/// The entity kind a copper golem statue is drawn under: a lightning bolt
+/// has a renderer of its own, so its place among the models is free.
+pub(crate) const STATUE_KIND: EntityKind = EntityKind::LightningBolt;
+
+/// `CopperGolemStatueBlockRenderer`: each pose's model (standing, sitting,
+/// running, star, as `CopperGolemStatueBlock.Pose` orders them), each in
+/// the four weathering textures, so variant `pose * 4 + weathering`.
+fn statue_definition() -> MobDef {
+    use entity_model::exported_data;
+    const TEXTURES: &[&[&str]] = &[
+        &["minecraft/textures/entity/copper_golem/copper_golem.png"],
+        &["minecraft/textures/entity/copper_golem/copper_golem_exposed.png"],
+        &["minecraft/textures/entity/copper_golem/copper_golem_weathered.png"],
+        &["minecraft/textures/entity/copper_golem/copper_golem_oxidized.png"],
+    ];
+    let adult = [
+        exported_data::COPPER_GOLEM,
+        exported_data::COPPER_GOLEM_SITTING,
+        exported_data::COPPER_GOLEM_RUNNING,
+        exported_data::COPPER_GOLEM_STAR,
+    ]
+    .map(|layer| VariantDef {
+        model: entity_model::bake_exported(layer),
+        tex_variants: TEXTURES,
+        tex_size: 64,
+        overlay_kind: OverlayKind::Opaque,
+        invisible_outline: false,
+    })
+    .into();
+    MobDef {
+        kind: STATUE_KIND,
+        anim: AnimationType::Static,
+        adult,
+        baby: None,
+        adult_overlays: vec![],
+        baby_overlays: vec![],
+    }
 }
 
 /// The entity kind the book over an enchanting table and on a lectern is
