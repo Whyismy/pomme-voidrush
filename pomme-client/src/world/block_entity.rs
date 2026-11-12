@@ -12,6 +12,26 @@ pub struct StoredBlockEntity {
     pub kind: BlockEntityKind,
     #[allow(dead_code)]
     pub nbt: NbtCompound,
+    /// A sign's two sides laid out, the first time it is drawn.
+    pub sign: std::sync::OnceLock<[Option<SignLayout>; 2]>,
+}
+
+/// One side of a sign ready to draw: each line's layout (`None` when
+/// blank), and whether the text glows.
+#[derive(Clone)]
+pub struct SignLayout {
+    pub lines: [Option<std::sync::Arc<crate::entity::display::TextLayout>>; 4],
+    pub glowing: bool,
+}
+
+impl StoredBlockEntity {
+    pub fn new(kind: BlockEntityKind, nbt: NbtCompound) -> Self {
+        Self {
+            kind,
+            nbt,
+            sign: std::sync::OnceLock::new(),
+        }
+    }
 }
 
 /// Blocks the block-entity pipeline draws in place of chunk geometry. The
@@ -63,13 +83,7 @@ pub fn sync_block_entity(
     let id = block_state_data.id();
     if let Some(kind) = synthesized_kind(id) {
         if map.get(&pos).is_none_or(|e| e.kind != kind) {
-            map.insert(
-                pos,
-                StoredBlockEntity {
-                    kind,
-                    nbt: NbtCompound::default(),
-                },
-            );
+            map.insert(pos, StoredBlockEntity::new(kind, NbtCompound::default()));
         }
     } else if !is_block_entity_block(id) || map.get(&pos).is_some_and(|e| is_rendered(e.kind)) {
         // A synthesized entry is also stale when the block swaps directly to a

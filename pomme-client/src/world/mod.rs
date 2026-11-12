@@ -8,4 +8,5 @@ pub mod level;
 pub mod light;
 pub mod map;
 pub mod piston;
+pub mod sign;
 pub mod waypoints;

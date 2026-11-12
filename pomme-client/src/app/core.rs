@@ -2512,7 +2512,7 @@ impl AppCore {
                         }
                         game.chunk_store.block_entities.insert(
                             pos,
-                            crate::world::block_entity::StoredBlockEntity { kind, nbt },
+                            crate::world::block_entity::StoredBlockEntity::new(kind, nbt),
                         );
                     }
                 }
@@ -2522,7 +2522,7 @@ impl AppCore {
                     if game.chunk_store.get_chunk(&chunk_pos).is_some() {
                         game.chunk_store.block_entities.insert(
                             pos,
-                            crate::world::block_entity::StoredBlockEntity { kind, nbt },
+                            crate::world::block_entity::StoredBlockEntity::new(kind, nbt),
                         );
                     }
                 }

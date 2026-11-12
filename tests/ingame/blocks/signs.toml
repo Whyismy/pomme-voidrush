@@ -1,0 +1,67 @@
+# What signs say (vanilla SignRenderer and HangingSignRenderer): a standing
+# sign with four lines, one turned an eighth with red text, one whose blue
+# text glows, a wall sign, a sign hanging under a block and one hanging
+# from a wall bracket.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/gamemode spectator"
+
+[[step]]
+chat = "/tp @s 1250.5 -58.9 600.2 0 5"
+
+[[step]]
+wait_ms = 2500
+
+[[step]]
+chat = "/fill 1246 -60 605 1255 -57 605 minecraft:smooth_stone"
+
+[[step]]
+chat = "/setblock 1254 -60 603 minecraft:oak_sign[rotation=8]{front_text:{messages:[\"Welcome to\",\"Void Rush\",{text:\"bold\",bold:true},\"line four\"]}}"
+
+[[step]]
+chat = "/setblock 1252 -60 603 minecraft:birch_sign[rotation=10]{front_text:{messages:[\"Turned\",\"an eighth\",\"\",\"\"],color:\"red\"}}"
+
+[[step]]
+chat = "/setblock 1250 -60 603 minecraft:dark_oak_sign[rotation=8]{front_text:{messages:[\"\",\"Glowing\",\"blue\",\"\"],color:\"light_blue\",has_glowing_text:1b}}"
+
+[[step]]
+chat = "/setblock 1248 -59 604 minecraft:spruce_wall_sign[facing=north]{front_text:{messages:[\"On the\",\"wall\",\"\",\"\"]}}"
+
+[[step]]
+chat = "/setblock 1246 -57 603 minecraft:smooth_stone"
+
+[[step]]
+chat = "/setblock 1246 -58 603 minecraft:oak_hanging_sign[rotation=8]{front_text:{messages:[\"Hanging\",\"sign\",\"\",\"\"]}}"
+
+[[step]]
+chat = "/setblock 1256 -59 604 minecraft:smooth_stone"
+
+[[step]]
+chat = "/setblock 1255 -59 604 minecraft:oak_wall_hanging_sign[facing=north]{front_text:{messages:[\"Bracket\",\"\",\"\",\"\"]}}"
+
+[[step]]
+wait_ms = 3000
+
+[[step]]
+screenshot = "signs"
+
+[[step]]
+chat = "/fill 1246 -60 603 1256 -57 605 minecraft:air"
+
+[[step]]
+wait_ms = 300
+
+[[step]]
+chat = "/kill @e[type=minecraft:item,distance=..60]"
+
+[[step]]
+chat = "/gamemode creative"

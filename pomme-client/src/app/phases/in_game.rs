@@ -5182,6 +5182,88 @@ pub fn update_game(
             &mut item_renders,
         );
     }
+    // What signs within 64 blocks say (vanilla `SignRenderer`): each line
+    // of each side as its own one-line text, on the board.
+    if !benchmark_running {
+        use azalea_registry::builtin::BlockEntityKind;
+
+        use crate::world::block_entity::SignLayout;
+        use crate::world::sign;
+        let eye = gfx.renderer.camera_render_position();
+        let anchor = gfx.renderer.camera_anchor();
+        for (pos, be) in &game.chunk_store.block_entities {
+            if !matches!(
+                be.kind,
+                BlockEntityKind::Sign | BlockEntityKind::HangingSign
+            ) {
+                continue;
+            }
+            let corner = glam::DVec3::new(f64::from(pos.x), f64::from(pos.y), f64::from(pos.z));
+            let distance = (corner + glam::DVec3::splat(0.5)).distance_squared(eye);
+            if distance > 64.0 * 64.0 {
+                continue;
+            }
+            let state = game.chunk_store.get_block_state(pos.x, pos.y, pos.z);
+            let data = game.block_registry.block_state_data(state);
+            let Some(kind) = sign::SignKind::of(data.id()) else {
+                continue;
+            };
+            let sides = be.sign.get_or_init(|| {
+                sign::sign_sides(&be.nbt).map(|side| {
+                    side.map(|side| SignLayout {
+                        lines: side.lines.map(|line| {
+                            // `Font.split` at the board's width, first line.
+                            let mut layout = gfx
+                                .renderer
+                                .layout_display_text(&line, kind.max_line_width());
+                            layout.lines.truncate(1);
+                            layout.width = layout.lines.first().map_or(0.0, |line| line.1);
+                            (layout.width > 0.0).then(|| Arc::new(layout))
+                        }),
+                        glowing: side.glowing,
+                    })
+                })
+            });
+            let props = data.properties();
+            let world = block_lighter::light_coords(&world_light, [pos.x, pos.y, pos.z]);
+            let base = glam::Mat4::from_translation((corner - anchor).as_vec3());
+            for (back, side) in sides.iter().enumerate() {
+                let Some(side) = side else {
+                    continue;
+                };
+                let light = if side.glowing {
+                    LightLevels::FULL_BRIGHT
+                } else {
+                    world
+                };
+                for (line, layout) in side.lines.iter().enumerate() {
+                    let Some(layout) = layout else {
+                        continue;
+                    };
+                    let pose = sign::line_pose(
+                        kind,
+                        props.get("rotation"),
+                        props.get("facing"),
+                        back == 1,
+                        line,
+                    );
+                    world_texts.push((
+                        distance,
+                        crate::renderer::pipelines::menu_overlay::WorldTextRender {
+                            layout: layout.clone(),
+                            pose: base * pose,
+                            align: crate::entity::display::TextAlign::Center,
+                            color: 0xFFFF_FFFF,
+                            background: 0,
+                            shadow: false,
+                            see_through: false,
+                            light: light.lane(),
+                        },
+                    ));
+                }
+            }
+        }
+    }
     // A named marker's label under it on a framed map (vanilla
     // `MapRenderer`): white on a dark band, shrunk to fit 25 map pixels,
     // at most two thirds of the font's size.
@@ -5261,6 +5343,20 @@ pub fn update_game(
                 // A predicted break leaves a stale entry until the server
                 // confirms; don't render entries whose block is gone.
                 if !crate::world::block_entity::is_block_entity_block(id) {
+                    return None;
+                }
+                // Since 26.1 a sign's board is a block model, meshed with its
+                // chunk; drawing the block entity's own too would stand a
+                // second, standing, sign in every wall sign.
+                if matches!(
+                    be.kind,
+                    BlockEntityKind::Sign | BlockEntityKind::HangingSign
+                ) && game
+                    .block_registry
+                    .render_view()
+                    .get_baked_model(state)
+                    .is_some_and(|model| !model.quads.is_empty())
+                {
                     return None;
                 }
                 let props = block_state_data.properties();
