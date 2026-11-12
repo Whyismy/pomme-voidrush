@@ -905,6 +905,8 @@ pub struct LivingEntity {
     pub is_crouching: bool,
     /// The shared fall-flying flag (0x80): gliding on an elytra.
     pub is_fall_flying: bool,
+    /// Vanilla `fallFlyTicks`: how long it has glided.
+    pub fall_fly_ticks: u32,
     /// The wings of the elytra it may wear.
     pub elytra: ElytraAnim,
     /// Vanilla LivingEntity SLEEPING_POS metadata.
@@ -1342,6 +1344,7 @@ impl LivingEntity {
             is_baby: false,
             is_crouching: false,
             is_fall_flying: false,
+            fall_fly_ticks: 0,
             elytra: ElytraAnim::default(),
             sleeping_pos: None,
             // Spawn grounded: on_ground is packet-driven and a stationary
@@ -2890,6 +2893,11 @@ impl EntityStore {
                 moved.try_normalize().map_or(0.0, |direction| direction.y)
             });
             entity.elytra.tick(gliding, entity.is_crouching);
+            entity.fall_fly_ticks = if entity.is_fall_flying {
+                entity.fall_fly_ticks + 1
+            } else {
+                0
+            };
             let dx = entity.position.x - entity.prev_position.x;
             let dz = entity.position.z - entity.prev_position.z;
             let dy = if omnidirectional_air_mover(entity.entity_type) {

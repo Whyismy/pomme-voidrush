@@ -1,0 +1,38 @@
+# Gliding: from high up, a press of jump in the air opens the elytra, and
+# looking level the player then loses only a few blocks of height in four
+# seconds, where a plain fall would have lost seventy. Seen from behind,
+# the player lies along the glide with the wings spread.
+
+[[step]]
+chat = "/item replace entity @s armor.chest with minecraft:elytra"
+
+[[step]]
+chat = "/tp @s 2300.5 140 600.5 0 0"
+
+[[step]]
+wait_ms = 500
+
+[[step]]
+press = { action = "key.jump", hold = true }
+
+[[step]]
+wait_ms = 150
+
+[[step]]
+press = { action = "key.jump", hold = false }
+
+[[step]]
+wait_ms = 4000
+
+[[step]]
+expect = { player = { y_between = [80.0, 139.5] } }
+timeout_ms = 500
+
+[[step]]
+press = { action = "key.togglePerspective" }
+
+[[step]]
+wait_ms = 300
+
+[[step]]
+screenshot = "gliding"

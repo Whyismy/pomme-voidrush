@@ -4097,6 +4097,7 @@ impl AppCore {
             let neutral = InputState::released();
             Self::send_abilities_packet(connection, game);
             Self::send_input_packet(&neutral, connection, game);
+            self.send_fall_flying_command(connection, game);
             self.send_sprint_command(connection, game);
             self.send_position_packet(connection, game);
 
@@ -4501,6 +4502,7 @@ impl AppCore {
 
         Self::send_abilities_packet(connection, game);
         Self::send_input_packet(input, connection, game);
+        self.send_fall_flying_command(connection, game);
         self.send_sprint_command(connection, game);
         self.send_position_packet(connection, game);
         if !dirty.is_empty() {
@@ -4585,6 +4587,18 @@ impl AppCore {
                     data: 0,
                 },
             ));
+    }
+
+    /// `LocalPlayer.aiStep`: an elytra opened this tick, as the server is
+    /// told (`START_FALL_FLYING`).
+    pub fn send_fall_flying_command(&self, connection: &ConnectionHandle, game: &mut GameState) {
+        if std::mem::take(&mut game.player.start_fall_flying) {
+            self.send_player_command(
+                connection,
+                game,
+                azalea_protocol::packets::game::s_player_command::Action::StartFallFlying,
+            );
+        }
     }
 
     pub fn send_sprint_command(&self, connection: &ConnectionHandle, game: &mut GameState) {

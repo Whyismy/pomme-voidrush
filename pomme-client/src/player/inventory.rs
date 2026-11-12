@@ -162,6 +162,29 @@ pub fn has_foil(stack: &ItemStackData) -> bool {
     }
 }
 
+/// Vanilla `LivingEntity.canGlideUsing`: a glider (an elytra) worn in its
+/// own slot, with more than one use left in it.
+pub fn can_glide_using(stack: &ItemStackData, slot: EquipmentSlot) -> bool {
+    use azalea_inventory::components::{Damage, Equippable, Glider, MaxDamage, Unbreakable};
+    if stack.get_component::<Glider>().is_none()
+        || stack
+            .get_component::<Equippable>()
+            .is_none_or(|equippable| equippable.slot != slot)
+    {
+        return false;
+    }
+    // `ItemStack.nextDamageWillBreak`.
+    let unbreakable = stack.get_component::<Unbreakable>().is_some();
+    let worn_out = match (
+        stack.get_component::<MaxDamage>(),
+        stack.get_component::<Damage>(),
+    ) {
+        (Some(max), Some(damage)) => !unbreakable && damage.amount >= max.amount - 1,
+        _ => false,
+    };
+    !worn_out
+}
+
 pub fn item_resource_name(kind: ItemKind) -> String {
     kind.to_string()
         .strip_prefix("minecraft:")
@@ -172,6 +195,29 @@ pub fn item_resource_name(kind: ItemKind) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An elytra glides from the chest slot only, and not on its last use.
+    #[test]
+    fn an_elytra_glides_from_the_chest_until_its_last_use() {
+        use azalea_inventory::components::Damage;
+        let glides = |stack: ItemStack, slot| can_glide_using(stack.as_present().unwrap(), slot);
+        let elytra = || ItemStack::new(ItemKind::Elytra, 1);
+        assert!(glides(elytra(), EquipmentSlot::Chest));
+        assert!(!glides(elytra(), EquipmentSlot::Head));
+        assert!(!glides(
+            ItemStack::new(ItemKind::DiamondChestplate, 1),
+            EquipmentSlot::Chest
+        ));
+        // 432 uses: the 431st point of damage leaves the one it won't spend.
+        assert!(glides(
+            elytra().with_component(Damage { amount: 430 }),
+            EquipmentSlot::Chest
+        ));
+        assert!(!glides(
+            elytra().with_component(Damage { amount: 431 }),
+            EquipmentSlot::Chest
+        ));
+    }
 
     /// A stack glints by its own `enchantment_glint_override`, else by its
     /// item's (an enchanted golden apple's), else not at all unenchanted.

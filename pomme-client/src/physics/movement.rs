@@ -140,7 +140,18 @@ pub fn tick(
 
     let (sin_y_rot, cos_y_rot) = vanilla_yaw_sin_cos(player.look_dir.y_rot_deg());
 
-    update_fly_state(player, input, world, vehicle, sin_y_rot, cos_y_rot);
+    let toggled_flight = update_fly_state(player, input, world, vehicle, sin_y_rot, cos_y_rot);
+
+    // `LocalPlayer.aiStep`: a fresh press of jump in the air opens an
+    // elytra, and the server is told.
+    if raw_jump_held
+        && !toggled_flight
+        && !player.was_jump_pressed
+        && !on_climbable(player, world.chunks, world.block_state_table, tags)
+        && try_to_start_fall_flying(player, is_passenger)
+    {
+        player.start_fall_flying = true;
+    }
 
     // `LocalPlayer.aiStep`'s `goDownInWater`, before the living jump.
     if player.in_water
@@ -191,6 +202,16 @@ pub fn tick(
 
     player.move_forward = forward;
     player.move_strafe = strafe;
+    // `LivingEntity.aiStep`'s `updateFallFlying` (the client's half): a
+    // slow glide stops a fall from adding up.
+    if player.fall_flying {
+        player.fall_fly_ticks += 1;
+        if player.velocity.y > -0.5 && player.fall_distance > 1.0 {
+            player.fall_distance = 1.0;
+        }
+    } else {
+        player.fall_fly_ticks = 0;
+    }
     travel(
         player, input, world, tags, forward, strafe, sin_y_rot, cos_y_rot,
     );
@@ -220,6 +241,132 @@ fn apply_living_immobility(
     }
 }
 
+/// Vanilla `Player.tryToStartFallFlying`: gliding starts if it can, out of
+/// water.
+fn try_to_start_fall_flying(player: &mut LocalPlayer, is_passenger: bool) -> bool {
+    if player.fall_flying || !can_glide(player, is_passenger) || player.in_water {
+        return false;
+    }
+    player.fall_flying = true;
+    true
+}
+
+/// Vanilla `Player.canGlide`: in the air, not flying or riding or
+/// levitating, and wearing a glider that has a use left.
+// TODO: a glider held in a hand whose `equippable` slot is that hand.
+fn can_glide(player: &LocalPlayer, is_passenger: bool) -> bool {
+    use azalea_inventory::components::EquipmentSlot;
+    if player.flying
+        || player.on_ground
+        || is_passenger
+        || player.effects.amplifier(mob_effect::LEVITATION).is_some()
+    {
+        return false;
+    }
+    let slots = [
+        EquipmentSlot::Head,
+        EquipmentSlot::Chest,
+        EquipmentSlot::Legs,
+        EquipmentSlot::Feet,
+    ];
+    player
+        .inventory
+        .armor_slots()
+        .iter()
+        .zip(slots)
+        .any(|(stack, slot)| {
+            stack
+                .as_present()
+                .is_some_and(|stack| crate::player::inventory::can_glide_using(stack, slot))
+        })
+}
+
+/// Vanilla `LivingEntity.updateFallFlyingMovement`: a glide's new velocity,
+/// from the old one, where the glider looks (degrees) and gravity. Looking
+/// level trades almost no height for distance, looking down dives and
+/// gathers speed, and looking up spends speed to climb.
+fn fall_flying_movement(movement: DVec3, x_rot_deg: f32, y_rot_deg: f32, gravity: f64) -> DVec3 {
+    // `Entity.calculateViewVector`.
+    let x_rot = x_rot_deg * DEG_TO_RAD;
+    let y_rot = -y_rot_deg * DEG_TO_RAD;
+    let (cos_y, sin_y) = (mth_cos(y_rot), mth_sin(y_rot));
+    let (cos_x, sin_x) = (mth_cos(x_rot), mth_sin(x_rot));
+    let look = dvec3(
+        f64::from(sin_y * cos_x),
+        f64::from(-sin_x),
+        f64::from(cos_y * cos_x),
+    );
+
+    let look_horizontal = (look.x * look.x + look.z * look.z).sqrt();
+    let move_horizontal = (movement.x * movement.x + movement.z * movement.z).sqrt();
+    let lift = f64::from(x_rot).cos().powi(2);
+    let mut movement = movement + dvec3(0.0, gravity * (-1.0 + lift * 0.75), 0.0);
+    if movement.y < 0.0 && look_horizontal > 0.0 {
+        let convert = movement.y * -0.1 * lift;
+        movement += dvec3(
+            look.x * convert / look_horizontal,
+            convert,
+            look.z * convert / look_horizontal,
+        );
+    }
+    if x_rot < 0.0 && look_horizontal > 0.0 {
+        let convert = move_horizontal * f64::from(-mth_sin(x_rot)) * 0.04;
+        movement += dvec3(
+            -look.x * convert / look_horizontal,
+            convert * 3.2,
+            -look.z * convert / look_horizontal,
+        );
+    }
+    if look_horizontal > 0.0 {
+        movement += dvec3(
+            (look.x / look_horizontal * move_horizontal - movement.x) * 0.1,
+            0.0,
+            (look.z / look_horizontal * move_horizontal - movement.z) * 0.1,
+        );
+    }
+    movement
+        * dvec3(
+            f64::from(0.99_f32),
+            f64::from(0.98_f32),
+            f64::from(0.99_f32),
+        )
+}
+
+/// Vanilla `LivingEntity.travelFallFlying`: the glide, then the move. On
+/// something climbable the glide ends in an ordinary tick of air travel.
+// TODO: a firework rocket's boost (`FireworkRocketEntity.tick`).
+#[allow(clippy::too_many_arguments)]
+fn tick_fall_flying(
+    player: &mut LocalPlayer,
+    input: &InputState,
+    world: CollisionWorld<'_>,
+    tags: &BlockTags,
+    forward: f32,
+    strafe: f32,
+    sin_y_rot: f32,
+    cos_y_rot: f32,
+) {
+    if on_climbable(player, world.chunks, world.block_state_table, tags) {
+        tick_land(
+            player, input, world, tags, forward, strafe, sin_y_rot, cos_y_rot,
+        );
+        player.fall_flying = false;
+        return;
+    }
+    *player.velocity = fall_flying_movement(
+        *player.velocity,
+        player.look_dir.x_rot_deg(),
+        player.look_dir.y_rot_deg(),
+        effective_gravity(player),
+    );
+    apply_collision(player, input, world, forward, strafe, sin_y_rot, cos_y_rot);
+
+    // `Entity.move`.
+    let speed_factor = block_speed_factor(player, world);
+    player.velocity.x *= f64::from(speed_factor);
+    player.velocity.z *= f64::from(speed_factor);
+}
+
 /// Vanilla `LivingEntity.travel`: fluid travel only when fluids affect the
 /// player (not while flying).
 // TODO: lava travel.
@@ -236,6 +383,10 @@ fn travel(
 ) {
     if player.in_water && player.is_affected_by_fluids() {
         tick_water(
+            player, input, world, tags, forward, strafe, sin_y_rot, cos_y_rot,
+        );
+    } else if player.fall_flying {
+        tick_fall_flying(
             player, input, world, tags, forward, strafe, sin_y_rot, cos_y_rot,
         );
     } else {
@@ -301,7 +452,10 @@ fn update_fly_state(
     vehicle: Option<Vehicle>,
     sin_y_rot: f32,
     cos_y_rot: f32,
-) {
+) -> bool {
+    // Whether this press toggled flight, which keeps it from also opening
+    // an elytra.
+    let mut toggled = false;
     if player.may_fly {
         if player.game_mode == 3 {
             // Spectator flight is forced on. TODO: spectator noclip
@@ -319,6 +473,7 @@ fn update_fly_state(
                 }
                 player.abilities_dirty = true;
                 player.jump_trigger_time = 0;
+                toggled = true;
             }
         }
     }
@@ -326,6 +481,7 @@ fn update_fly_state(
     if player.jump_trigger_time > 0 {
         player.jump_trigger_time -= 1;
     }
+    toggled
 }
 
 fn jump_from_ground(
@@ -1608,6 +1764,35 @@ mod tests {
     use super::*;
     use crate::player::{CROUCH_EYE_HEIGHT, STANDING_EYE_HEIGHT};
     use crate::world::block_entity_anim::BlockEntityAnimStore;
+
+    /// A glide by the game's own arithmetic: level, a block a tick due
+    /// south, it loses a quarter of gravity less the tenth it turns into
+    /// speed, eases toward where it looks, then drags.
+    #[test]
+    fn a_level_glide_matches_vanilla() {
+        let glided = fall_flying_movement(dvec3(0.0, 0.0, 1.0), 0.0, 0.0, 0.08);
+        let drag_y = f64::from(0.98_f32);
+        let drag = f64::from(0.99_f32);
+        assert!(glided.x.abs() < 1e-12);
+        assert!((glided.y - (-0.02 + 0.002) * drag_y).abs() < 1e-12);
+        assert!((glided.z - (1.002 + (1.0 - 1.002) * 0.1) * drag).abs() < 1e-12);
+    }
+
+    /// Looking down, a glide dives and gathers speed; looking up, it spends
+    /// speed to climb; with no speed and no height to spend it only falls.
+    #[test]
+    fn a_glide_dives_and_climbs_with_the_look() {
+        let level = fall_flying_movement(dvec3(0.0, 0.0, 1.0), 0.0, 0.0, 0.08);
+        let down = fall_flying_movement(dvec3(0.0, 0.0, 1.0), 45.0, 0.0, 0.08);
+        let up = fall_flying_movement(dvec3(0.0, 0.0, 1.0), -45.0, 0.0, 0.08);
+        assert!(down.y < level.y);
+        assert!(up.y > 0.0 && up.z < level.z);
+        let still = fall_flying_movement(DVec3::ZERO, 0.0, 0.0, 0.08);
+        assert!(still.y < 0.0);
+        // Straight down has no heading to steer by: gravity alone.
+        let plunge = fall_flying_movement(DVec3::ZERO, 90.0, 0.0, 0.08);
+        assert!((plunge.y - -0.08 * f64::from(0.98_f32)).abs() < 1e-6);
+    }
 
     fn test_world<'a>(
         chunks: &'a ChunkStore,

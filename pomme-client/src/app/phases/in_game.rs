@@ -40,8 +40,8 @@ use crate::renderer::chunk::occlusion_graph::{self, VisibilitySet};
 use crate::renderer::entity_model::{lerp, triangle_wave};
 use crate::renderer::pipelines::block_entity;
 use crate::renderer::pipelines::entity_renderer::{
-    EntityRenderInfo, MAX_OVERLAYS, PackShadow, WHITE_TINT, armor_render_infos, dye_color_tint,
-    jeb_sheep_tint, standing_eye_height, wool_color_tint,
+    EntityRenderInfo, FallFlying, MAX_OVERLAYS, PackShadow, WHITE_TINT, armor_render_infos,
+    dye_color_tint, jeb_sheep_tint, standing_eye_height, wool_color_tint,
 };
 use crate::renderer::pipelines::entity_shadow::{ShadowCaster, ShadowScene};
 use crate::renderer::pipelines::lightmap::LightmapInfo;
@@ -4612,6 +4612,23 @@ pub fn update_game(
                     },
                     armor: e.armor.clone(),
                     elytra_rot: e.elytra.at(partial_tick),
+                    // `AvatarRenderer`: only players lie along their glide.
+                    fall_flying: (e.is_fall_flying
+                        && matches!(e.entity_type, EntityKind::Player | EntityKind::Mannequin))
+                    .then(|| {
+                        FallFlying::new(
+                            e.fall_fly_ticks as f32 + partial_tick,
+                            e.prev_look_dir
+                                .x_rot_deg()
+                                .lerp(e.look_dir.x_rot_deg(), partial_tick),
+                            e.look_dir.y_rot_deg(),
+                            glam::DVec3::new(
+                                e.position.x - e.prev_position.x,
+                                e.position.y - e.prev_position.y,
+                                e.position.z - e.prev_position.z,
+                            ),
+                        )
+                    }),
                     entity_id: Some(entity_id),
                     variant_index: extras.variant_index,
                     overlay_tints: extras.overlay_tints,
@@ -5102,6 +5119,15 @@ pub fn update_game(
             light: player_light,
             armor: armor_render_infos(game.player.inventory.armor_slots()),
             elytra_rot: game.player.elytra.at(partial_tick),
+            fall_flying: game.player.fall_flying.then(|| {
+                let look = gfx.renderer.camera_look_dir();
+                FallFlying::new(
+                    game.player.fall_fly_ticks as f32 + partial_tick,
+                    look.x_rot_deg(),
+                    look.y_rot_deg(),
+                    *game.player.velocity,
+                )
+            }),
             scale: game
                 .player
                 .attributes

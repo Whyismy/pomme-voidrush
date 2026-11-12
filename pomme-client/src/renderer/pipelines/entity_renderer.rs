@@ -319,6 +319,64 @@ pub struct EntityRenderInfo {
     pub armor_stand_pose: [[f32; 3]; 6],
     /// A worn elytra's wing angles (`crate::entity::ElytraAnim`).
     pub elytra_rot: [f32; 3],
+    /// A player gliding on one.
+    pub fall_flying: Option<FallFlying>,
+}
+
+/// A gliding avatar's pose inputs (vanilla `AvatarRenderer.extractFlightData`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FallFlying {
+    /// `fallFlyingTimeInTicks`: the ticks it has glided, with the partial
+    /// tick.
+    pub ticks: f32,
+    /// `flyingYRot`: the roll of the body into where it moves, in radians,
+    /// while both that and its look have a horizontal part.
+    pub y_rot: Option<f32>,
+    /// `speedValue`: its movement's length, squared.
+    pub speed_sqr: f32,
+}
+
+impl FallFlying {
+    /// From how long it has glided, where it looks (degrees) and how it
+    /// moved this tick.
+    pub fn new(ticks: f32, x_rot_deg: f32, y_rot_deg: f32, movement: glam::DVec3) -> Self {
+        // `Entity.calculateViewVector`.
+        let (x_rot, y_rot) = (
+            f64::from(x_rot_deg).to_radians(),
+            f64::from(-y_rot_deg).to_radians(),
+        );
+        let look = glam::DVec3::new(
+            y_rot.sin() * x_rot.cos(),
+            -x_rot.sin(),
+            y_rot.cos() * x_rot.cos(),
+        );
+        let flat = |v: glam::DVec3| glam::DVec3::new(v.x, 0.0, v.z);
+        let turned =
+            flat(movement).length_squared() > 1.0e-5 && flat(look).length_squared() > 1.0e-5;
+        let y_rot = turned.then(|| {
+            let dot = flat(movement).normalize().dot(flat(look).normalize());
+            let cross = movement.x * look.z - movement.z * look.x;
+            (cross.signum() * dot.abs().min(1.0).acos()) as f32
+        });
+        Self {
+            ticks,
+            y_rot,
+            speed_sqr: movement.length_squared() as f32,
+        }
+    }
+
+    /// `AvatarRenderState.fallFlyingScale`: how far the body has tipped
+    /// over, all the way after ten ticks.
+    pub fn scale(&self) -> f32 {
+        (self.ticks * self.ticks / 100.0).clamp(0.0, 1.0)
+    }
+
+    /// `HumanoidModel.setupAnim`: what a fast glide divides the limbs'
+    /// swing by.
+    pub fn limb_damping(&self) -> f32 {
+        let speed = self.speed_sqr / 0.2;
+        (speed * speed * speed).max(1.0)
+    }
 }
 
 /// Everything inert: mob-family animation inputs zeroed, no overlays, white
@@ -327,6 +385,7 @@ impl Default for EntityRenderInfo {
     fn default() -> Self {
         Self {
             elytra_rot: crate::entity::ElytraAnim::REST,
+            fall_flying: None,
             position: Position::new(0.0, 0.0, 0.0),
             head_x_rot_deg: 0.0,
             head_y_rot_deg: 0.0,
@@ -4405,12 +4464,20 @@ impl EntityRenderer {
                 info.flap,
                 info.flap_speed,
             ),
+            // `HumanoidModel.setupAnim`: a glider's head is held up an
+            // eighth of a turn, and speed stills its limbs.
             AnimationType::Humanoid => entity_model::compute_humanoid_anim(
                 model,
-                info.head_x_rot_deg,
+                if info.fall_flying.is_some() {
+                    -45.0
+                } else {
+                    info.head_x_rot_deg
+                },
                 local_head_y,
                 info.walk_anim_pos,
-                info.walk_anim_speed,
+                info.fall_flying.map_or(info.walk_anim_speed, |glide| {
+                    info.walk_anim_speed / glide.limb_damping()
+                }),
                 info.is_crouching,
                 info.is_passenger,
                 info.attack_time,
@@ -4769,6 +4836,17 @@ impl EntityRenderer {
             base *= glam::Mat4::from_rotation_y(angle.to_radians())
                 * glam::Mat4::from_rotation_z(flip_degrees(info.entity_kind).to_radians())
                 * glam::Mat4::from_rotation_y(270.0_f32.to_radians());
+        }
+        // `AvatarRenderer.setupRotations`: a glider tips forward to lie
+        // along its look, and rolls into where it moves.
+        // TODO: `isAutoSpinAttack` (a riptide spin) skips the tip.
+        if let Some(glide) = &info.fall_flying {
+            base *= glam::Mat4::from_rotation_x(
+                (glide.scale() * (-90.0 - info.head_x_rot_deg)).to_radians(),
+            );
+            if let Some(y_rot) = glide.y_rot {
+                base *= glam::Mat4::from_rotation_y(y_rot);
+            }
         }
         // body_transform sits before the parts (whose root transforms carry
         // the convention's X flip), matching vanilla's setupRotations order.
@@ -6011,6 +6089,38 @@ pub(super) fn create_pipeline(
 
 #[cfg(test)]
 mod tests {
+    /// A glider tips over in its first ten ticks, lies straight when it
+    /// moves where it looks, and rolls by the angle between the two when
+    /// it doesn't, toward the side it moves to.
+    #[test]
+    fn a_glider_tips_over_and_rolls_into_its_turn() {
+        use super::FallFlying;
+        let south = glam::DVec3::new(0.0, -0.1, 1.0);
+        assert_eq!(FallFlying::new(0.0, 0.0, 0.0, south).scale(), 0.0);
+        assert_eq!(FallFlying::new(5.0, 0.0, 0.0, south).scale(), 0.25);
+        assert_eq!(FallFlying::new(30.0, 0.0, 0.0, south).scale(), 1.0);
+
+        let straight = FallFlying::new(20.0, 10.0, 0.0, south);
+        assert!(straight.y_rot.unwrap().abs() < 1e-6);
+        // Looking south, drifting a quarter turn off to either side.
+        let west = FallFlying::new(20.0, 0.0, 0.0, glam::DVec3::new(-1.0, 0.0, 1.0));
+        let east = FallFlying::new(20.0, 0.0, 0.0, glam::DVec3::new(1.0, 0.0, 1.0));
+        let eighth = std::f32::consts::FRAC_PI_4;
+        assert!((west.y_rot.unwrap() + eighth).abs() < 1e-5);
+        assert!((east.y_rot.unwrap() - eighth).abs() < 1e-5);
+        // Falling straight down has no heading to roll into.
+        assert_eq!(
+            FallFlying::new(20.0, 0.0, 0.0, glam::DVec3::new(0.0, -1.0, 0.0)).y_rot,
+            None
+        );
+        // Slow glides leave the limbs their swing; fast ones still them.
+        assert_eq!(
+            FallFlying::new(20.0, 0.0, 0.0, south * 0.1).limb_damping(),
+            1.0
+        );
+        assert!(FallFlying::new(20.0, 0.0, 0.0, south).limb_damping() > 100.0);
+    }
+
     use azalea_inventory::ItemStack;
     use azalea_inventory::components::{DyedColor, EquipmentSlot, Equippable};
     use azalea_registry::builtin::ItemKind;

@@ -222,6 +222,11 @@ pub struct LocalPlayer {
     pub crouching: bool,
     /// The wings of the elytra the player may wear.
     pub elytra: crate::entity::ElytraAnim,
+    /// Vanilla `fallFlyTicks`: how long the player has glided.
+    pub fall_fly_ticks: u32,
+    /// The player opened its elytra this tick: the server is still to be
+    /// told (`START_FALL_FLYING`).
+    pub start_fall_flying: bool,
     /// `LocalPlayer`'s private `crouching` movement flag.
     pub movement_crouching: bool,
     // TODO: remaining Abilities fields - invulnerable, instabuild, may_build
@@ -354,6 +359,8 @@ impl LocalPlayer {
             sprinting: false,
             crouching: false,
             elytra: crate::entity::ElytraAnim::default(),
+            fall_fly_ticks: 0,
+            start_fall_flying: false,
             movement_crouching: false,
             flying: false,
             may_fly: false,
