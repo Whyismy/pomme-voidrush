@@ -829,6 +829,8 @@ pub struct LivingEntity {
     /// Enderman screaming flag — raises the head and jitters the render
     /// position.
     pub is_creepy: bool,
+    /// The block an enderman carries (`EnderMan.DATA_CARRY_STATE`).
+    pub carried_block: Option<u32>,
     /// Zombie-family conversion (drowning / villager cure) — body-yaw shake.
     pub is_converting: bool,
     /// Tamable (wolf/cat) state from the flags byte.
@@ -1251,6 +1253,7 @@ impl LivingEntity {
             armor_stand_flags: 0,
             armor_stand_pose: ARMOR_STAND_DEFAULT_POSE,
             is_creepy: false,
+            carried_block: None,
             is_converting: false,
             is_sitting: false,
             is_tame: false,
@@ -2467,6 +2470,15 @@ impl EntityStore {
     /// `kind` is the mob the emitting handler arm resolved the value for;
     /// metadata indices are overloaded across kinds, so a mismatched entity
     /// ignores the write.
+    /// The block enderman `id` carries, if any.
+    pub fn set_carried_block(&mut self, id: i32, state: Option<u32>) {
+        if let Some(entity) = self.living.get_mut(&id)
+            && entity.entity_type == EntityKind::Enderman
+        {
+            entity.carried_block = state;
+        }
+    }
+
     pub fn set_variant(&mut self, id: i32, kind: EntityKind, raw: u32) {
         if let Some(entity) = self.living.get_mut(&id)
             && entity.entity_type == kind

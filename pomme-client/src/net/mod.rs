@@ -623,6 +623,14 @@ pub enum NetworkEvent {
     FireworkExplode {
         id: i32,
     },
+    /// An entity's optional block: the one a minecart is set to show in
+    /// place of its own (`AbstractMinecart.DATA_ID_CUSTOM_DISPLAY_BLOCK`),
+    /// or the one an enderman carries (`EnderMan.DATA_CARRY_STATE`).
+    OptionalBlockState {
+        id: i32,
+        index: u8,
+        state: Option<u32>,
+    },
     /// A painting's variant (`Painting.DATA_PAINTING_VARIANT_ID`).
     PaintingVariant {
         id: i32,

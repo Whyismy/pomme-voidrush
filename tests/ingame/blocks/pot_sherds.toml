@@ -40,3 +40,19 @@ wait_ms = 1500
 
 [[step]]
 screenshot = "pots"
+
+# The pot as an item shows its sherds too: held, and thrown down.
+[[step]]
+chat = "/gamemode survival"
+
+[[step]]
+chat = "/tp @s 1502.0 -60 598.0 0 30"
+
+[[step]]
+chat = "/item replace entity @s weapon.mainhand with minecraft:decorated_pot[pot_decorations=[\"minecraft:heart_pottery_sherd\",\"minecraft:prize_pottery_sherd\",\"minecraft:skull_pottery_sherd\",\"minecraft:burn_pottery_sherd\"]]"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "held"

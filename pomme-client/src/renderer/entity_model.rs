@@ -4720,6 +4720,7 @@ pub fn compute_villager_anim(
 /// stays put).
 // TODO: carried-block arm pose and the humanoid attack swing once carried
 // blocks / attack animation land.
+#[allow(clippy::too_many_arguments)]
 pub fn compute_enderman_anim(
     model: &BakedEntityModel,
     head_x_rot_deg: f32,
@@ -4728,6 +4729,7 @@ pub fn compute_enderman_anim(
     walk_speed: f32,
     age_in_ticks: f32,
     is_creepy: bool,
+    carrying: bool,
 ) -> PartAnim {
     let mut anim = PartAnim::default();
     let half_clamp = |x: f32| (x * 0.5).clamp(-0.4, 0.4);
@@ -4753,6 +4755,9 @@ pub fn compute_enderman_anim(
                 }
                 continue;
             }
+            // `EndermanModel.setupAnim`: arms out under a carried block.
+            "right_arm" if carrying => Vec3::new(-0.5, 0.0, 0.05),
+            "left_arm" if carrying => Vec3::new(-0.5, 0.0, -0.05),
             "right_arm" => Vec3::new(arm_x, 0.0, bob_z),
             "left_arm" => Vec3::new(-arm_x, 0.0, -bob_z),
             "right_leg" => Vec3::new(leg_x, 0.005, 0.005),

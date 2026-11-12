@@ -50,6 +50,10 @@ chat = "/summon minecraft:furnace_minecart 898.5 -60 606.5 {NoGravity:1b}"
 [[step]]
 chat = "/summon minecraft:spawner_minecart 897.0 -60 606.5 {NoGravity:1b}"
 
+# A plain cart set to show a block of diamond, raised.
+[[step]]
+chat = "/summon minecraft:minecart 895.5 -60 606.5 {NoGravity:1b,DisplayState:{Name:\"minecraft:diamond_block\"},DisplayOffset:10}"
+
 [[step]]
 chat = "/summon minecraft:oak_boat 899.5 -60 602.5 {Rotation:[180f,0f],Passengers:[{id:\"minecraft:villager\",NoAI:1b,Silent:1b}]}"
 

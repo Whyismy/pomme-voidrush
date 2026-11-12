@@ -355,6 +355,18 @@ impl BlockRenderAssets {
     /// layers on a banner's model (`~` and the layers, [`crate::banner`]).
     pub fn stack_model_key(&self, name: &str, stack: &ItemStackData) -> String {
         let key = self.stack_model_key_base(name, stack);
+        // A decorated pot's sherds (`DecoratedPotSpecialRenderer`).
+        if key == "decorated_pot"
+            && let Some(sherds) =
+                stack.get_component::<azalea_inventory::components::PotDecorations>()
+        {
+            let names: Vec<String> = sherds
+                .items
+                .iter()
+                .map(|kind| crate::player::inventory::item_resource_name(*kind))
+                .collect();
+            return model::decorated_pot_key(names.iter().map(String::as_str));
+        }
         if self.banner_models.contains(&key)
             && let Some(layers) = stack
                 .get_component::<azalea_inventory::components::BannerPatterns>()

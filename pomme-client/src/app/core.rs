@@ -3318,6 +3318,14 @@ impl AppCore {
                 NetworkEvent::EntityParticle { id, particle } => {
                     game.effect_clouds.set_particle(id, particle);
                 }
+                NetworkEvent::OptionalBlockState { id, index, state } => {
+                    if index == 11 {
+                        game.model_entities.set_display_block(id, state);
+                    }
+                    if index == 16 {
+                        game.entity_store.set_carried_block(id, state);
+                    }
+                }
                 NetworkEvent::PaintingVariant { id, variant } => {
                     game.paintings.set_variant(id, variant);
                 }

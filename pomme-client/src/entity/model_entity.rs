@@ -5,8 +5,8 @@
 //! vehicles glide to where the server last put them.
 // A boat the local player rows is the exception: this client moves it
 // (`crate::physics::boat`) and the server's moves for it are only noted.
-// TODO: a vehicle's hurt wobble, a boat's bubble column rocking, and a
-// custom minecart display block.
+// TODO: a boat's bubble column rocking, and a minecart's custom display
+// block before 1.21.5 (an id and a flag in place of an optional state).
 
 use std::collections::HashMap;
 
@@ -58,6 +58,15 @@ pub struct ModelEntity {
     paddle: [f32; 2],
     /// Who rides it, the first at the oars.
     passengers: Vec<i32>,
+    /// A vehicle just hit (`VehicleEntity`): ticks of its wobble left,
+    /// which way it tips, and how hard it has been hit.
+    hurt_time: i32,
+    hurt_dir: i32,
+    damage: f32,
+    /// A minecart set to show another block than its own, and how high,
+    /// in sixteenths (`AbstractMinecart.DATA_ID_DISPLAY_OFFSET`).
+    pub display_block: Option<u32>,
+    pub display_offset: Option<i32>,
 }
 
 impl ModelEntity {
@@ -69,6 +78,18 @@ impl ModelEntity {
             Some(life) if life - 2 <= 0 => 1.0,
             Some(life) => 1.0 - ((life - 2) as f32 - partial_tick) / 20.0,
         }
+    }
+
+    /// How far a vehicle just hit tips to its side, in degrees
+    /// (`AbstractBoatRenderer` and `AbstractMinecartRenderer`): a swing
+    /// that dies away with the wobble's ticks and the damage taken.
+    pub fn hurt_wobble_deg(&self, partial_tick: f32) -> f32 {
+        let time = self.hurt_time as f32 - partial_tick;
+        if time <= 0.0 {
+            return 0.0;
+        }
+        let damage = (self.damage - partial_tick).max(0.0);
+        time.sin() * time * damage / 10.0 * self.hurt_dir as f32
     }
 
     /// `AbstractBoat.getRowingTime` for the left and right paddles: 0 for
@@ -388,6 +409,11 @@ impl ModelEntityStore {
                 lerp_steps: 0,
                 paddling: [false; 2],
                 passengers: Vec::new(),
+                hurt_time: 0,
+                hurt_dir: 1,
+                damage: 0.0,
+                display_block: None,
+                display_offset: None,
                 paddle: [0.0; 2],
             },
         );
@@ -421,6 +447,15 @@ impl ModelEntityStore {
                 entity.y_rot = y_rot;
                 entity.x_rot = x_rot;
             }
+        }
+    }
+
+    /// The block a minecart shows in place of its own, if any.
+    pub fn set_display_block(&mut self, id: i32, state: Option<u32>) {
+        if let Some(entity) = self.entities.get_mut(&id)
+            && minecart(entity.kind).is_some()
+        {
+            entity.display_block = state;
         }
     }
 
@@ -477,6 +512,19 @@ impl ModelEntityStore {
         let Some(entity) = self.entities.get_mut(&id) else {
             return;
         };
+        // `VehicleEntity.DATA_ID_HURT`, `_HURTDIR` and `_DAMAGE`, and a
+        // minecart's display offset.
+        if is_vehicle(entity.kind) {
+            match (index, value) {
+                (8, super::MetaValue::Int(time)) => entity.hurt_time = time,
+                (9, super::MetaValue::Int(dir)) => entity.hurt_dir = dir,
+                (10, super::MetaValue::Float(damage)) => entity.damage = damage,
+                (12, super::MetaValue::Int(offset)) if minecart(entity.kind).is_some() => {
+                    entity.display_offset = Some(offset);
+                }
+                _ => {}
+            }
+        }
         let super::MetaValue::Bool(flag) = value else {
             return;
         };
@@ -586,6 +634,9 @@ impl ModelEntityStore {
                 // `AbstractBoat.tick` and a minecart's: a few ticks' glide to
                 // where the server put it, a rowing paddle's stroke moving on.
                 kind if is_vehicle(kind) => {
+                    // `VehicleEntity`'s wobble and damage wear off.
+                    entity.hurt_time = (entity.hurt_time - 1).max(0);
+                    entity.damage = (entity.damage - 1.0).max(0.0);
                     if entity.lerp_steps > 0 {
                         let steps = f32::from(entity.lerp_steps);
                         entity.position = (*entity.position
@@ -663,6 +714,17 @@ mod tests {
             store.seat(1, 7, false),
             Some(DVec3::new(boat.position.x, 64.1875, 0.0))
         );
+        // Hit, it tips: ten ticks of wobble, the first of them gone by the
+        // time it is drawn, and none once they are spent.
+        store.apply_entity_data(1, 8, crate::entity::MetaValue::Int(10));
+        store.apply_entity_data(1, 9, crate::entity::MetaValue::Int(-1));
+        store.apply_entity_data(1, 10, crate::entity::MetaValue::Float(20.0));
+        let tip = store.entities[&1].hurt_wobble_deg(0.0);
+        assert!((tip + 10.0_f32.sin() * 10.0 * 20.0 / 10.0).abs() < 1.0e-4);
+        for _ in 0..10 {
+            store.tick();
+        }
+        assert_eq!(store.entities[&1].hurt_wobble_deg(0.0), 0.0);
         // Two aboard: the rower forward of the middle, the other aft (the
         // boat faces west here, so forward is along -x... east is +x).
         store.set_passengers(1, &[7, 8]);

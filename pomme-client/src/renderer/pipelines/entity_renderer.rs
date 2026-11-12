@@ -3965,6 +3965,7 @@ impl EntityRenderer {
                 info.walk_anim_speed,
                 info.age_in_ticks,
                 info.is_creepy,
+                info.is_holding_item,
             ),
             AnimationType::Zombie => entity_model::compute_zombie_anim(
                 model,

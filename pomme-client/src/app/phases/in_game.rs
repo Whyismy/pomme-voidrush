@@ -4619,7 +4619,8 @@ pub fn update_game(
                     flap_speed: extras.flap_speed,
                     is_creepy: e.is_creepy,
                     is_converting: e.is_converting,
-                    is_holding_item: e.equipment(EquipmentSlot::Mainhand).is_some(),
+                    is_holding_item: e.equipment(EquipmentSlot::Mainhand).is_some()
+                        || e.carried_block.is_some(),
                     nose_wobble_speed: extras.nose_wobble_speed,
                     is_sitting: e.is_sitting,
                     is_sprinting: e.is_sprinting,
@@ -5296,6 +5297,13 @@ pub fn update_game(
             &mut item_renders,
         );
         build_campfire_items(game, &world_light, &mut gfx.renderer, &mut item_renders);
+        build_carried_blocks(
+            game,
+            &world_light,
+            partial_tick,
+            &mut gfx.renderer,
+            &mut item_renders,
+        );
         build_conduits(
             game,
             &world_light,
@@ -7007,6 +7015,65 @@ fn build_dragon_heads(
     }
 }
 
+/// The block an enderman carries (vanilla `CarriedBlockLayer`): at half
+/// size in its arms, a corner forward, in the model's own frame.
+fn build_carried_blocks(
+    game: &GameState,
+    world_light: &WorldLight,
+    partial_tick: f32,
+    renderer: &mut Renderer,
+    out: &mut Vec<crate::renderer::pipelines::item_entity::ItemRenderInfo>,
+) {
+    use glam::{Mat4, Vec3};
+
+    use crate::renderer::pipelines::item_entity::ItemRenderInfo;
+    let eye = renderer.camera_render_position();
+    let anchor = renderer.camera_anchor();
+    let table = game.block_registry.block_state_table();
+    for enderman in game.entity_store.living.values() {
+        let Some(state) = enderman.carried_block else {
+            continue;
+        };
+        if enderman.is_invisible {
+            continue;
+        }
+        let feet = enderman
+            .prev_position
+            .lerp(enderman.position, f64::from(partial_tick));
+        if feet.distance_squared(eye) > 96.0 * 96.0 {
+            continue;
+        }
+        let Some((item_name, tints)) = renderer.ensure_block_display_mesh(table, state) else {
+            continue;
+        };
+        let yaw = lerp_angle(
+            enderman.prev_body_y_rot_deg,
+            enderman.body_y_rot_deg,
+            partial_tick,
+        );
+        // `LivingEntityRenderer`'s frame, the layer's pose in it, and the
+        // block from its corner (the mesh is centred).
+        let model = Mat4::from_rotation_y((180.0 - yaw).to_radians())
+            * Mat4::from_scale(Vec3::new(-1.0, -1.0, 1.0))
+            * Mat4::from_translation(Vec3::new(0.0, -1.501, 0.0));
+        let held = Mat4::from_translation(Vec3::new(0.0, 0.6875, -0.75))
+            * Mat4::from_rotation_x(20.0_f32.to_radians())
+            * Mat4::from_rotation_y(45.0_f32.to_radians())
+            * Mat4::from_translation(Vec3::new(0.25, 0.1875, 0.25))
+            * Mat4::from_scale(Vec3::new(-0.5, -0.5, 0.5))
+            * Mat4::from_rotation_y(90.0_f32.to_radians())
+            * Mat4::from_translation(Vec3::splat(0.5));
+        out.push(ItemRenderInfo {
+            item_name,
+            outline_color: None,
+            tints,
+            model_matrix: Mat4::from_translation((*feet - anchor).as_vec3()) * model * held,
+            light: entity_light(world_light, EntityKind::Enderman, feet, false, 0),
+            white_flash: false,
+        });
+    }
+}
+
 /// What is cooking on the campfires within 64 blocks (vanilla
 /// `CampfireRenderer`): each of the four slots' items lying flat on its
 /// corner of the fire.
@@ -7884,22 +7951,40 @@ fn build_minecart_contents(
     let anchor = renderer.camera_anchor();
     let rails = rails_in(chunks, table);
     for cart in carts.entities.values() {
-        let Some(Some(contents)) = crate::entity::model_entity::minecart(cart.kind) else {
+        let Some(own) = crate::entity::model_entity::minecart(cart.kind) else {
             continue;
         };
-        // A chest is a block entity's model, not a block's: the chest
-        // item's mesh is that model.
-        let (item_name, tints): (Arc<str>, Arc<[u32]>) = if contents.block == "chest" {
-            renderer.ensure_item_mesh("chest");
-            (Arc::from("chest"), Arc::from([]))
-        } else {
-            let Some(state) = table.state_with(contents.block, contents.props) else {
-                continue;
-            };
-            let Some(mesh) = renderer.ensure_block_display_mesh(table, state.id() as u32) else {
+        // The block it is set to show (`getDisplayBlockState`), else its
+        // own, at the height it is set to, else its own (a plain cart's
+        // is 6).
+        let offset = cart
+            .display_offset
+            .or(own.map(|contents| contents.offset))
+            .unwrap_or(6);
+        let (item_name, tints): (Arc<str>, Arc<[u32]>) = if let Some(state) = cart.display_block {
+            let Some(mesh) = renderer.ensure_block_display_mesh(table, state) else {
                 continue;
             };
             mesh
+        } else {
+            let Some(contents) = own else {
+                continue;
+            };
+            // A chest is a block entity's model, not a block's: the chest
+            // item's mesh is that model.
+            if contents.block == "chest" {
+                renderer.ensure_item_mesh("chest");
+                (Arc::from("chest"), Arc::from([]))
+            } else {
+                let Some(state) = table.state_with(contents.block, contents.props) else {
+                    continue;
+                };
+                let Some(mesh) = renderer.ensure_block_display_mesh(table, state.id() as u32)
+                else {
+                    continue;
+                };
+                mesh
+            }
         };
         let feet = cart
             .prev_position
@@ -7907,7 +7992,7 @@ fn build_minecart_contents(
         // The baked meshes are centred on the block; vanilla draws it from
         // its corner.
         let block = Mat4::from_scale(Vec3::splat(0.75))
-            * Mat4::from_translation(Vec3::new(-0.5, (contents.offset - 8) as f32 / 16.0, 0.5))
+            * Mat4::from_translation(Vec3::new(-0.5, (offset - 8) as f32 / 16.0, 0.5))
             * Mat4::from_rotation_y(std::f32::consts::FRAC_PI_2)
             * Mat4::from_translation(Vec3::splat(0.5));
         out.push(ItemRenderInfo {
@@ -7916,6 +8001,7 @@ fn build_minecart_contents(
             tints,
             model_matrix: Mat4::from_translation((*feet - anchor).as_vec3())
                 * minecart_pose(cart, feet, partial_tick, &rails)
+                * Mat4::from_rotation_x(cart.hurt_wobble_deg(partial_tick).to_radians())
                 * block,
             light: entity_light(world_light, cart.kind, feet, false, 0),
             white_flash: false,
@@ -8297,6 +8383,7 @@ fn model_entity_render(
             info.body_transform = Some(
                 Mat4::from_translation(Vec3::new(0.0, 0.375, 0.0))
                     * Mat4::from_rotation_y(std::f32::consts::PI - yaw)
+                    * Mat4::from_rotation_x(entity.hurt_wobble_deg(partial_tick).to_radians())
                     * flipped
                     * Mat4::from_rotation_y(std::f32::consts::FRAC_PI_2)
                     * unliving,
@@ -8304,8 +8391,12 @@ fn model_entity_render(
             [info.flap, info.flap_speed] = entity.rowing_time(partial_tick);
         }
         kind if crate::entity::model_entity::minecart(kind).is_some() => {
-            info.body_transform =
-                Some(minecart_pose(entity, feet, partial_tick, rails) * flipped * unliving);
+            info.body_transform = Some(
+                minecart_pose(entity, feet, partial_tick, rails)
+                    * Mat4::from_rotation_x(entity.hurt_wobble_deg(partial_tick).to_radians())
+                    * flipped
+                    * unliving,
+            );
         }
         _ => return None,
     }

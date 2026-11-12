@@ -1,0 +1,40 @@
+# An enderman carrying a block (vanilla CarriedBlockLayer): a grass block
+# at half size in its outstretched arms, a corner forward. Beside it one
+# with its arms at its sides, and one carrying a block of TNT seen from
+# the side.
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/gamemode spectator"
+
+[[step]]
+chat = "/tp @s 1700.5 -58.6 596.0 0 8"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+chat = "/summon minecraft:enderman 1698.5 -60 602.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f],carriedBlockState:{Name:\"minecraft:grass_block\"}}"
+
+[[step]]
+chat = "/summon minecraft:enderman 1700.5 -60 602.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:enderman 1702.5 -60 602.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[90f,0f],carriedBlockState:{Name:\"minecraft:tnt\"}}"
+
+[[step]]
+expect = { entity = "enderman" }
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+screenshot = "carrying"

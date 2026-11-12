@@ -32,6 +32,8 @@ pub enum Serializer {
     ItemStack,
     /// `BLOCK_STATE`: a state id in the session's id space.
     BlockState,
+    /// `OPTIONAL_BLOCK_STATE`: a state id, 0 for none.
+    OptionalBlockState,
     /// `VECTOR3`: `ByteBufCodecs.VECTOR3F`.
     Vector3,
     /// `QUATERNION`: `ByteBufCodecs.QUATERNIONF`, x y z w.
@@ -64,6 +66,8 @@ pub enum Value {
     /// A text component's NBT bytes.
     OptionalComponent(Option<Box<[u8]>>),
     BlockState(u32),
+    /// A minecart's custom display block.
+    OptionalBlockState(Option<u32>),
     Vector3([f32; 3]),
     Quaternion([f32; 4]),
     Item(Option<ItemStack>),
@@ -187,8 +191,8 @@ macro_rules! serializers_26_2 {
     // OPTIONAL_LIVING_ENTITY_REFERENCE: EntityReference.java:34
     S::Skip(Optional(&Uuid)),
     S::BlockState,
-    // OPTIONAL_BLOCK_STATE: 0 for none, not a bool.
-    S::Skip(VarInt),
+    // 0 for none, not a bool.
+    S::OptionalBlockState,
     S::Particle,
     S::Skip(List(usize::MAX, &PARTICLE)),
     S::VillagerData,
@@ -276,6 +280,10 @@ impl ItemCodec {
                 Value::Component(r.since(start).into())
             }
             S::BlockState => Value::BlockState(r.varint()?),
+            S::OptionalBlockState => {
+                let state = r.varint()?;
+                Value::OptionalBlockState((state != 0).then_some(state))
+            }
             S::Vector3 => Value::Vector3([r.f32()?, r.f32()?, r.f32()?]),
             S::Quaternion => Value::Quaternion([r.f32()?, r.f32()?, r.f32()?, r.f32()?]),
             S::OptionalComponent => Value::OptionalComponent(r.optional(|r| {
@@ -545,7 +553,12 @@ mod tests {
             (5, 1, &[9]),
         ]);
         let decoded = values(&bytes);
-        assert_eq!(decoded[..3], [const { Value::Other }; 3]);
+        assert_eq!(decoded[0], Value::OptionalBlockState(None));
+        assert_eq!(decoded[1..3], [const { Value::Other }; 2]);
+        assert_eq!(
+            values(&frame(&[(11, 15, &[9])])),
+            [Value::OptionalBlockState(Some(9))]
+        );
         // A painting variant spelled out, its title skipped, and by id.
         assert_eq!(
             decoded[3],

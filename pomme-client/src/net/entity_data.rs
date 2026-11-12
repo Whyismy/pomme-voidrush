@@ -369,6 +369,13 @@ fn send_data_value(
             glam::Quat::from_xyzw(*x, *y, *z, *w),
         )),
         (_, Value::BlockState(state)) => display(DisplayValue::BlockState(*state)),
+        // `AbstractMinecart.DATA_ID_CUSTOM_DISPLAY_BLOCK` and
+        // `EnderMan.DATA_CARRY_STATE`.
+        (_, Value::OptionalBlockState(state)) => NetworkEvent::OptionalBlockState {
+            id,
+            index,
+            state: *state,
+        },
         (_, Value::Component(nbt)) => match super::chat::component_spans(nbt) {
             Some(spans) => display(DisplayValue::Text(spans)),
             None => return,
@@ -420,6 +427,10 @@ pub(super) fn from_azalea(value: &EntityDataValue) -> Option<Value> {
             Value::Component(nbt.into())
         }
         EntityDataValue::BlockState(state) => Value::BlockState(state.id() as u32),
+        EntityDataValue::OptionalBlockState(state) => {
+            let state = state.id() as u32;
+            Value::OptionalBlockState((state != 0).then_some(state))
+        }
         EntityDataValue::Vector3(v) => Value::Vector3([v.x, v.y, v.z]),
         EntityDataValue::Quaternion(q) => Value::Quaternion([q.x, q.y, q.z, q.w]),
         EntityDataValue::OptionalBlockPos(pos) => {
