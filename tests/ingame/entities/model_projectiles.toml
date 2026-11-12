@@ -1,0 +1,92 @@
+# Entities with a small model of their own: a lead knot on a fence, a
+# trident stuck in the ground, a wither skull and a blue one, a shulker
+# bullet in its faint shell, llama spit, and evoker fangs mid-bite, then
+# shut; then the knot and a skull beside a block up close, behind them a
+# second pair of fangs seen from the front.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/gamemode spectator"
+
+[[step]]
+chat = "/tp @s 860.5 -58.8 600.5 0 12"
+
+[[step]]
+wait_ms = 2500
+
+[[step]]
+chat = "/setblock 857 -60 604 minecraft:oak_fence"
+
+[[step]]
+chat = "/summon minecraft:leash_knot 857 -60 604"
+
+[[step]]
+chat = "/summon minecraft:trident 858.5 -58 604.5 {Motion:[0.0d,-0.3d,0.05d]}"
+
+[[step]]
+chat = "/summon minecraft:wither_skull 860.0 -59.5 604.5 {Motion:[0.0d,0.0d,0.0d]}"
+
+[[step]]
+chat = "/summon minecraft:wither_skull 861.5 -59.5 604.5 {Motion:[0.0d,0.0d,0.0d],dangerous:1b}"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+chat = "/summon minecraft:shulker_bullet 863.0 -58.5 604.5 {NoGravity:1b}"
+
+[[step]]
+chat = "/summon minecraft:evoker_fangs 864.5 -60 604.5 {Warmup:0}"
+
+[[step]]
+chat = "/summon minecraft:llama_spit 859.2 -57.6 604.5"
+
+[[step]]
+wait_ms = 250
+
+[[step]]
+screenshot = "projectiles"
+
+[[step]]
+wait_ms = 500
+
+[[step]]
+screenshot = "shut"
+
+[[step]]
+chat = "/summon minecraft:evoker_fangs 858.5 -60 606.5 {Warmup:0,Rotation:[90f,0f]}"
+
+[[step]]
+chat = "/setblock 859 -60 604 minecraft:stone"
+
+[[step]]
+chat = "/summon minecraft:wither_skull 860.5 -60.0 604.5 {Motion:[0.0d,0.0d,0.0d]}"
+
+[[step]]
+chat = "/tp @s 858.5 -59.2 601.5 0 10"
+
+[[step]]
+wait_ms = 400
+
+[[step]]
+screenshot = "close"
+
+[[step]]
+chat = "/kill @e[type=!minecraft:player,distance=..40]"
+
+[[step]]
+chat = "/setblock 859 -60 604 minecraft:air"
+
+[[step]]
+chat = "/setblock 857 -60 604 minecraft:air"
+
+[[step]]
+chat = "/gamemode creative"

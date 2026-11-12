@@ -30,9 +30,13 @@ pub struct Arrow {
     pub tipped: bool,
 }
 
-/// The kinds [`ArrowStore`] tracks.
+/// The kinds [`ArrowStore`] tracks: arrows, and thrown tridents, which fly
+/// and stick the same way (`AbstractArrow`).
 pub fn is_arrow(kind: EntityKind) -> bool {
-    matches!(kind, EntityKind::Arrow | EntityKind::SpectralArrow)
+    matches!(
+        kind,
+        EntityKind::Arrow | EntityKind::SpectralArrow | EntityKind::Trident
+    )
 }
 
 #[derive(Default)]

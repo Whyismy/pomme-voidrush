@@ -1318,6 +1318,9 @@ enum AnimationType {
     EndCrystal,
     /// `WindChargeModel.setupAnim`: the core and its wind counter-spin.
     WindCharge,
+    /// `EvokerFangsModel.setupAnim`, the bite's progress riding in
+    /// [`EntityRenderInfo::attack_time`].
+    EvokerFangs,
     /// `EnderDragonModel.setupAnim`, from [`EntityRenderInfo::dragon`].
     EnderDragon,
 }
@@ -2897,6 +2900,64 @@ fn mob_definitions() -> Vec<MobDef> {
             adult_overlays: vec![],
             baby_overlays: vec![],
         },
+        // `ShulkerBulletRenderer`: the bullet, and around it a faint shell
+        // half as big again (the overlay, tinted faint by the caller).
+        MobDef {
+            adult_overlays: vec![translucent(
+                {
+                    let mut shell = entity_model::bake_exported(exported_data::SHULKER_BULLET);
+                    shell.part_scales.fill(1.5);
+                    shell
+                },
+                tex_table!("shulker" => "spark"),
+                64,
+            )],
+            ..still(
+                EntityKind::ShulkerBullet,
+                exported_data::SHULKER_BULLET,
+                tex_table!("shulker" => "spark"),
+            )
+        },
+        // `WitherSkullRenderer`: variant 1 is a dangerous (blue) skull.
+        still(
+            EntityKind::WitherSkull,
+            exported_data::WITHER_SKULL,
+            tex_table!("wither" => "wither", "wither_invulnerable"),
+        ),
+        still(
+            EntityKind::LlamaSpit,
+            exported_data::LLAMA_SPIT,
+            &[&[
+                "minecraft/textures/entity/llama/llama_spit.png",
+                "minecraft/textures/entity/llama/spit.png",
+            ]],
+        ),
+        still(
+            EntityKind::LeashKnot,
+            exported_data::LEASH_KNOT,
+            &[&[
+                "minecraft/textures/entity/lead_knot/lead_knot.png",
+                "minecraft/textures/entity/lead_knot.png",
+            ]],
+        ),
+        // `ThrownTridentRenderer`.
+        // TODO: an enchanted trident's glint.
+        still(
+            EntityKind::Trident,
+            exported_data::TRIDENT,
+            &[&[
+                "minecraft/textures/entity/trident/trident.png",
+                "minecraft/textures/entity/trident.png",
+            ]],
+        ),
+        MobDef {
+            anim: AnimationType::EvokerFangs,
+            ..still(
+                EntityKind::EvokerFangs,
+                exported_data::EVOKER_FANGS,
+                tex_table!("illager" => "evoker_fangs"),
+            )
+        },
         // `WindChargeRenderer`, for the player's charge and the breeze's.
         wind_charge(EntityKind::WindCharge),
         wind_charge(EntityKind::BreezeWindCharge),
@@ -2990,6 +3051,19 @@ pub(crate) const WIDE_STEVE_SKIN: u32 = 15;
 /// `variant_index`) a player without a skin of its own draws with.
 pub(crate) fn default_skin_variant(uuid: &uuid::Uuid) -> u32 {
     crate::world::waypoints::java_uuid_hash(uuid).rem_euclid(18) as u32
+}
+
+/// An entity drawn from vanilla's layer geometry (`layer`) with `tex`, posed
+/// only by its renderer.
+fn still(
+    kind: EntityKind,
+    layer: &[entity_model::ExportedPart],
+    tex: &'static [&'static [&'static str]],
+) -> MobDef {
+    MobDef {
+        anim: AnimationType::Static,
+        ..exported(kind, layer, tex)
+    }
 }
 
 fn exported(
@@ -3815,6 +3889,9 @@ impl EntityRenderer {
             }
             AnimationType::WindCharge => {
                 entity_model::mob_anims::wind_charge(model, info.age_in_ticks)
+            }
+            AnimationType::EvokerFangs => {
+                entity_model::mob_anims::evoker_fangs(model, info.attack_time)
             }
             AnimationType::ArmorStand => {
                 entity_model::compute_armor_stand_anim(model, &info.armor_stand_pose)

@@ -373,6 +373,7 @@ pub struct GameState {
     pub hand_equip: crate::player::hand_equip::HandEquip,
     pub thrown_items: crate::entity::thrown_item::ThrownItemStore,
     pub arrows: crate::entity::arrow::ArrowStore,
+    pub model_entities: crate::entity::model_entity::ModelEntityStore,
     pub fishing_hooks: crate::entity::fishing_hook::FishingHookStore,
     pub particle_store: crate::particle::ParticleStore,
     /// `WeatherEffectRenderer.rainSoundTime`: ticks since the last rain sound.
@@ -562,6 +563,7 @@ impl GameState {
             hand_equip: Default::default(),
             thrown_items: Default::default(),
             arrows: Default::default(),
+            model_entities: Default::default(),
             fishing_hooks: Default::default(),
             rain_sound_time: 0,
             particle_store: {
@@ -2455,6 +2457,32 @@ fn render_death_time(death_time: u32, partial_tick: f32) -> f32 {
 /// tick (scaled by the rain level squared) on the surface within 10 blocks
 /// of the camera where it rains, smoke where it falls on lava, magma or a
 /// lit campfire, and every few ticks the rain sound from the last of them.
+/// Flies the shulker bullets, wither skulls and llama spit, runs the evoker
+/// fangs' bites, and spawns the particles they leave.
+fn tick_model_entities(game: &mut GameState, camera: glam::DVec3) {
+    use crate::entity::model_entity::Trail;
+    use crate::particle::{ParticleLook, ParticleOptions, ServerParticleKind};
+    for trail in game.model_entities.tick() {
+        let (kind, at, speed) = match trail {
+            Trail::EndRod(at) => (ServerParticleKind::EndRod, at, glam::DVec3::ZERO),
+            Trail::Smoke(at) => (ServerParticleKind::Smoke, at, glam::DVec3::ZERO),
+            Trail::Crit(at, speed) => (ServerParticleKind::Crit, at, speed),
+        };
+        // A count of zero spawns one, moving at the spread times the speed.
+        game.particle_store.add_particles_from_packet(
+            kind,
+            ParticleOptions::None,
+            ParticleLook::None,
+            false,
+            at,
+            speed,
+            1.0,
+            0,
+            camera,
+        );
+    }
+}
+
 fn tick_rain_particles(core: &AppCore, game: &mut GameState, camera: glam::DVec3) {
     use crate::renderer::pipelines::weather::{Precip, precipitation_for};
     let rain = game.sky_state.rain();
@@ -2787,6 +2815,7 @@ pub fn update_game(
             );
         }
         game.thrown_items.tick();
+        tick_model_entities(game, gfx.renderer.camera_render_position());
         game.fishing_hooks.tick();
         // `ExperienceOrb.followNearbyPlayer`: orbs make for the middle of
         // the eye height of a player who isn't spectating.
@@ -4702,6 +4731,13 @@ pub fn update_game(
                 .lerp(arrow.position, partial_tick as f64);
             let y_rot = lerp_angle(arrow.prev_y_rot, arrow.y_rot, partial_tick);
             let x_rot = arrow.prev_x_rot + (arrow.x_rot - arrow.prev_x_rot) * partial_tick;
+            // `ThrownTridentRenderer`: the model stands on its butt, so a
+            // quarter turn more lays it along the flight.
+            let x_rot = if arrow.kind == EntityKind::Trident {
+                x_rot + 90.0
+            } else {
+                x_rot
+            };
             entity_renders.push(EntityRenderInfo {
                 position: feet,
                 entity_kind: arrow.kind,
@@ -4716,6 +4752,20 @@ pub fn update_game(
                 light: entity_light(&world_light, arrow.kind, feet, false, 0),
                 ..Default::default()
             });
+        }
+    }
+
+    // Shulker bullets, wither skulls, llama spit, evoker fangs and lead
+    // knots, each from vanilla's own model layer.
+    if !benchmark_running {
+        for entity in game.model_entities.entities.values() {
+            let feet = entity
+                .prev_position
+                .lerp(entity.position, partial_tick as f64);
+            let light = entity_light(&world_light, entity.kind, feet, false, 0);
+            if let Some(info) = model_entity_render(entity, feet, partial_tick, light) {
+                entity_renders.push(info);
+            }
         }
     }
 
@@ -6572,6 +6622,80 @@ const ARM_FRAME: glam::Mat4 = glam::Mat4::from_cols(
     glam::Vec4::new(0.0, 0.0, 1.0, 0.0),
     glam::Vec4::W,
 );
+
+/// How one of [`crate::entity::model_entity`]'s kinds is drawn: its
+/// renderer's pose before the model, over pomme's living-model frame.
+fn model_entity_render(
+    entity: &crate::entity::model_entity::ModelEntity,
+    feet: Position,
+    partial_tick: f32,
+    light: crate::renderer::chunk::block_lighter::LightLevels,
+) -> Option<EntityRenderInfo> {
+    use glam::{Mat4, Vec3};
+    let unliving = crate::renderer::pipelines::entity_renderer::unliving_model_frame();
+    let age = entity.age as f32 + partial_tick;
+    let yaw = lerp_angle(entity.prev_y_rot, entity.y_rot, partial_tick).to_radians();
+    let pitch =
+        (entity.prev_x_rot + (entity.x_rot - entity.prev_x_rot) * partial_tick).to_radians();
+    let flipped = Mat4::from_scale(Vec3::new(-1.0, -1.0, 1.0));
+    let lift = Mat4::from_translation(Vec3::new(0.0, 0.15, 0.0));
+    // The model's own turn to face its flight (`yRot`, then `xRot`).
+    let facing = Mat4::from_rotation_y(yaw) * Mat4::from_rotation_x(pitch);
+    let mut info = EntityRenderInfo {
+        position: feet,
+        entity_kind: entity.kind,
+        head_y_rot_deg: 180.0,
+        body_y_rot_deg: 180.0,
+        age_in_ticks: age,
+        light,
+        ..Default::default()
+    };
+    match entity.kind {
+        // `ShulkerBulletRenderer`: tumbling at half size, inside a faint
+        // shell half as big again.
+        EntityKind::ShulkerBullet => {
+            let tumble = Mat4::from_rotation_y(((age * 0.1).sin() * 180.0).to_radians())
+                * Mat4::from_rotation_x(((age * 0.1).cos() * 180.0).to_radians())
+                * Mat4::from_rotation_z(((age * 0.15).sin() * 360.0).to_radians());
+            let half = Mat4::from_scale(Vec3::new(-0.5, -0.5, 0.5));
+            info.body_transform = Some(lift * tumble * half * facing * unliving);
+            info.overlay_tints[0] = Some([1.0, 1.0, 1.0, 0.15]);
+        }
+        // `WitherSkullRenderer`: variant 1 is the blue skull.
+        EntityKind::WitherSkull => {
+            info.body_transform = Some(flipped * facing * unliving);
+            info.variant_index = u32::from(entity.dangerous);
+        }
+        // `LlamaSpitRenderer`.
+        EntityKind::LlamaSpit => {
+            info.body_transform = Some(
+                lift * Mat4::from_rotation_y(yaw - std::f32::consts::FRAC_PI_2)
+                    * Mat4::from_rotation_z(pitch)
+                    * unliving,
+            );
+        }
+        // `LeashKnotRenderer`.
+        EntityKind::LeashKnot => info.body_transform = Some(flipped * unliving),
+        // `EvokerFangsRenderer`: nothing until the bite starts; then turned
+        // a quarter from its facing, with the model root's rise and final
+        // shrink (`EvokerFangsModel.setupAnim`).
+        EntityKind::EvokerFangs => {
+            let bite = entity.bite_progress(partial_tick);
+            if bite == 0.0 {
+                return None;
+            }
+            let size = if bite > 0.9 { (1.0 - bite) / 0.1 } else { 1.0 };
+            let root = Mat4::from_translation(Vec3::new(0.0, (24.0 - 20.0 * size) / 16.0, 0.0))
+                * Mat4::from_scale(Vec3::splat(size));
+            info.body_y_rot_deg = entity.y_rot + 90.0;
+            info.head_y_rot_deg = info.body_y_rot_deg;
+            info.body_transform = Some(unliving.inverse() * root * unliving);
+            info.attack_time = bite;
+        }
+        _ => return None,
+    }
+    Some(info)
+}
 
 /// The kinds `ItemInHandLayer` draws held items for (humanoid arms).
 fn holds_items(kind: EntityKind) -> bool {

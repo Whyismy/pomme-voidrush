@@ -2748,6 +2748,16 @@ impl AppCore {
                     if crate::entity::fishing_hook::is_fishing_hook(entity_type) {
                         game.fishing_hooks.spawn(id, data, *position);
                     }
+                    if crate::entity::model_entity::is_model_entity(entity_type) {
+                        game.model_entities.spawn(
+                            id,
+                            entity_type,
+                            position,
+                            velocity,
+                            y_rot_deg,
+                            x_rot_deg,
+                        );
+                    }
                     if crate::entity::arrow::is_arrow(entity_type) {
                         game.arrows.spawn(
                             id,
@@ -2799,6 +2809,7 @@ impl AppCore {
                     }
                     game.item_entity_store.move_delta(id, dx, dy, dz, on_ground);
                     game.thrown_items.move_delta(id, dvec3(dx, dy, dz));
+                    game.model_entities.move_delta(id, dvec3(dx, dy, dz));
                     game.arrows.move_delta(id, dvec3(dx, dy, dz));
                     game.fishing_hooks.move_delta(id, dvec3(dx, dy, dz));
                     game.falling_blocks
@@ -2830,8 +2841,10 @@ impl AppCore {
                             .rotate_living(id, y_rot_deg, x_rot_deg, on_ground);
                     }
                     game.arrows.rotate(id, y_rot_deg, x_rot_deg);
+                    game.model_entities.rotate(id, y_rot_deg, x_rot_deg);
                     game.item_entity_store.move_delta(id, dx, dy, dz, on_ground);
                     game.thrown_items.move_delta(id, dvec3(dx, dy, dz));
+                    game.model_entities.move_delta(id, dvec3(dx, dy, dz));
                     game.arrows.move_delta(id, dvec3(dx, dy, dz));
                     game.fishing_hooks.move_delta(id, dvec3(dx, dy, dz));
                     game.falling_blocks
@@ -2859,6 +2872,7 @@ impl AppCore {
                             .rotate_living(id, y_rot_deg, x_rot_deg, on_ground);
                     }
                     game.arrows.rotate(id, y_rot_deg, x_rot_deg);
+                    game.model_entities.rotate(id, y_rot_deg, x_rot_deg);
                     game.display_store.rotate(id, y_rot_deg, x_rot_deg);
                 }
                 NetworkEvent::EntityMotion { id, velocity } => {
@@ -2872,6 +2886,7 @@ impl AppCore {
                         game.falling_blocks.set_motion(id, velocity);
                         game.arrows.set_motion(id, velocity);
                         game.thrown_items.set_motion(id, velocity);
+                        game.model_entities.set_motion(id, velocity);
                         game.entity_store.set_living_motion(id, velocity);
                     }
                 }
@@ -2956,9 +2971,12 @@ impl AppCore {
                     game.arrows.teleport(id, position);
                     game.fishing_hooks.teleport(id, *position);
                     game.arrows.rotate(id, y_rot_deg, x_rot_deg);
+                    game.model_entities.teleport(id, position);
+                    game.model_entities.rotate(id, y_rot_deg, x_rot_deg);
                     if let Some(velocity) = velocity {
                         game.thrown_items.set_motion(id, velocity);
                         game.arrows.set_motion(id, velocity);
+                        game.model_entities.set_motion(id, velocity);
                     }
                     game.display_store
                         .teleport(id, *position, y_rot_deg, x_rot_deg);
@@ -3045,6 +3063,7 @@ impl AppCore {
                     game.lightning.remove(&ids);
                     game.experience_orbs.remove(&ids);
                     game.thrown_items.remove(&ids);
+                    game.model_entities.remove(&ids);
                     game.arrows.remove(&ids);
                     game.fishing_hooks.remove(&ids);
                     game.display_store.remove(&ids);
@@ -3119,6 +3138,7 @@ impl AppCore {
                     game.item_frames.apply_entity_data(id, index, value);
                     game.experience_orbs.apply_entity_data(id, index, value);
                     game.arrows.apply_entity_data(id, index, &value);
+                    game.model_entities.apply_entity_data(id, index, value);
                     game.name_store.apply_entity_data(id, index, value);
                     if index == 5
                         && let crate::entity::MetaValue::Bool(no_gravity) = value
@@ -3249,6 +3269,20 @@ impl AppCore {
                 }
                 NetworkEvent::GolemPunch { id } => {
                     game.entity_store.golem_punch(id);
+                    // The same event starts a pair of evoker fangs' bite
+                    // (`EvokerFangs.handleEntityEvent`), with its snap.
+                    if let Some(at) = game.model_entities.start_bite(id)
+                        && !game.silent_entities.contains(&id)
+                    {
+                        self.audio.play_world_sound(
+                            &crate::audio::SoundRef::event("entity.evoker_fangs.attack"),
+                            crate::audio::CATEGORY_NEUTRAL,
+                            at,
+                            1.0,
+                            fastrand::f32() * 0.2 + 0.85,
+                            fastrand::u64(..),
+                        );
+                    }
                 }
                 NetworkEvent::GolemOfferFlower { id, offering } => {
                     game.entity_store.set_golem_offering_flower(id, offering);
@@ -3463,6 +3497,7 @@ impl AppCore {
                     game.lightning.clear();
                     game.experience_orbs.clear();
                     game.thrown_items.clear();
+                    game.model_entities.clear();
                     game.arrows.clear();
                     game.fishing_hooks.clear();
                     game.display_store.clear();

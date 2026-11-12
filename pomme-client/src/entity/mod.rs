@@ -13,6 +13,7 @@ pub mod interaction;
 pub mod item_frame;
 pub mod light;
 pub mod lightning;
+pub mod model_entity;
 pub mod name_tags;
 pub mod shadow;
 pub mod thrown_item;

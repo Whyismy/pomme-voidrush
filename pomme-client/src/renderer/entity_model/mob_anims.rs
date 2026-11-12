@@ -357,6 +357,31 @@ pub fn end_crystal(model: &BakedEntityModel, age_in_ticks: f32) -> PartAnim {
     anim
 }
 
+/// `EvokerFangsModel.setupAnim`: the jaws start wide and snap shut over
+/// the first half of the bite as the base rises out of the ground (the
+/// model root's own rise and shrink are the renderer's).
+pub fn evoker_fangs(model: &BakedEntityModel, bite: f32) -> PartAnim {
+    let mut anim = PartAnim::default();
+    let mut parts = Parts {
+        model,
+        anim: &mut anim,
+    };
+    let closed = (bite * 2.0).min(1.0);
+    let open = (1.0 - closed * closed * closed) * 0.35 * PI;
+    if let Some(rot) = parts.rot("upper_jaw") {
+        rot.z = PI - open;
+    }
+    if let Some(rot) = parts.rot("lower_jaw") {
+        rot.z = PI + open;
+    }
+    if let Some(i) = find_part(&model.parts, "base") {
+        let rest = model.parts[i].offset;
+        let rise = (bite + (bite * 2.7).sin()) * 7.2;
+        parts.set_pos("base", Vec3::new(rest.x, rest.y - rise, rest.z));
+    }
+    anim
+}
+
 /// `WindChargeModel.setupAnim`: the core and the wind around it spin 16
 /// degrees a tick, opposite ways.
 pub fn wind_charge(model: &BakedEntityModel, age_in_ticks: f32) -> PartAnim {
