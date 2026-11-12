@@ -1,0 +1,167 @@
+# More server particles, as entities/particles.toml shows the first thirty:
+# an 8 x 5 grid (left to right, bottom row first, in the order of
+# tests/ingame/entities/more_particles.txt) against a black wall by day, then a flash. Needs
+# enable-command-block=true in POMME_INGAME_SERVER_PROPERTIES.
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/gamerule command_block_output false"
+
+[[step]]
+chat = "/gamerule advance_time false"
+
+[[step]]
+chat = "/gamemode spectator"
+
+[[step]]
+chat = "/tp @s 811 -53 -8 0 0"
+
+[[step]]
+wait_ms = 5000
+
+[[step]]
+chat = "/fill 799 -61 10 823 -45 10 minecraft:black_concrete"
+
+[[step]]
+chat = "/setblock 800 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:squid_ink 801.5 -59.0 6.5 0.2 0.2 0.2 0.05 2 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 801 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:sculk_soul 804.3 -59.0 6.5 0.2 0.2 0.2 0.01 2 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 802 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:firework 807.1 -59.0 6.5 0.2 0.2 0.2 0.05 3 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 803 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:snowflake 809.9 -59.0 6.5 0.4 0.2 0.4 0 3 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 804 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:sonic_boom 812.7 -59.0 6.5 0 0 0 0 1 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 805 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:dragon_breath 815.5 -59.0 6.5 0.2 0.2 0.2 0.02 3 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 806 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:wax_on 818.3 -59.0 6.5 0.3 0.3 0.3 1 3 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 807 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:wax_off 821.1 -59.0 6.5 0.3 0.3 0.3 1 3 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 808 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:damage_indicator 801.5 -56.2 6.5 0.3 0.3 0.3 0.1 2 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 809 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:composter 804.3 -56.2 6.5 0.3 0.3 0.3 0.5 3 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 810 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:angry_villager 807.1 -56.2 6.5 0.4 0.4 0.4 0 1 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 811 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:spore_blossom_air 809.9 -56.2 6.5 0.4 0.4 0.4 0 1 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 812 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:falling_spore_blossom 812.7 -56.2 6.5 0.4 0 0.4 0 1 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 813 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:crimson_spore 815.5 -56.2 6.5 0.4 0.4 0.4 0 2 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 814 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:warped_spore 818.3 -56.2 6.5 0.4 0.4 0.4 0 2 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 815 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:underwater 821.1 -56.2 6.5 0.4 0.4 0.4 0 2 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 816 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:glow 801.5 -53.4 6.5 0.3 0.3 0.3 0 2 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 817 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:dripping_water 804.3 -53.4 6.5 0.4 0 0.4 0 1 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 818 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:falling_water 807.1 -53.4 6.5 0.4 0 0.4 0 1 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 819 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:dripping_lava 809.9 -53.4 6.5 0.4 0 0.4 0 1 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 820 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:falling_lava 812.7 -53.4 6.5 0.4 0 0.4 0 1 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 821 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:landing_lava 815.5 -53.4 6.5 0.4 0 0.4 0 1 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 822 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:landing_obsidian_tear 818.3 -53.4 6.5 0.4 0 0.4 0 1 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 823 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:item_slime 821.1 -53.4 6.5 0.3 0.3 0.3 0 3 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 824 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:item_snowball 801.5 -50.6 6.5 0.3 0.3 0.3 0 3 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 825 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:sculk_charge_pop 804.3 -50.6 6.5 0.3 0.3 0.3 0.02 3 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 826 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:cherry_leaves 807.1 -50.6 6.5 0.5 0.2 0.5 0 2 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 827 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:pale_oak_leaves 809.9 -50.6 6.5 0.5 0.2 0.5 0 2 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 828 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:tinted_leaves{color:[0.9,0.3,0.1,1.0]} 812.7 -50.6 6.5 0.5 0.2 0.5 0 2 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 829 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:sneeze 815.5 -50.6 6.5 0.2 0.2 0.2 0.02 2 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 830 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:trail{target:[818.3,-48.6,6.5],color:[0.2,1.0,0.4],duration:30} 818.3 -50.6 6.5 0.3 0.3 0.3 0 2 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 831 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:note 821.1 -50.6 6.5 0.3 0.3 0.3 1 1 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 832 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:rain 801.5 -47.8 6.5 0.3 0.3 0.3 0 3 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 833 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:fishing 804.3 -47.8 6.5 0.3 0.3 0.3 0.05 3 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 834 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:effect{color:[0.2,0.4,1.0],power:1.0} 807.1 -47.8 6.5 0.3 0.3 0.3 0.1 3 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 835 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:instant_effect{color:[1.0,0.3,0.3],power:2.0} 809.9 -47.8 6.5 0.3 0.3 0.3 0.1 3 force\",auto:1b}"
+
+[[step]]
+chat = "/setblock 836 -63 20 minecraft:repeating_command_block{Command:\"particle minecraft:spit 812.7 -47.8 6.5 0.2 0.2 0.2 0.05 3 force\",auto:1b}"
+
+# Long enough for the chat lines to fade from the shot.
+[[step]]
+wait_ms = 10500
+
+[[step]]
+look_at = [811.5, -53.5, 6.5]
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "particles"
+
+[[step]]
+chat = "/particle minecraft:flash{color:[1.0,0.6,0.1,1.0]} 811.5 -53 6.5 0 0 0 0 1 force"
+
+[[step]]
+wait_ms = 100
+
+[[step]]
+screenshot = "flash"
+
+[[step]]
+chat = "/fill 800 -63 20 836 -63 20 minecraft:dirt"
+
+[[step]]
+chat = "/gamemode creative"

@@ -645,6 +645,7 @@ fn particle_options(
     kind: crate::particle::ServerParticleKind,
 ) -> DecodeResult<Option<crate::particle::ParticleOptions>> {
     use crate::particle::{ParticleOptions as O, ServerParticleKind as K};
+    let spell_options = crate::version::session_protocol() >= 773;
     Ok(Some(match kind {
         // DustParticleOptions.STREAM_CODEC: an RGB int, then the scale.
         K::Dust => O::Dust {
@@ -658,7 +659,21 @@ fn particle_options(
             scale: r.f32()?,
         },
         // ColorParticleOption: an ARGB int.
-        K::EntityEffect => O::Color(r.i32()? as u32),
+        K::EntityEffect | K::TintedLeaves => O::Color(r.i32()? as u32),
+        // Since 1.21.9 a flash has a colour, dragon breath a power and the
+        // potion effects both; before, none had options.
+        K::Flash if spell_options && r.remaining() >= 4 => O::Color(r.i32()? as u32),
+        K::DragonBreath if spell_options && r.remaining() >= 4 => O::Power(r.f32()?),
+        K::Effect | K::InstantEffect if spell_options && r.remaining() >= 8 => O::Spell {
+            color: r.i32()? as u32,
+            power: r.f32()?,
+        },
+        // TrailParticleOption: the target, an RGB int, then the duration.
+        K::Trail => O::Trail {
+            target: r.vec3()?,
+            color: r.i32()? as u32,
+            duration: r.varint()?,
+        },
         // BlockParticleOption: the state id.
         K::Block | K::BlockCrumble | K::FallingDust => O::Block(r.varint()?),
         // ItemParticleOption: through 1.21.11 a whole stack, count first;
@@ -1011,7 +1026,7 @@ mod tests {
             "entity.generic.explode",
             &[
                 ("poof", 0.5, 1.0, 1),
-                ("angry_villager", 1.0, 1.0, 9),
+                ("elder_guardian", 1.0, 1.0, 9),
                 ("smoke", 1.0, 2.0, 3),
             ],
         ));
@@ -1121,5 +1136,43 @@ mod tests {
         item.extend([0, 0]);
         assert_eq!(parsed_options("item", &item), O::Item(42));
         assert_eq!(parsed_options("flame", &[]), O::None);
+
+        let color = 0x80FF8800u32.to_be_bytes().to_vec();
+        assert_eq!(parsed_options("flash", &color), O::Color(0x80FF8800));
+        assert_eq!(
+            parsed_options("tinted_leaves", &color),
+            O::Color(0x80FF8800)
+        );
+        // Before 1.21.9 a flash is a bare type id.
+        assert_eq!(parsed_options("flash", &[]), O::None);
+        assert_eq!(
+            parsed_options("dragon_breath", &2.5f32.to_be_bytes()),
+            O::Power(2.5)
+        );
+        let mut spell = color.clone();
+        spell.extend(0.5f32.to_be_bytes());
+        for name in ["effect", "instant_effect"] {
+            assert_eq!(
+                parsed_options(name, &spell),
+                O::Spell {
+                    color: 0x80FF8800,
+                    power: 0.5
+                }
+            );
+        }
+        let mut trail = Vec::new();
+        for c in [1.5f64, -2.0, 3.25] {
+            trail.extend(c.to_be_bytes());
+        }
+        trail.extend(0x00AA55i32.to_be_bytes());
+        wire::write_varint(&mut trail, 40);
+        assert_eq!(
+            parsed_options("trail", &trail),
+            O::Trail {
+                target: glam::DVec3::new(1.5, -2.0, 3.25),
+                color: 0x00AA55,
+                duration: 40
+            }
+        );
     }
 }

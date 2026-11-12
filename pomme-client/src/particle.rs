@@ -48,6 +48,8 @@ enum Motion {
     FlyTowards(DVec3),
     /// Stays where it spawned (explosions, sweeps).
     Still,
+    /// `TrailParticle`: closes on a point, arriving as its life ends.
+    Homing(DVec3),
 }
 
 /// How a particle's light is read (`getLightCoords`).
@@ -79,10 +81,13 @@ enum Size {
     Flame,
     /// `LavaParticle`: `1 - f²`.
     Lava,
+    /// `FireworkParticles.OverlayParticle` (`flash`): swells and shrinks
+    /// over its four ticks.
+    Flash,
 }
 
 /// After-tick behaviour beyond movement and the sprite.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Extra {
     None,
     /// `SimpleAnimatedParticle`: past half life, fade out (and toward the
@@ -93,10 +98,55 @@ enum Extra {
     /// `CampfireSmokeParticle`: drift, fade over its last 60 ticks.
     CampfireSmoke,
     /// `DripParticle.DripHangParticle`: becomes the falling drip on expiry.
-    DripHang,
+    DripHang(Drip),
+    /// `DripParticle.FallAndLandParticle`: gone on landing, leaving its
+    /// splash or landed drip.
+    DripFall(Drip),
+    /// `SquidInkParticle`: fades over its second half, and sinks in air.
+    InkFade,
+    /// `BubbleParticle`: gone once out of water.
+    Bubble,
+    /// `WakeParticle` (`fishing`): steps through the splash frames.
+    Wake,
+    /// `FallingLeavesParticle`: blown along `flow`, around in a `swirl` of
+    /// that period, both scaled by `wind`; gone when it lands or stops.
+    Leaf {
+        flow: Option<[f32; 2]>,
+        swirl: Option<f32>,
+        wind: f32,
+    },
+    /// `OverlayParticle`: dims each tick.
+    Flash,
     /// `WaterDropParticle`: gone on landing half the time, or once it sinks
     /// into a block's shape or a fluid.
     WaterDrop,
+}
+
+/// What a drip is made of (`DripParticle`'s providers).
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Drip {
+    Water,
+    Lava,
+    ObsidianTear,
+}
+
+impl Drip {
+    /// The colour of the drip once it falls; hanging lava cools toward it.
+    fn color(self) -> [f32; 3] {
+        match self {
+            Self::Water => [0.2, 0.3, 1.0],
+            Self::Lava => [1.0, 0.285_714_3, 0.083_333_336],
+            Self::ObsidianTear => [0.51171875, 0.03125, 0.890625],
+        }
+    }
+
+    /// `DripParticle.isGlowing`.
+    fn light(self) -> Light {
+        match self {
+            Self::Water => Light::World,
+            Self::Lava | Self::ObsidianTear => Light::BlockFull,
+        }
+    }
 }
 
 pub struct Particle {
@@ -120,6 +170,9 @@ pub struct Particle {
     /// Vanilla `Particle.gravity` and `friction`.
     gravity: f64,
     friction: f64,
+    /// What each axis keeps on top of `friction` (a `tick` override's own
+    /// slowing, such as `SnowflakeParticle`'s).
+    damp: DVec3,
     /// Vanilla `quadSize`; the billboard spans twice this.
     size: f32,
     u0: f32,
@@ -161,6 +214,7 @@ impl Particle {
             stopped_by_collision: false,
             gravity: 0.0,
             friction: 0.98,
+            damp: DVec3::ONE,
             size: base_size(),
             u0: 0.0,
             u1: 0.0,
@@ -633,23 +687,277 @@ impl Particle {
         }
     }
 
-    /// `DripParticle` for obsidian tears: hangs, then falls.
-    fn obsidian_tear(pos: DVec3, hanging: bool) -> Self {
-        let mut p = Self {
-            light: Light::BlockFull,
-            size: base_size(),
-            color: [0.51171875, 0.03125, 0.890625],
-            gravity: 0.06,
-            friction: 1.0,
-            lifetime: (64.0 / (fastrand::f32() * 0.8 + 0.2)) as i32,
+    /// `DripParticle`: falls at 0.06 a tick (its own `tick`, not 0.04 times
+    /// its gravity) and keeps 0.98 of its speed.
+    fn drip(pos: DVec3, kind: Drip) -> Self {
+        Self {
+            light: kind.light(),
+            color: kind.color(),
+            gravity: f64::from(0.06f32) / 0.04,
+            friction: f64::from(0.98f32),
             ..Self::at(pos)
-        };
-        if hanging {
-            p.gravity *= 0.02;
-            p.lifetime = 40;
-            p.extra = Extra::DripHang;
         }
+    }
+
+    /// `DripParticle.DripHangParticle`: hangs for two seconds, barely
+    /// moving, then falls.
+    fn drip_hang(pos: DVec3, kind: Drip) -> Self {
+        let mut p = Self::drip(pos, kind);
+        p.gravity *= f64::from(0.02f32);
+        p.friction *= f64::from(0.02f32);
+        p.lifetime = 40;
+        p.extra = Extra::DripHang(kind);
         p
+    }
+
+    /// `DripParticle.FallAndLandParticle`.
+    fn drip_fall(pos: DVec3, kind: Drip) -> Self {
+        let mut p = Self::drip(pos, kind);
+        p.lifetime = (64.0 / (fastrand::f64() * 0.8 + 0.2)) as i32;
+        p.extra = Extra::DripFall(kind);
+        p
+    }
+
+    /// `DripParticle.DripLandParticle`.
+    fn drip_land(pos: DVec3, kind: Drip) -> Self {
+        let mut p = Self::drip(pos, kind);
+        p.lifetime = (16.0 / (fastrand::f64() * 0.8 + 0.2)) as i32;
+        p
+    }
+
+    /// `DripParticle.SporeBlossomFallProvider`: a slow green drip that
+    /// lies where it lands.
+    fn falling_spore_blossom(pos: DVec3) -> Self {
+        let mut p = Self::drip(pos, Drip::Water);
+        p.gravity = f64::from(0.005f32) / 0.04;
+        p.lifetime = (64.0 / (fastrand::f32() * 0.8 + 0.1)) as i32;
+        p.color = SPORE_BLOSSOM_GREEN;
+        p
+    }
+
+    /// `SquidInkParticle`: a big full-bright puff in `color`.
+    fn squid_ink(pos: DVec3, vel: DVec3, color: [f32; 3]) -> Self {
+        Self {
+            motion: Motion::Free,
+            light: Light::Bright,
+            extra: Extra::InkFade,
+            animated: Some(SpriteSet::Generic),
+            translucent: true,
+            vel,
+            friction: f64::from(0.92f32),
+            size: 0.5,
+            color,
+            lifetime: (f64::from(0.5f32 * 12.0) / (fastrand::f64() * 0.8 + 0.2)) as i32,
+            ..Self::at(pos)
+        }
+    }
+
+    /// `FireworkParticles.SparkParticle` (`firework`): white glitter that
+    /// falls a little.
+    // TODO: a rocket's own burst (its colours, trails and twinkle).
+    fn firework(pos: DVec3, vel: DVec3) -> Self {
+        let mut p = Self::end_rod(pos, vel);
+        p.extra = Extra::FadeOut(None);
+        p.animated = Some(SpriteSet::Spark);
+        p.gravity = f64::from(0.1f32);
+        p.lifetime = 48 + fastrand::i32(0..12);
+        p.alpha = 0.99;
+        p
+    }
+
+    /// `SnowflakeParticle`.
+    fn snowflake(pos: DVec3, vel: DVec3) -> Self {
+        let jitter = || (fastrand::f64() * 2.0 - 1.0) * f64::from(0.05f32);
+        Self {
+            vel: vel + dvec3(jitter(), jitter(), jitter()),
+            gravity: f64::from(0.225f32),
+            friction: 1.0,
+            damp: dvec3(f64::from(0.95f32), f64::from(0.9f32), f64::from(0.95f32)),
+            size: 0.1 * (fastrand::f32() * fastrand::f32() + 1.0),
+            lifetime: (16.0 / (f64::from(fastrand::f32()) * 0.8 + 0.2)) as i32 + 2,
+            color: [0.923, 0.964, 0.999],
+            animated: Some(SpriteSet::Generic),
+            ..Self::at(pos)
+        }
+    }
+
+    /// `SonicBoomParticle`: a `HugeExplosionParticle` through its own
+    /// sixteen frames.
+    fn sonic_boom(pos: DVec3) -> Self {
+        Self {
+            animated: Some(SpriteSet::SonicBoom),
+            lifetime: 16,
+            size: 1.5,
+            ..Self::explosion(pos, 0.0)
+        }
+    }
+
+    /// `DragonBreathParticle`: purple, drifting at `power` times its spawn
+    /// speed, slowing sideways only (it never lands, having no collision).
+    fn dragon_breath(pos: DVec3, vel: DVec3, power: f32) -> Self {
+        let between = |a: f32, b: f32| a + fastrand::f32() * (b - a);
+        let friction = f64::from(0.96f32);
+        Self {
+            motion: Motion::Free,
+            size_curve: Size::GrowIn,
+            animated: Some(SpriteSet::DragonBreath),
+            speed_up_blocked: true,
+            vel: vel * f64::from(power),
+            friction,
+            damp: dvec3(1.0, 1.0 / friction, 1.0),
+            size: base_size() * 0.75,
+            color: [
+                between(0.717_647_1, 0.874_509_8),
+                0.0,
+                between(0.823_529_4, 0.976_470_6),
+            ],
+            lifetime: (20.0 / (f64::from(fastrand::f32()) * 0.8 + 0.2)) as i32,
+            ..Self::at(pos)
+        }
+    }
+
+    /// `GlowParticle`, before its provider colours and speeds it.
+    fn glow(pos: DVec3, velocity_arg: DVec3) -> Self {
+        let mut p = Self::thrown(pos, velocity_arg);
+        p.motion = Motion::Free;
+        p.light = Light::BlockRamp;
+        p.friction = f64::from(0.96f32);
+        p.speed_up_blocked = true;
+        p.size *= 0.75;
+        p.translucent = true;
+        p
+    }
+
+    /// `SuspendedParticle`: a mote hanging in the air or water, an eighth
+    /// of a block under where it was asked for. `velocity_arg` is thrown
+    /// like any particle's; without one it starts still.
+    fn suspended(pos: DVec3, velocity_arg: Option<DVec3>, color: [f32; 3]) -> Self {
+        let pos = pos - dvec3(0.0, 0.125, 0.0);
+        let mut p = match velocity_arg {
+            Some(arg) => Self::thrown(pos, arg),
+            None => Self::at(pos),
+        };
+        p.motion = Motion::Free;
+        p.friction = 1.0;
+        p.size *= fastrand::f32() * 0.6 + 0.2;
+        p.lifetime = (16.0 / (fastrand::f64() * 0.8 + 0.2)) as i32;
+        p.color = color;
+        p
+    }
+
+    /// `FireworkParticles.OverlayParticle` (`flash`).
+    fn flash(pos: DVec3, color: [f32; 3]) -> Self {
+        Self {
+            motion: Motion::Still,
+            light: Light::Bright,
+            size_curve: Size::Flash,
+            extra: Extra::Flash,
+            translucent: true,
+            size: 7.1,
+            color,
+            alpha: 0.6,
+            lifetime: 4,
+            ..Self::at(pos)
+        }
+    }
+
+    /// `SculkChargePopParticle`.
+    fn sculk_charge_pop(pos: DVec3, vel: DVec3) -> Self {
+        Self {
+            motion: Motion::Free,
+            light: Light::BlockFull,
+            animated: Some(SpriteSet::SculkChargePop),
+            translucent: true,
+            vel,
+            friction: f64::from(0.96f32),
+            lifetime: fastrand::i32(0..4) + 6,
+            ..Self::at(pos)
+        }
+    }
+
+    /// `FallingLeavesParticle`: `fall` and `wind` are its providers' fall
+    /// and side accelerations, `scale` its size, `start_velocity` how fast
+    /// it starts down.
+    // TODO: the leaf's spin (`roll`).
+    fn leaves(
+        pos: DVec3,
+        (fall, wind, swirl, flow_away, scale, start_velocity): (f32, f32, bool, bool, f32, f32),
+        color: [f32; 3],
+    ) -> Self {
+        let size = scale * if fastrand::bool() { 0.05 } else { 0.075 };
+        let heading = (fastrand::f32() * 60.0).to_radians();
+        let period = (1000.0 + fastrand::f32() * 3000.0).to_radians();
+        Self {
+            extra: Extra::Leaf {
+                flow: flow_away.then(|| [heading.cos() * wind, heading.sin() * wind]),
+                swirl: swirl.then_some(period),
+                wind,
+            },
+            vel: dvec3(0.0, -f64::from(start_velocity), 0.0),
+            // Its own tick subtracts `gravity` itself.
+            gravity: f64::from(fall * 1.2 * 0.0025) / 0.04,
+            friction: 1.0,
+            size,
+            color,
+            lifetime: 300,
+            ..Self::at(pos)
+        }
+    }
+
+    /// `BubbleParticle`: rises through water, gone outside it.
+    fn bubble(pos: DVec3, vel: DVec3) -> Self {
+        let jitter = || (fastrand::f64() * 2.0 - 1.0) * f64::from(0.02f32);
+        Self {
+            extra: Extra::Bubble,
+            vel: vel * f64::from(0.2f32) + dvec3(jitter(), jitter(), jitter()),
+            // Its own tick adds 0.002 a tick.
+            gravity: -0.002 / 0.04,
+            friction: f64::from(0.85f32),
+            size: base_size() * (fastrand::f32() * 0.6 + 0.2),
+            lifetime: (8.0 / (fastrand::f64() * 0.8 + 0.2)) as i32,
+            ..Self::at(pos)
+        }
+    }
+
+    /// `TrailParticle`: flies to `target` over `duration` ticks.
+    fn trail(pos: DVec3, target: DVec3, color: u32, duration: u32) -> Self {
+        let shade = || 0.875 + fastrand::f32() * 0.25;
+        Self {
+            motion: Motion::Homing(target),
+            light: Light::Bright,
+            size: 0.26,
+            color: unpack_rgb(color).map(|c| c * shade()),
+            lifetime: duration.clamp(1, i32::MAX as u32) as i32,
+            ..Self::at(pos)
+        }
+    }
+
+    /// `NoteParticle`: `hue` (its `xd` argument) picks the colour.
+    fn note(pos: DVec3, hue: f64) -> Self {
+        let mut p = Self::thrown(pos, DVec3::ZERO);
+        p.friction = f64::from(0.66f32);
+        p.speed_up_blocked = true;
+        p.vel *= f64::from(0.01f32);
+        p.vel.y += 0.2;
+        let channel = |offset: f32| {
+            (((hue as f32 + offset) * std::f32::consts::TAU).sin() * 0.65 + 0.35).max(0.0)
+        };
+        p.color = [channel(0.0), channel(1.0 / 3.0), channel(2.0 / 3.0)];
+        p.size *= 1.5;
+        p.lifetime = 6;
+        p.size_curve = Size::GrowIn;
+        p
+    }
+
+    /// `WakeParticle` (`fishing`): the spawn velocity, slowing.
+    fn wake(pos: DVec3, vel: DVec3) -> Self {
+        Self {
+            extra: Extra::Wake,
+            vel,
+            friction: f64::from(0.98f32),
+            lifetime: (8.0 / (fastrand::f64() * 0.8 + 0.2)) as i32,
+            ..Self::at(pos)
+        }
     }
 
     /// The lane `light_lane_color` reads, at `partial` into the tick.
@@ -709,6 +1017,9 @@ impl Particle {
                 }
                 Size::Flame => 1.0 - f * f * 0.5,
                 Size::Lava => 1.0 - f * f,
+                Size::Flash => ((self.age as f32 + partial - 1.0) * 0.25 * std::f32::consts::PI)
+                    .sin()
+                    .max(0.0),
             }
     }
 
@@ -778,7 +1089,31 @@ impl Particle {
                 self.pos = start + self.vel * (1.0 - f) - dvec3(0.0, g * 1.2, 0.0);
             }
             Motion::Still => {}
+            Motion::Homing(target) => {
+                // `TrailParticle.tick`: the rest of the way, split evenly
+                // over the ticks left.
+                let left = self.lifetime - self.age;
+                self.pos = if left > 0 {
+                    self.pos.lerp(target, 1.0 / f64::from(left))
+                } else {
+                    target
+                };
+            }
             Motion::Physics | Motion::Free => {
+                if let Extra::Leaf { flow, swirl, wind } = self.extra {
+                    let g = (self.age as f32 / 300.0).min(1.0);
+                    let mut push = [0.0f32; 2];
+                    if let Some(flow) = flow {
+                        let strength = g.powf(1.25);
+                        push = [flow[0] * strength, flow[1] * strength];
+                    }
+                    if let Some(period) = swirl {
+                        push[0] += g * (g * period).cos() * wind;
+                        push[1] += g * (g * period).sin() * wind;
+                    }
+                    self.vel.x += f64::from(push[0] * 0.0025);
+                    self.vel.z += f64::from(push[1] * 0.0025);
+                }
                 if self.extra == Extra::CampfireSmoke {
                     let drift =
                         || fastrand::f64() / 5000.0 * if fastrand::bool() { 1.0 } else { -1.0 };
@@ -796,6 +1131,7 @@ impl Particle {
                     self.vel.z *= 1.1;
                 }
                 self.vel *= self.friction;
+                self.vel *= self.damp;
                 if self.on_ground {
                     self.vel.x *= 0.7;
                     self.vel.z *= 0.7;
@@ -822,7 +1158,49 @@ impl Particle {
                     self.alpha -= 0.015;
                 }
             }
-            Extra::None | Extra::DripHang | Extra::WaterDrop => {}
+            Extra::InkFade => {
+                if self.age > self.lifetime / 2 {
+                    self.alpha = 1.0 - (self.age - self.lifetime / 2) as f32 / self.lifetime as f32;
+                }
+                let [x, y, z] = self.pos.floor().as_ivec3().to_array();
+                let state = chunks.get_block_state(x, y, z);
+                if block_state_table.block_state_data(state).is_air() {
+                    self.vel.y -= f64::from(0.0074f32);
+                }
+            }
+            // `CoolingDripHangParticle`: hanging lava cools from yellow.
+            Extra::DripHang(Drip::Lava) => {
+                let age = self.age as f32;
+                self.color = [1.0, 16.0 / (age + 16.0), 4.0 / (age + 8.0)];
+            }
+            Extra::DripFall(_) => {
+                if self.on_ground {
+                    return false;
+                }
+            }
+            Extra::Bubble => {
+                let [x, y, z] = self.pos.floor().as_ivec3().to_array();
+                let data = block_state_table.block_state_data(chunks.get_block_state(x, y, z));
+                if data.fluid().kind != crate::world::block::FluidKind::Water {
+                    return false;
+                }
+            }
+            Extra::Wake => {
+                // The frame of how long it has left, as vanilla counts it.
+                let frames = sets.get(SpriteSet::Rain);
+                if !frames.is_empty() {
+                    let step = 60 - (self.lifetime - self.age + 1);
+                    let frame = frames[step.rem_euclid(frames.len() as i32) as usize];
+                    self.set_sprite(&frame);
+                }
+            }
+            Extra::Leaf { .. } => {
+                if self.on_ground || self.age > 1 && (self.vel.x == 0.0 || self.vel.z == 0.0) {
+                    return false;
+                }
+            }
+            Extra::Flash => self.alpha = 0.6 - (self.age as f32 - 1.0) * 0.25 * 0.5,
+            Extra::None | Extra::DripHang(_) | Extra::WaterDrop => {}
         }
         if self.extra == Extra::WaterDrop && self.water_drop_gone(chunks, block_state_table) {
             return false;
@@ -876,6 +1254,9 @@ impl Particle {
     }
 }
 
+/// The green of a spore blossom's spores, in the air and falling.
+const SPORE_BLOSSOM_GREEN: [f32; 3] = [0.32, 0.5, 0.22];
+
 /// `SimpleAnimatedParticle.setFadeColor(0xF2DEC9)` in `EndRodParticle`.
 const END_ROD_FADE: [f32; 3] = [242.0 / 255.0, 222.0 / 255.0, 201.0 / 255.0];
 
@@ -917,6 +1298,23 @@ enum SpriteSet {
     Ash,
     Gust,
     SmallGust,
+    /// `firework`: `spark_7` to `spark_0`.
+    Spark,
+    SculkSoul,
+    SonicBoom,
+    /// `dragon_breath`: `generic_5` to `generic_7`.
+    DragonBreath,
+    Damage,
+    Angry,
+    Flash,
+    SculkChargePop,
+    /// The leaves: one at random.
+    Cherry,
+    PaleOak,
+    Leaf,
+    Bubble,
+    Note,
+    DripLand,
 }
 
 /// The sprites of each set, as atlas texture keys.
@@ -1131,6 +1529,130 @@ const SPRITE_SETS: &[(SpriteSet, &[&str])] = &[
             "particle/small_gust_6",
         ],
     ),
+    (
+        SpriteSet::Spark,
+        &[
+            "particle/spark_7",
+            "particle/spark_6",
+            "particle/spark_5",
+            "particle/spark_4",
+            "particle/spark_3",
+            "particle/spark_2",
+            "particle/spark_1",
+            "particle/spark_0",
+        ],
+    ),
+    (
+        SpriteSet::SculkSoul,
+        &[
+            "particle/sculk_soul_0",
+            "particle/sculk_soul_1",
+            "particle/sculk_soul_2",
+            "particle/sculk_soul_3",
+            "particle/sculk_soul_4",
+            "particle/sculk_soul_5",
+            "particle/sculk_soul_6",
+            "particle/sculk_soul_7",
+            "particle/sculk_soul_8",
+            "particle/sculk_soul_9",
+            "particle/sculk_soul_10",
+        ],
+    ),
+    (
+        SpriteSet::SonicBoom,
+        &[
+            "particle/sonic_boom_0",
+            "particle/sonic_boom_1",
+            "particle/sonic_boom_2",
+            "particle/sonic_boom_3",
+            "particle/sonic_boom_4",
+            "particle/sonic_boom_5",
+            "particle/sonic_boom_6",
+            "particle/sonic_boom_7",
+            "particle/sonic_boom_8",
+            "particle/sonic_boom_9",
+            "particle/sonic_boom_10",
+            "particle/sonic_boom_11",
+            "particle/sonic_boom_12",
+            "particle/sonic_boom_13",
+            "particle/sonic_boom_14",
+            "particle/sonic_boom_15",
+        ],
+    ),
+    (
+        SpriteSet::DragonBreath,
+        &[
+            "particle/generic_5",
+            "particle/generic_6",
+            "particle/generic_7",
+        ],
+    ),
+    (SpriteSet::Damage, &["particle/damage"]),
+    (SpriteSet::Angry, &["particle/angry"]),
+    (SpriteSet::Flash, &["particle/flash"]),
+    (
+        SpriteSet::SculkChargePop,
+        &[
+            "particle/sculk_charge_pop_0",
+            "particle/sculk_charge_pop_1",
+            "particle/sculk_charge_pop_2",
+            "particle/sculk_charge_pop_3",
+        ],
+    ),
+    (
+        SpriteSet::Cherry,
+        &[
+            "particle/cherry_0",
+            "particle/cherry_1",
+            "particle/cherry_2",
+            "particle/cherry_3",
+            "particle/cherry_4",
+            "particle/cherry_5",
+            "particle/cherry_6",
+            "particle/cherry_7",
+            "particle/cherry_8",
+            "particle/cherry_9",
+            "particle/cherry_10",
+            "particle/cherry_11",
+        ],
+    ),
+    (
+        SpriteSet::PaleOak,
+        &[
+            "particle/pale_oak_0",
+            "particle/pale_oak_1",
+            "particle/pale_oak_2",
+            "particle/pale_oak_3",
+            "particle/pale_oak_4",
+            "particle/pale_oak_5",
+            "particle/pale_oak_6",
+            "particle/pale_oak_7",
+            "particle/pale_oak_8",
+            "particle/pale_oak_9",
+            "particle/pale_oak_10",
+            "particle/pale_oak_11",
+        ],
+    ),
+    (
+        SpriteSet::Leaf,
+        &[
+            "particle/leaf_0",
+            "particle/leaf_1",
+            "particle/leaf_2",
+            "particle/leaf_3",
+            "particle/leaf_4",
+            "particle/leaf_5",
+            "particle/leaf_6",
+            "particle/leaf_7",
+            "particle/leaf_8",
+            "particle/leaf_9",
+            "particle/leaf_10",
+            "particle/leaf_11",
+        ],
+    ),
+    (SpriteSet::Bubble, &["particle/bubble"]),
+    (SpriteSet::Note, &["particle/note"]),
+    (SpriteSet::DripLand, &["particle/drip_land"]),
 ];
 
 /// Frame order from `assets/minecraft/particles/end_rod.json`: frame 0 is
@@ -1233,6 +1755,45 @@ pub enum ServerParticleKind {
     WhiteAsh,
     Poof,
     Splash,
+    SquidInk,
+    SculkSoul,
+    Firework,
+    Snowflake,
+    SonicBoom,
+    DragonBreath,
+    WaxOn,
+    WaxOff,
+    DamageIndicator,
+    Composter,
+    AngryVillager,
+    SporeBlossomAir,
+    FallingSporeBlossom,
+    CrimsonSpore,
+    WarpedSpore,
+    Underwater,
+    Glow,
+    DrippingWater,
+    FallingWater,
+    DrippingLava,
+    FallingLava,
+    LandingLava,
+    LandingObsidianTear,
+    Flash,
+    ItemSlime,
+    ItemSnowball,
+    SculkChargePop,
+    CherryLeaves,
+    PaleOakLeaves,
+    TintedLeaves,
+    Sneeze,
+    Bubble,
+    Trail,
+    Note,
+    Rain,
+    Fishing,
+    Effect,
+    InstantEffect,
+    Spit,
 }
 
 impl ServerParticleKind {
@@ -1281,6 +1842,45 @@ impl ServerParticleKind {
             "campfire_signal_smoke" => Self::CampfireSignalSmoke,
             "dripping_obsidian_tear" => Self::DrippingObsidianTear,
             "falling_obsidian_tear" => Self::FallingObsidianTear,
+            "squid_ink" => Self::SquidInk,
+            "sculk_soul" => Self::SculkSoul,
+            "firework" => Self::Firework,
+            "snowflake" => Self::Snowflake,
+            "sonic_boom" => Self::SonicBoom,
+            "dragon_breath" => Self::DragonBreath,
+            "wax_on" => Self::WaxOn,
+            "wax_off" => Self::WaxOff,
+            "damage_indicator" => Self::DamageIndicator,
+            "composter" => Self::Composter,
+            "angry_villager" => Self::AngryVillager,
+            "spore_blossom_air" => Self::SporeBlossomAir,
+            "falling_spore_blossom" => Self::FallingSporeBlossom,
+            "crimson_spore" => Self::CrimsonSpore,
+            "warped_spore" => Self::WarpedSpore,
+            "underwater" => Self::Underwater,
+            "glow" => Self::Glow,
+            "dripping_water" => Self::DrippingWater,
+            "falling_water" => Self::FallingWater,
+            "dripping_lava" => Self::DrippingLava,
+            "falling_lava" => Self::FallingLava,
+            "landing_lava" => Self::LandingLava,
+            "landing_obsidian_tear" => Self::LandingObsidianTear,
+            "flash" => Self::Flash,
+            "item_slime" => Self::ItemSlime,
+            "item_snowball" => Self::ItemSnowball,
+            "sculk_charge_pop" => Self::SculkChargePop,
+            "cherry_leaves" => Self::CherryLeaves,
+            "pale_oak_leaves" => Self::PaleOakLeaves,
+            "tinted_leaves" => Self::TintedLeaves,
+            "sneeze" => Self::Sneeze,
+            "bubble" => Self::Bubble,
+            "trail" => Self::Trail,
+            "note" => Self::Note,
+            "rain" => Self::Rain,
+            "fishing" => Self::Fishing,
+            "effect" => Self::Effect,
+            "instant_effect" => Self::InstantEffect,
+            "spit" => Self::Spit,
             _ => return None,
         })
     }
@@ -1308,6 +1908,15 @@ impl ServerParticleKind {
             .flatten()
     }
 
+    /// What a drip particle's kind is made of.
+    fn drip(self) -> Drip {
+        match self {
+            Self::DrippingWater | Self::FallingWater => Drip::Water,
+            Self::DrippingLava | Self::FallingLava | Self::LandingLava => Drip::Lava,
+            _ => Drip::ObsidianTear,
+        }
+    }
+
     /// Vanilla `ParticleType.getOverrideLimiter`: the types `ParticleTypes`
     /// registers to show from any distance.
     fn override_limiter(self) -> bool {
@@ -1321,6 +1930,7 @@ impl ServerParticleKind {
                 | Self::SweepAttack
                 | Self::CampfireCosySmoke
                 | Self::CampfireSignalSmoke
+                | Self::SonicBoom
         )
     }
 }
@@ -1442,6 +2052,20 @@ pub enum ParticleOptions {
     Item(u32),
     /// `ColorParticleOption`: an ARGB colour.
     Color(u32),
+    /// `PowerParticleOption`: what the spawn speed is multiplied by.
+    Power(f32),
+    /// `SpellParticleOption`: an ARGB colour and a power.
+    Spell {
+        color: u32,
+        power: f32,
+    },
+    /// `TrailParticleOption`: where it flies to, its RGB colour and how
+    /// many ticks it takes.
+    Trail {
+        target: DVec3,
+        color: u32,
+        duration: u32,
+    },
 }
 
 /// How a block or item particle looks, resolved by the caller (which has
@@ -1986,14 +2610,236 @@ impl ParticleStore {
                 Particle::campfire_smoke(pos, vel, spawn.kind == K::CampfireSignalSmoke),
                 sets.pick(SpriteSet::BigSmoke),
             ),
-            K::DrippingObsidianTear => with(
-                Particle::obsidian_tear(pos, true),
+            K::DrippingObsidianTear | K::DrippingWater | K::DrippingLava => with(
+                Particle::drip_hang(pos, spawn.kind.drip()),
                 sets.first(SpriteSet::DripHang),
             ),
-            K::FallingObsidianTear => with(
-                Particle::obsidian_tear(pos, false),
+            K::FallingObsidianTear | K::FallingWater | K::FallingLava => with(
+                Particle::drip_fall(pos, spawn.kind.drip()),
                 sets.first(SpriteSet::DripFall),
             ),
+            K::LandingObsidianTear | K::LandingLava => with(
+                Particle::drip_land(pos, spawn.kind.drip()),
+                sets.first(SpriteSet::DripLand),
+            ),
+            K::FallingSporeBlossom => with(
+                Particle::falling_spore_blossom(pos),
+                sets.first(SpriteSet::DripFall),
+            ),
+            K::SquidInk => {
+                let mut p = Particle::squid_ink(pos, vel, [0.0; 3]);
+                p.sprite_from_age(sets);
+                p
+            }
+            // `SoulParticle.EmissiveProvider`: a soul that glows.
+            K::SculkSoul => {
+                let mut p = Particle::soul(pos, vel);
+                p.light = Light::BlockFull;
+                p.animated = Some(SpriteSet::SculkSoul);
+                p.sprite_from_age(sets);
+                p
+            }
+            K::Firework => {
+                let mut p = Particle::firework(pos, vel);
+                p.sprite_from_age(sets);
+                p
+            }
+            K::Snowflake => {
+                let mut p = Particle::snowflake(pos, vel);
+                p.sprite_from_age(sets);
+                p
+            }
+            K::SonicBoom => {
+                let mut p = Particle::sonic_boom(pos);
+                p.sprite_from_age(sets);
+                p
+            }
+            K::DragonBreath => {
+                let power = match spawn.options {
+                    ParticleOptions::Power(power) => power,
+                    _ => 1.0,
+                };
+                let mut p = Particle::dragon_breath(pos, vel, power);
+                p.sprite_from_age(sets);
+                p
+            }
+            // `GlowParticle.WaxOnProvider` and `WaxOffProvider`.
+            K::WaxOn | K::WaxOff => {
+                let mut p = Particle::glow(pos, DVec3::ZERO);
+                p.color = if spawn.kind == K::WaxOn {
+                    [0.91, 0.55, 0.08]
+                } else {
+                    [1.0, 0.9, 1.0]
+                };
+                p.alpha = 0.8;
+                p.vel = vel * dvec3(0.005, 0.01, 0.005);
+                p.lifetime = fastrand::i32(0..30) + 10;
+                with(p, sets.first(SpriteSet::Glow))
+            }
+            // `GlowParticle.GlowSquidProvider`.
+            K::Glow => {
+                let mut p = Particle::glow(
+                    pos,
+                    dvec3(0.5 - fastrand::f64(), vel.y, 0.5 - fastrand::f64()),
+                );
+                p.color = if fastrand::bool() {
+                    [0.6, 1.0, 0.8]
+                } else {
+                    [0.08, 0.4, 0.4]
+                };
+                p.vel.y *= f64::from(0.2f32);
+                if vel.x == 0.0 && vel.z == 0.0 {
+                    p.vel.x *= f64::from(0.1f32);
+                    p.vel.z *= f64::from(0.1f32);
+                }
+                p.lifetime = (8.0 / (fastrand::f64() * 0.8 + 0.2)) as i32;
+                with(p, sets.first(SpriteSet::Glow))
+            }
+            // `CritParticle.DamageIndicatorProvider`.
+            K::DamageIndicator => {
+                let mut p = Particle::crit(pos, vel + DVec3::Y, false);
+                p.lifetime = 20;
+                with(p, sets.first(SpriteSet::Damage))
+            }
+            // `SuspendedTownParticle.ComposterFillProvider`.
+            K::Composter => {
+                let mut p = Particle::happy_villager(pos, vel);
+                p.lifetime = 3 + fastrand::i32(0..5);
+                with(p, sets.first(SpriteSet::Glint))
+            }
+            // `HeartParticle.AngryVillagerProvider`: half a block up.
+            K::AngryVillager => with(
+                Particle::heart(pos + dvec3(0.0, 0.5, 0.0)),
+                sets.first(SpriteSet::Angry),
+            ),
+            // `SuspendedParticle`'s providers.
+            K::SporeBlossomAir => {
+                let down = dvec3(0.0, f64::from(-0.8f32), 0.0);
+                let mut p = Particle::suspended(pos, Some(down), SPORE_BLOSSOM_GREEN);
+                p.lifetime = fastrand::i32(500..=1000);
+                p.gravity = f64::from(0.01f32);
+                with(p, sets.first(SpriteSet::DripFall))
+            }
+            K::CrimsonSpore => {
+                let drift = dvec3(
+                    next_gaussian() * f64::from(1.0e-6f32),
+                    next_gaussian() * f64::from(1.0e-4f32),
+                    next_gaussian() * f64::from(1.0e-6f32),
+                );
+                with(
+                    Particle::suspended(pos, Some(drift), [0.9, 0.4, 0.5]),
+                    sets.first(SpriteSet::Ash),
+                )
+            }
+            K::WarpedSpore => {
+                let sink = f64::from(fastrand::f32()) * -1.9 * f64::from(fastrand::f32()) * 0.1;
+                with(
+                    Particle::suspended(pos, Some(dvec3(0.0, sink, 0.0)), [0.1, 0.1, 0.3]),
+                    sets.first(SpriteSet::Ash),
+                )
+            }
+            K::Underwater => with(
+                Particle::suspended(pos, None, [0.4, 0.4, 0.7]),
+                sets.first(SpriteSet::Ash),
+            ),
+            K::Flash => {
+                let color = match spawn.options {
+                    ParticleOptions::Color(argb) => unpack_rgb(argb),
+                    _ => [1.0; 3],
+                };
+                with(Particle::flash(pos, color), sets.first(SpriteSet::Flash))
+            }
+            // `BreakingItemParticle.SlimeProvider` and `SnowballProvider`:
+            // bits of the item, thrown without the spawn velocity.
+            K::ItemSlime | K::ItemSnowball => {
+                let item = if spawn.kind == K::ItemSlime {
+                    "item/slime_ball"
+                } else {
+                    "item/snowball"
+                };
+                let Some(region) = self.item_region(item) else {
+                    return;
+                };
+                Particle::terrain(pos, DVec3::ZERO, region, [1.0; 3])
+            }
+            K::SculkChargePop => {
+                let mut p = Particle::sculk_charge_pop(pos, vel);
+                p.sprite_from_age(sets);
+                p
+            }
+            // `FallingLeavesParticle`'s providers.
+            K::CherryLeaves => with(
+                Particle::leaves(pos, (0.25, 2.0, false, true, 1.0, 0.0), [1.0; 3]),
+                sets.pick(SpriteSet::Cherry),
+            ),
+            K::PaleOakLeaves => with(
+                Particle::leaves(pos, (0.07, 10.0, true, false, 2.0, 0.021), [1.0; 3]),
+                sets.pick(SpriteSet::PaleOak),
+            ),
+            K::TintedLeaves => {
+                let color = match spawn.options {
+                    ParticleOptions::Color(argb) => unpack_rgb(argb),
+                    _ => [1.0; 3],
+                };
+                with(
+                    Particle::leaves(pos, (0.07, 10.0, true, false, 2.0, 0.021), color),
+                    sets.pick(SpriteSet::Leaf),
+                )
+            }
+            // `PlayerCloudParticle.SneezeProvider`: its colour is set far
+            // past white (200, 50, 120), so it draws white, and faint.
+            K::Sneeze => {
+                let mut p = Particle::cloud(pos, vel);
+                p.color = [1.0; 3];
+                p.alpha = 0.4;
+                p.translucent = true;
+                p.sprite_from_age(sets);
+                p
+            }
+            K::Bubble => with(Particle::bubble(pos, vel), sets.first(SpriteSet::Bubble)),
+            K::Trail => {
+                let ParticleOptions::Trail {
+                    target,
+                    color,
+                    duration,
+                } = spawn.options
+                else {
+                    return;
+                };
+                with(
+                    Particle::trail(pos, target, color, duration),
+                    sets.first(SpriteSet::Ash),
+                )
+            }
+            K::Note => with(Particle::note(pos, vel.x), sets.first(SpriteSet::Note)),
+            K::Rain => with(Particle::water_drop(pos), sets.pick(SpriteSet::Rain)),
+            K::Fishing => with(Particle::wake(pos, vel), sets.first(SpriteSet::Rain)),
+            // `SpellParticle.Provider` and `InstantProvider`: the option's
+            // colour, and its power on the speed.
+            K::Effect | K::InstantEffect => {
+                let (argb, power) = match spawn.options {
+                    ParticleOptions::Spell { color, power } => (color, f64::from(power)),
+                    _ => (0xFFFF_FFFF, 1.0),
+                };
+                let mut p = Particle::spell(pos, vel, unpack_rgb(argb), 1.0);
+                p.vel.x *= power;
+                p.vel.y = (p.vel.y - 0.1) * power + 0.1;
+                p.vel.z *= power;
+                p.animated = Some(if spawn.kind == K::Effect {
+                    SpriteSet::Effect
+                } else {
+                    SpriteSet::Spell
+                });
+                p.sprite_from_age(sets);
+                p
+            }
+            // `SpitParticle`: a poof that falls.
+            K::Spit => {
+                let mut p = Particle::poof(pos, vel);
+                p.gravity = 0.5;
+                p.sprite_from_age(sets);
+                p
+            }
         };
         self.push(particle);
     }
@@ -2151,13 +2997,28 @@ impl ParticleStore {
         let pending = &mut self.pending;
         self.particles.retain_mut(|p| {
             let alive = p.tick(chunks, block_state_table, sets);
-            // `DripHangParticle.postMoveUpdate` on expiry: the drop falls.
-            if !alive && p.extra == Extra::DripHang {
-                let mut drop = Particle::obsidian_tear(p.pos, false);
-                if let Some(sprite) = sets.first(SpriteSet::DripFall) {
-                    drop.set_sprite(&sprite);
+            // What a drip leaves behind: a hanging one the drop that
+            // falls (`DripHangParticle.preMoveUpdate`), a fallen one its
+            // splash or the drip lying where it landed
+            // (`FallAndLandParticle.postMoveUpdate`).
+            let next = match p.extra {
+                _ if alive => None,
+                Extra::DripHang(kind) => {
+                    Some((Particle::drip_fall(p.pos, kind), SpriteSet::DripFall))
                 }
-                pending.push(drop);
+                Extra::DripFall(Drip::Water) if p.on_ground => {
+                    Some((Particle::splash(p.pos, DVec3::ZERO), SpriteSet::Rain))
+                }
+                Extra::DripFall(kind) if p.on_ground => {
+                    Some((Particle::drip_land(p.pos, kind), SpriteSet::DripLand))
+                }
+                _ => None,
+            };
+            if let Some((mut next, set)) = next {
+                if let Some(sprite) = sets.pick(set) {
+                    next.set_sprite(&sprite);
+                }
+                pending.push(next);
             }
             alive && p.alpha > 0.0
         });
@@ -2331,7 +3192,7 @@ mod tests {
             ServerParticleKind::from_id(id("dust_color_transition")),
             Some(ServerParticleKind::DustColorTransition)
         );
-        assert_eq!(ServerParticleKind::from_id(id("angry_villager")), None);
+        assert_eq!(ServerParticleKind::from_id(id("elder_guardian")), None);
         for (name, kind) in [
             ("explosion_emitter", ServerParticleKind::ExplosionEmitter),
             ("gust", ServerParticleKind::Gust),
@@ -2506,6 +3367,171 @@ mod tests {
         assert_eq!(weighted_pick(&[2u32, 3, 5], |w| *w, 4), Some(&3));
         assert_eq!(weighted_pick(&[2u32, 3, 5], |w| *w, 9), Some(&5));
         assert_eq!(weighted_pick(&[2u32, 3, 5], |w| *w, 10), None);
+    }
+
+    /// Spawns `kind` with `options` beside the camera, with the packet's
+    /// `count` of zero (its spread times speed as the velocity).
+    fn spawn_near(
+        store: &mut ParticleStore,
+        kind: ServerParticleKind,
+        options: ParticleOptions,
+        vel: DVec3,
+    ) {
+        let pos = dvec3(0.5, 64.0, 0.5);
+        let look = ParticleLook::None;
+        store.add_particles_from_packet(kind, options, look, false, pos, vel, 1.0, 0, pos);
+    }
+
+    /// Every kind a server can name by a bare type id draws something,
+    /// but for the bits of an item the test atlas has no sprite for.
+    #[test]
+    fn every_plain_kind_spawns_a_particle() {
+        use ServerParticleKind as K;
+        let table = pomme_protocol::RegistryTable::native();
+        let mut known = 0;
+        for id in 0.. {
+            let Some(name) = table.name_of(pomme_protocol::ClientRegistry::ParticleType, id) else {
+                break;
+            };
+            let Some(kind) = K::from_name(name) else {
+                continue;
+            };
+            known += 1;
+            let options = match kind {
+                K::Dust => ParticleOptions::Dust {
+                    color: 0xFF0000,
+                    scale: 1.0,
+                },
+                K::DustColorTransition => ParticleOptions::DustTransition {
+                    from: 0,
+                    to: 0xFFFFFF,
+                    scale: 1.0,
+                },
+                K::Trail => ParticleOptions::Trail {
+                    target: dvec3(4.5, 64.0, 0.5),
+                    color: 0x00FF00,
+                    duration: 8,
+                },
+                // These draw a terrain or item sprite, resolved by the caller.
+                K::Block | K::BlockCrumble | K::FallingDust | K::Item => continue,
+                K::ItemSlime | K::ItemSnowball => continue,
+                // Seeds, which draw nothing themselves.
+                K::ExplosionEmitter | K::GustEmitterLarge | K::GustEmitterSmall => continue,
+                _ => ParticleOptions::None,
+            };
+            let mut store = new_store();
+            spawn_near(&mut store, kind, options, DVec3::ZERO);
+            assert_eq!(store.pending.len(), 1, "{name}");
+            assert!(store.pending[0].size > 0.0, "{name}");
+        }
+        assert!(known >= 80, "{known} kinds");
+    }
+
+    /// A hanging drip turns into the falling one, lava cooling as it hangs;
+    /// a trail arrives at its target as it ends; a flash swells and dims;
+    /// snow slows on every axis; a bubble pops outside water.
+    #[test]
+    fn drips_trails_flashes_snow_and_bubbles_behave() {
+        use ServerParticleKind as K;
+        let chunks = ChunkStore::new(8);
+        let table = BlockStateTable::native();
+
+        let mut store = new_store();
+        spawn_near(
+            &mut store,
+            K::DrippingLava,
+            ParticleOptions::None,
+            DVec3::ZERO,
+        );
+        store.tick(&chunks, table);
+        assert_eq!(store.particles[0].extra, Extra::DripHang(Drip::Lava));
+        let start = store.particles[0].pos;
+        for _ in 0..20 {
+            store.tick(&chunks, table);
+        }
+        let hanging = &store.particles[0];
+        assert_eq!(hanging.color, [1.0, 16.0 / 36.0, 4.0 / 28.0]);
+        // 0.0012 a tick, nearly all of it shed again.
+        assert!(
+            start.y - hanging.pos.y < 0.03,
+            "a hanging drip barely moves"
+        );
+        for _ in 0..22 {
+            store.tick(&chunks, table);
+        }
+        assert_eq!(store.particles.len(), 1);
+        let falling = &store.particles[0];
+        assert_eq!(falling.extra, Extra::DripFall(Drip::Lava));
+        assert_eq!(falling.color, Drip::Lava.color());
+        // It falls 0.06 a tick faster, then sheds 2% of its speed.
+        let (y, speed) = (falling.pos.y, falling.vel.y);
+        store.tick(&chunks, table);
+        let fell = &store.particles[0];
+        let gravity = f64::from(0.06f32);
+        assert!((y - fell.pos.y - (gravity - speed)).abs() < 1e-9);
+        assert!((fell.vel.y - (speed - gravity) * f64::from(0.98f32)).abs() < 1e-9);
+
+        let target = dvec3(4.5, 66.0, 0.5);
+        let mut store = new_store();
+        spawn_near(
+            &mut store,
+            K::Trail,
+            ParticleOptions::Trail {
+                target,
+                color: 0x00FF00,
+                duration: 8,
+            },
+            DVec3::ZERO,
+        );
+        for tick in 0..9 {
+            store.tick(&chunks, table);
+            if tick == 4 {
+                // Four ticks in it has gone four sevenths of the way: each
+                // tick covers an equal share of what the ticks left span.
+                let p = &store.particles[0];
+                let along = 4.0 / 7.0;
+                assert!((p.pos.x - (0.5 + 4.0 * along)).abs() < 1e-9);
+                assert!((p.pos.y - (64.0 + 2.0 * along)).abs() < 1e-9);
+            }
+        }
+        assert!(store.particles[0].pos.distance(target) < 1e-9);
+        store.tick(&chunks, table);
+        assert!(store.particles.is_empty());
+
+        let mut flash = Particle::flash(DVec3::ZERO, [1.0; 3]);
+        assert_eq!(flash.quad_size(0.0), 0.0);
+        let sets = SpriteSets::load(&AtlasUVMap::whole_texture());
+        let mut sizes = Vec::new();
+        while flash.tick(&chunks, table, &sets) {
+            sizes.push((flash.quad_size(0.0), flash.alpha));
+        }
+        assert_eq!(sizes.len(), 4);
+        assert!((sizes[2].0 - 7.1).abs() < 1e-5, "widest at its third tick");
+        assert!(
+            sizes.windows(2).all(|w| w[1].1 < w[0].1),
+            "dimmer each tick"
+        );
+        assert!(sizes[3].1 > 0.0);
+
+        let mut snow = Particle::snowflake(DVec3::ZERO, dvec3(1.0, 0.0, 1.0));
+        let before = snow.vel;
+        snow.tick(&chunks, table, &sets);
+        assert!((snow.vel.x - before.x * f64::from(0.95f32)).abs() < 1e-9);
+        let fallen = (before.y - 0.04 * f64::from(0.225f32)) * f64::from(0.9f32);
+        assert!((snow.vel.y - fallen).abs() < 1e-9);
+
+        // Dragon breath keeps its height's speed and slows sideways.
+        let mut breath = Particle::dragon_breath(DVec3::ZERO, dvec3(0.1, 0.05, 0.0), 2.0);
+        assert_eq!(breath.vel, dvec3(0.2, 0.1, 0.0));
+        breath.tick(&chunks, table, &sets);
+        assert!((breath.vel.y - 0.1).abs() < 1e-9);
+        assert!((breath.vel.x - 0.2 * f64::from(0.96f32)).abs() < 1e-9);
+
+        let mut store = new_store();
+        spawn_near(&mut store, K::Bubble, ParticleOptions::None, DVec3::ZERO);
+        store.tick(&chunks, table);
+        store.tick(&chunks, table);
+        assert!(store.particles.is_empty(), "no water here");
     }
 
     #[test]
