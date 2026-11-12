@@ -80,6 +80,54 @@ pub enum MetaValue {
     Rotations([f32; 3]),
 }
 
+/// `Pose`'s ids for what a breeze does.
+const POSE_LONG_JUMPING: u32 = 6;
+const POSE_SLIDING: u32 = 15;
+const POSE_SHOOTING: u32 = 16;
+const POSE_INHALING: u32 = 17;
+
+/// A breeze's `AnimationState`s (`Breeze.idle` and the rest): the tick
+/// each started at, `None` while it is stopped.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BreezeClocks {
+    pub idle: Option<u32>,
+    pub shoot: Option<u32>,
+    pub slide: Option<u32>,
+    pub slide_back: Option<u32>,
+    pub inhale: Option<u32>,
+    pub long_jump: Option<u32>,
+}
+
+impl BreezeClocks {
+    /// `Breeze.onSyncedDataUpdated` for its pose: what it was doing stops,
+    /// and a shot, a breath in or a slide starts.
+    fn pose_changed(&mut self, pose: u32, tick: u32) {
+        self.shoot = None;
+        self.idle = None;
+        self.inhale = None;
+        self.long_jump = None;
+        let started = match pose {
+            POSE_SHOOTING => &mut self.shoot,
+            POSE_INHALING => &mut self.inhale,
+            POSE_SLIDING => &mut self.slide,
+            _ => return,
+        };
+        started.get_or_insert(tick);
+    }
+
+    /// `Breeze.tick`: a long jump and the idle sway start if they aren't
+    /// running, and a slide that has ended slides back.
+    fn tick(&mut self, pose: u32, tick: u32) {
+        if pose == POSE_LONG_JUMPING {
+            self.long_jump.get_or_insert(tick);
+        }
+        self.idle.get_or_insert(tick);
+        if pose != POSE_SLIDING && self.slide.take().is_some() {
+            self.slide_back = Some(tick);
+        }
+    }
+}
+
 /// The parts `ArmorStand.DATA_*_POSE` (16 to 21) pose, in that order.
 pub const ARMOR_STAND_POSES: [&str; 6] = [
     "head",
@@ -911,6 +959,8 @@ pub struct LivingEntity {
     pub bat_resting: bool,
     /// Tick the bat's current fly/rest animation started at.
     pub bat_anim_start: Option<u32>,
+    /// A breeze's `AnimationState`s: the tick each started at.
+    pub breeze: BreezeClocks,
     /// The tick the current state's animation started at.
     pub sniffer_state: SnifferState,
     pub sniffer_anim_start: Option<u32>,
@@ -1310,6 +1360,7 @@ impl LivingEntity {
             bat_anim_start: None,
             sniffer_state: SnifferState::Idling,
             sniffer_anim_start: None,
+            breeze: BreezeClocks::default(),
             bee: BeeSim::default(),
             party_parrot: false,
             jukebox: None,
@@ -2458,6 +2509,9 @@ impl EntityStore {
     pub fn set_pose(&mut self, id: i32, pose: u32) {
         if let Some(entity) = self.living.get_mut(&id) {
             entity.pose = pose;
+            if entity.entity_type == EntityKind::Breeze {
+                entity.breeze.pose_changed(pose, entity.age_in_ticks);
+            }
         }
     }
 
@@ -2467,9 +2521,6 @@ impl EntityStore {
         }
     }
 
-    /// `kind` is the mob the emitting handler arm resolved the value for;
-    /// metadata indices are overloaded across kinds, so a mismatched entity
-    /// ignores the write.
     /// The block enderman `id` carries, if any.
     pub fn set_carried_block(&mut self, id: i32, state: Option<u32>) {
         if let Some(entity) = self.living.get_mut(&id)
@@ -2479,6 +2530,9 @@ impl EntityStore {
         }
     }
 
+    /// `kind` is the mob the emitting handler arm resolved the value for;
+    /// metadata indices are overloaded across kinds, so a mismatched entity
+    /// ignores the write.
     pub fn set_variant(&mut self, id: i32, kind: EntityKind, raw: u32) {
         if let Some(entity) = self.living.get_mut(&id)
             && entity.entity_type == kind
@@ -2825,6 +2879,9 @@ impl EntityStore {
                 entity.unhappy_counter -= 1;
             }
             entity.age_in_ticks = entity.age_in_ticks.wrapping_add(1);
+            if entity.entity_type == EntityKind::Breeze {
+                entity.breeze.tick(entity.pose, entity.age_in_ticks);
+            }
 
             if let Some(local_box) = local_push_box
                 && pushes_local_player(entity)
@@ -3237,6 +3294,29 @@ mod tests {
 
     /// `Sniffer.onSyncedDataUpdated`: each state update restarts the one
     /// animation clock; idling, searching and out-of-range ids stop it.
+    /// A breeze's clocks follow its pose as vanilla's do: idling starts on
+    /// a tick, a new pose stops it and starts its own, and a slide that
+    /// ends slides back.
+    #[test]
+    fn a_breeze_s_pose_drives_its_animation_clocks() {
+        let mut clocks = BreezeClocks::default();
+        clocks.tick(0, 5);
+        assert_eq!(clocks.idle, Some(5));
+        clocks.pose_changed(POSE_SHOOTING, 9);
+        assert_eq!((clocks.idle, clocks.shoot), (None, Some(9)));
+        clocks.tick(POSE_SHOOTING, 10);
+        assert_eq!((clocks.idle, clocks.shoot), (Some(10), Some(9)));
+        clocks.pose_changed(POSE_SLIDING, 20);
+        assert_eq!((clocks.shoot, clocks.slide), (None, Some(20)));
+        clocks.tick(POSE_SLIDING, 21);
+        assert_eq!((clocks.slide, clocks.slide_back), (Some(20), None));
+        clocks.pose_changed(0, 30);
+        clocks.tick(0, 31);
+        assert_eq!((clocks.slide, clocks.slide_back), (None, Some(31)));
+        clocks.tick(POSE_LONG_JUMPING, 40);
+        assert_eq!(clocks.long_jump, Some(40));
+    }
+
     #[test]
     fn sniffer_state_drives_one_animation_clock() {
         let mut store = EntityStore::new();

@@ -248,6 +248,7 @@ pub struct EntityRenderInfo {
     pub bat_elapsed_secs: Option<f32>,
     /// Sniffer search flag + its five animation clocks.
     pub sniffer: entity_model::SnifferAnims,
+    pub breeze: entity_model::BreezeAnims,
     pub allay: entity_model::AllayAnims,
     pub copper_golem: entity_model::CopperGolemAnims,
     /// Llama carpet or trader decor.
@@ -363,6 +364,7 @@ impl Default for EntityRenderInfo {
             bat_resting: false,
             bat_elapsed_secs: None,
             sniffer: entity_model::SnifferAnims::default(),
+            breeze: entity_model::BreezeAnims::default(),
             allay: entity_model::AllayAnims::default(),
             copper_golem: entity_model::CopperGolemAnims::default(),
             llama_decor: None,
@@ -1297,6 +1299,7 @@ enum AnimationType {
     Squid,
     Bat,
     Sniffer,
+    Breeze,
     Allay,
     SnowGolem,
     CopperGolem,
@@ -3055,9 +3058,9 @@ fn mob_and_projectile_definitions() -> Vec<MobDef> {
         ),
         // `BreezeRenderer`: the body and rods, then `BreezeWindLayer`'s
         // whirl, its texture sliding sideways, and `BreezeEyesLayer`'s
-        // glowing eyes.
-        // TODO: the breeze's keyframed animations (idle, shoot, jump).
+        // glowing eyes, all three moved by its keyframed animations.
         MobDef {
+            anim: AnimationType::Breeze,
             adult_overlays: vec![
                 VariantDef {
                     overlay_kind: OverlayKind::Wind,
@@ -4174,6 +4177,7 @@ impl EntityRenderer {
                 info.walk_anim_speed,
                 &info.turtle,
             ),
+            AnimationType::Breeze => entity_model::compute_breeze_anim(model, &info.breeze),
             AnimationType::Sniffer => entity_model::compute_sniffer_anim(
                 model,
                 info.head_x_rot_deg,

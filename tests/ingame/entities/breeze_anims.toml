@@ -1,0 +1,67 @@
+# The breeze's keyframed animations (vanilla BreezeAnimation): one stands
+# idle, its wind swaying round it from frame to frame; then a player is
+# put in front of a second, which draws back and shoots.
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/gamemode spectator"
+
+[[step]]
+chat = "/tp @s 2100.5 -59.0 597.5 0 5"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+chat = "/summon minecraft:breeze 2099.0 -60 602.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+expect = { entity = "breeze" }
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "idle_1"
+
+[[step]]
+wait_ms = 500
+
+[[step]]
+screenshot = "idle_2"
+
+# A breeze with its wits about it, and a villager for it to shoot at.
+[[step]]
+chat = "/summon minecraft:breeze 2102.5 -60 602.5 {Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/gamemode survival"
+
+[[step]]
+chat = "/effect give @s minecraft:resistance infinite 4 true"
+
+[[step]]
+wait_ms = 2500
+
+[[step]]
+screenshot = "attacking_1"
+
+[[step]]
+wait_ms = 400
+
+[[step]]
+screenshot = "attacking_2"
+
+[[step]]
+chat = "/kill @e[type=minecraft:breeze]"
+
+[[step]]
+chat = "/gamemode spectator"

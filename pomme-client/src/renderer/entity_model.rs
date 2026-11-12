@@ -7,6 +7,7 @@ mod armadillo;
 mod axolotl;
 mod beam;
 mod bee;
+mod breeze_anim;
 mod copper_golem_anim;
 pub mod crossbow;
 mod dolphin;
@@ -6167,6 +6168,32 @@ pub fn compute_bat_anim(
     }
     let table = if resting { &BAT_RESTING } else { &BAT_FLYING };
     apply_kf_anim(table, model, elapsed_secs, &mut d);
+    d.emit(model)
+}
+
+/// The breeze's `AnimationState` clocks (seconds since start; `None` =
+/// stopped).
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
+pub struct BreezeAnims {
+    pub idle: Option<f32>,
+    pub shoot: Option<f32>,
+    pub slide: Option<f32>,
+    pub slide_back: Option<f32>,
+    pub inhale: Option<f32>,
+    pub long_jump: Option<f32>,
+}
+
+/// Vanilla `BreezeModel.setupAnim`: its six animations, each over the
+/// last, shared by the body, the wind and the eyes.
+pub fn compute_breeze_anim(model: &BakedEntityModel, b: &BreezeAnims) -> PartAnim {
+    use breeze_anim::*;
+    let mut d = KfDeltas::new(model);
+    apply_kf_anim(&BREEZE_IDLE, model, b.idle, &mut d);
+    apply_kf_anim(&BREEZE_SHOOT, model, b.shoot, &mut d);
+    apply_kf_anim(&BREEZE_SLIDE, model, b.slide, &mut d);
+    apply_kf_anim(&BREEZE_SLIDE_BACK, model, b.slide_back, &mut d);
+    apply_kf_anim(&BREEZE_INHALE, model, b.inhale, &mut d);
+    apply_kf_anim(&BREEZE_JUMP, model, b.long_jump, &mut d);
     d.emit(model)
 }
 

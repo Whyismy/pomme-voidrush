@@ -4648,6 +4648,7 @@ pub fn update_game(
                     bat_resting: e.bat_resting,
                     bat_elapsed_secs: extras.bat_elapsed_secs,
                     sniffer: extras.sniffer,
+                    breeze: extras.breeze,
                     allay: extras.allay,
                     copper_golem: extras.copper_golem,
                     llama_decor: extras.llama_decor,
@@ -8463,9 +8464,14 @@ fn build_carried_items(
                     * Mat4::from_rotation_z(10.0_f32.to_radians())
                     * Mat4::from_rotation_x(180.0_f32.to_radians())
             }
-            // In the crook of the crossed arms.
+            // In the crook of the crossed arms (`translateToArms`), which
+            // hang turned down by as much as the item is turned back up.
             _ => {
-                root * Mat4::from_rotation_x(0.75)
+                let Some(arms) = renderer.entity_part_pose(info, "arms") else {
+                    continue;
+                };
+                arms * ARM_FRAME
+                    * Mat4::from_rotation_x(0.75)
                     * Mat4::from_scale(Vec3::splat(1.07))
                     * Mat4::from_translation(Vec3::new(0.0, 0.13, -0.34))
                     * Mat4::from_rotation_x(std::f32::consts::PI)
@@ -9473,6 +9479,7 @@ struct EntityExtras {
     tentacle_angle: f32,
     bat_elapsed_secs: Option<f32>,
     sniffer: crate::renderer::entity_model::SnifferAnims,
+    breeze: crate::renderer::entity_model::BreezeAnims,
     allay: crate::renderer::entity_model::AllayAnims,
     copper_golem: crate::renderer::entity_model::CopperGolemAnims,
     llama_decor: Option<crate::renderer::pipelines::entity_renderer::LlamaDecor>,
@@ -9600,12 +9607,22 @@ fn entity_extras(
             overlay_tints: SLOT0_TINTS,
             ..Default::default()
         },
-        // The wind and the eyes, both always shown.
+        // The wind and the eyes, both always shown, and the clocks of its
+        // animations (`BreezeRenderer.extractRenderState`).
         EntityKind::Breeze => {
             let mut overlay_tints = SLOT0_TINTS;
             overlay_tints[1] = Some(WHITE_TINT);
+            let clock = |start: Option<u32>| start.map(|s| anim_clock_secs(e, s, alpha));
             EntityExtras {
                 overlay_tints,
+                breeze: crate::renderer::entity_model::BreezeAnims {
+                    idle: clock(e.breeze.idle),
+                    shoot: clock(e.breeze.shoot),
+                    slide: clock(e.breeze.slide),
+                    slide_back: clock(e.breeze.slide_back),
+                    inhale: clock(e.breeze.inhale),
+                    long_jump: clock(e.breeze.long_jump),
+                },
                 ..Default::default()
             }
         }
