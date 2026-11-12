@@ -605,6 +605,15 @@ pub enum NetworkEvent {
     },
     /// Registry/wire variant slot; meaning is per-kind. `kind` is the mob
     /// the emitting arm resolved for, guarding overloaded metadata indices.
+    /// An entity's particle (`AreaEffectCloud.DATA_PARTICLE`); `None` for
+    /// one the client doesn't draw.
+    EntityParticle {
+        id: i32,
+        particle: Option<(
+            crate::particle::ServerParticleKind,
+            crate::particle::ParticleOptions,
+        )>,
+    },
     /// Entity event 17 on a firework rocket: it goes off.
     FireworkExplode {
         id: i32,

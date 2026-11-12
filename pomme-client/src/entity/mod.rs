@@ -3,6 +3,7 @@ pub mod components;
 pub mod dimensions;
 pub mod display;
 pub mod dragon;
+pub mod effect_cloud;
 pub mod end_crystal;
 pub mod experience_orb;
 pub mod falling_block;

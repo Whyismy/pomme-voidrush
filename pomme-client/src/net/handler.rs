@@ -551,6 +551,20 @@ fn explosion_effects(r: &mut Reader) -> DecodeResult<Option<ExplosionEffects>> {
     Ok(Some((particle, sound, block_particles)))
 }
 
+/// A particle as entity data carries it (native ids): `None` for a type
+/// pomme doesn't draw or can't read.
+pub(super) fn entity_data_particle(
+    bytes: &[u8],
+) -> Option<(
+    crate::particle::ServerParticleKind,
+    crate::particle::ParticleOptions,
+)> {
+    explosion_particle(&mut Reader::new(bytes), &|_, id| Some(id))
+        .ok()
+        .flatten()
+        .flatten()
+}
+
 /// One particle of an explode packet, its id made native by `native`:
 /// `Some(None)` for a type pomme doesn't draw, `None` for one whose options
 /// it can't skip.

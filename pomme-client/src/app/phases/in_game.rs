@@ -375,6 +375,7 @@ pub struct GameState {
     pub arrows: crate::entity::arrow::ArrowStore,
     pub model_entities: crate::entity::model_entity::ModelEntityStore,
     pub paintings: crate::entity::painting::PaintingStore,
+    pub effect_clouds: crate::entity::effect_cloud::EffectCloudStore,
     pub fishing_hooks: crate::entity::fishing_hook::FishingHookStore,
     pub particle_store: crate::particle::ParticleStore,
     /// `WeatherEffectRenderer.rainSoundTime`: ticks since the last rain sound.
@@ -566,6 +567,7 @@ impl GameState {
             arrows: Default::default(),
             model_entities: Default::default(),
             paintings: Default::default(),
+            effect_clouds: Default::default(),
             fishing_hooks: Default::default(),
             rain_sound_time: 0,
             particle_store: {
@@ -2834,6 +2836,22 @@ pub fn update_game(
             );
         }
         tick_model_entities(game, gfx.renderer.camera_render_position());
+        // `AreaEffectCloud.clientTick`: its particles, shown from any
+        // distance (`addAlwaysVisibleParticle`).
+        for particle in game.effect_clouds.tick() {
+            let look = crate::app::core::particle_look(game, particle.options, particle.position);
+            game.particle_store.add_particles_from_packet(
+                particle.kind,
+                particle.options,
+                look,
+                true,
+                particle.position,
+                particle.velocity,
+                1.0,
+                0,
+                gfx.renderer.camera_render_position(),
+            );
+        }
         game.fishing_hooks.tick();
         // `ExperienceOrb.followNearbyPlayer`: orbs make for the middle of
         // the eye height of a player who isn't spectating.

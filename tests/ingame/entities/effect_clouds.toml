@@ -1,0 +1,39 @@
+# Area effect clouds (vanilla AreaEffectCloud.clientTick): a lingering
+# healing potion's cloud of red swirls two blocks across, and beside it a
+# smaller one a server gave flames.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/gamemode spectator"
+
+[[step]]
+chat = "/tp @s 1050.5 -57.5 598.5 0 25"
+
+[[step]]
+wait_ms = 2500
+
+[[step]]
+chat = "/summon minecraft:area_effect_cloud 1053.0 -60 603.5 {Radius:2f,Duration:600,potion_contents:{potion:\"minecraft:healing\"}}"
+
+[[step]]
+chat = "/summon minecraft:area_effect_cloud 1048.0 -60 603.5 {Radius:1.5f,Duration:600,custom_particle:{type:\"minecraft:flame\"}}"
+
+[[step]]
+wait_ms = 2500
+
+[[step]]
+screenshot = "clouds"
+
+[[step]]
+chat = "/kill @e[type=minecraft:area_effect_cloud,distance=..40]"
+
+[[step]]
+chat = "/gamemode creative"

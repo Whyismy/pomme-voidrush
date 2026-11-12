@@ -319,6 +319,12 @@ fn send_data_value(
                 .as_ref()
                 .map(|nbt| super::chat::component_spans(nbt).unwrap_or_default()),
         },
+        // AreaEffectCloud.DATA_PARTICLE, the only single-particle entity
+        // data.
+        (_, Value::Particle(bytes)) => NetworkEvent::EntityParticle {
+            id,
+            particle: super::handler::entity_data_particle(bytes),
+        },
         // Painting.DATA_PAINTING_VARIANT_ID, the only painting-valued entity
         // data: at 9 since 1.21.6 synced a hanging entity's facing ahead of
         // it, at 8 before.
@@ -429,6 +435,12 @@ pub(super) fn from_azalea(value: &EntityDataValue) -> Option<Value> {
         EntityDataValue::CowVariant(v) => Value::Variant(Variant::Cow, v.protocol_id()),
         EntityDataValue::WolfVariant(v) => Value::Variant(Variant::Wolf, v.protocol_id()),
         EntityDataValue::ChickenVariant(v) => Value::Variant(Variant::Chicken, v.protocol_id()),
+        // The same bytes azalea read it from.
+        EntityDataValue::Particle(particle) => {
+            let mut bytes = Vec::new();
+            particle.azalea_write(&mut bytes).ok()?;
+            Value::Particle(bytes.into())
+        }
         // azalea reads the holder's varint as the id itself: one more than
         // the id, and zero for a variant spelled out (which it can't read).
         EntityDataValue::PaintingVariant(v) => Value::Painting(

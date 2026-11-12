@@ -46,6 +46,8 @@ pub enum Serializer {
     Rotations,
     /// `PAINTING_VARIANT`: a holder, by registry id or spelled out.
     Painting,
+    /// `PARTICLE`: one particle with its options, kept as its bytes.
+    Particle,
     Skip(Shape),
 }
 
@@ -78,6 +80,8 @@ pub enum Value {
     Profile(Box<Profile>),
     Rotations([f32; 3]),
     Painting(Painting),
+    /// A particle's type id and options, as sent.
+    Particle(Box<[u8]>),
     /// A value the client doesn't read.
     Other,
 }
@@ -185,7 +189,7 @@ macro_rules! serializers_26_2 {
     S::BlockState,
     // OPTIONAL_BLOCK_STATE: 0 for none, not a bool.
     S::Skip(VarInt),
-    S::Skip(Ref(&PARTICLE)),
+    S::Particle,
     S::Skip(List(usize::MAX, &PARTICLE)),
     S::VillagerData,
     // OPTIONAL_UNSIGNED_INT: 0 for none, else the value + 1.
@@ -290,6 +294,11 @@ impl ItemCodec {
             S::Variant(variant) => Value::Variant(*variant, r.varint()?),
             S::Profile => Value::Profile(Box::new(read_profile(r)?)),
             S::Rotations => Value::Rotations([r.f32()?, r.f32()?, r.f32()?]),
+            S::Particle => {
+                let start = r.pos();
+                self.skip(r, &PARTICLE)?;
+                Value::Particle(r.since(start).into())
+            }
             // A holder: the registry id plus one, or zero and the variant
             // itself (width, height, asset, then a title and an author).
             S::Painting => Value::Painting(match r.varint()? {

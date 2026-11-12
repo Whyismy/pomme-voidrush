@@ -2748,6 +2748,9 @@ impl AppCore {
                     if crate::entity::fishing_hook::is_fishing_hook(entity_type) {
                         game.fishing_hooks.spawn(id, data, *position);
                     }
+                    if entity_type == azalea_registry::builtin::EntityKind::AreaEffectCloud {
+                        game.effect_clouds.spawn(id, *position);
+                    }
                     if entity_type == azalea_registry::builtin::EntityKind::Painting {
                         game.paintings.spawn(id, position, data);
                     }
@@ -2813,6 +2816,7 @@ impl AppCore {
                     game.item_entity_store.move_delta(id, dx, dy, dz, on_ground);
                     game.thrown_items.move_delta(id, dvec3(dx, dy, dz));
                     game.model_entities.move_delta(id, dvec3(dx, dy, dz));
+                    game.effect_clouds.move_delta(id, dvec3(dx, dy, dz));
                     game.arrows.move_delta(id, dvec3(dx, dy, dz));
                     game.fishing_hooks.move_delta(id, dvec3(dx, dy, dz));
                     game.falling_blocks
@@ -2848,6 +2852,7 @@ impl AppCore {
                     game.item_entity_store.move_delta(id, dx, dy, dz, on_ground);
                     game.thrown_items.move_delta(id, dvec3(dx, dy, dz));
                     game.model_entities.move_delta(id, dvec3(dx, dy, dz));
+                    game.effect_clouds.move_delta(id, dvec3(dx, dy, dz));
                     game.arrows.move_delta(id, dvec3(dx, dy, dz));
                     game.fishing_hooks.move_delta(id, dvec3(dx, dy, dz));
                     game.falling_blocks
@@ -2975,6 +2980,7 @@ impl AppCore {
                     game.fishing_hooks.teleport(id, *position);
                     game.arrows.rotate(id, y_rot_deg, x_rot_deg);
                     game.model_entities.teleport(id, position);
+                    game.effect_clouds.teleport(id, *position);
                     game.model_entities.rotate(id, y_rot_deg, x_rot_deg);
                     if let Some(velocity) = velocity {
                         game.thrown_items.set_motion(id, velocity);
@@ -3068,6 +3074,7 @@ impl AppCore {
                     game.thrown_items.remove(&ids);
                     game.model_entities.remove(&ids);
                     game.paintings.remove(&ids);
+                    game.effect_clouds.remove(&ids);
                     game.arrows.remove(&ids);
                     game.fishing_hooks.remove(&ids);
                     game.display_store.remove(&ids);
@@ -3143,6 +3150,7 @@ impl AppCore {
                     game.experience_orbs.apply_entity_data(id, index, value);
                     game.arrows.apply_entity_data(id, index, &value);
                     game.model_entities.apply_entity_data(id, index, value);
+                    game.effect_clouds.apply_entity_data(id, index, value);
                     game.name_store.apply_entity_data(id, index, value);
                     if index == 10
                         && let crate::entity::MetaValue::Bool(shot_at_angle) = value
@@ -3265,6 +3273,9 @@ impl AppCore {
                         game.particle_store
                             .start_fireworks(at, rocket.velocity, explosions);
                     }
+                }
+                NetworkEvent::EntityParticle { id, particle } => {
+                    game.effect_clouds.set_particle(id, particle);
                 }
                 NetworkEvent::PaintingVariant { id, variant } => {
                     game.paintings.set_variant(id, variant);
@@ -3544,6 +3555,7 @@ impl AppCore {
                     game.thrown_items.clear();
                     game.model_entities.clear();
                     game.paintings.clear();
+                    game.effect_clouds.clear();
                     game.arrows.clear();
                     game.fishing_hooks.clear();
                     game.display_store.clear();
@@ -4600,7 +4612,7 @@ fn compute_fov_modifier(player: &LocalPlayer, effect_scale: f32) -> f32 {
 /// How a block or item particle looks: the block's terrain sprite and tint at
 /// `pos`, or the item's flat sprite. `ParticleLook::None` for other options,
 /// and for a state or item with no sprite.
-fn particle_look(
+pub(crate) fn particle_look(
     game: &GameState,
     options: crate::particle::ParticleOptions,
     pos: glam::DVec3,
