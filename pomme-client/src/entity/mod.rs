@@ -879,6 +879,9 @@ pub struct LivingEntity {
     pub is_creepy: bool,
     /// The block an enderman carries (`EnderMan.DATA_CARRY_STATE`).
     pub carried_block: Option<u32>,
+    /// Whether a snow golem still wears its pumpkin
+    /// (`SnowGolem.DATA_PUMPKIN_ID`'s 16 bit; shears take it off).
+    pub snow_golem_pumpkin: bool,
     /// Zombie-family conversion (drowning / villager cure) — body-yaw shake.
     pub is_converting: bool,
     /// Tamable (wolf/cat) state from the flags byte.
@@ -1304,6 +1307,7 @@ impl LivingEntity {
             armor_stand_pose: ARMOR_STAND_DEFAULT_POSE,
             is_creepy: false,
             carried_block: None,
+            snow_golem_pumpkin: true,
             is_converting: false,
             is_sitting: false,
             is_tame: false,
@@ -2438,6 +2442,7 @@ impl EntityStore {
             // `ByIdMap` CLAMP).
             (k, 21, Int(v)) if is_llama(k) => entity.variant = v.clamp(0, 3) as u32,
             (EntityKind::Mooshroom, 18, Int(v)) => entity.variant = v.clamp(0, 1) as u32,
+            (EntityKind::SnowGolem, 16, Byte(b)) => entity.snow_golem_pumpkin = b & 0x10 != 0,
             // Horse packed variant: `color | markings << 8`, both wrapping
             // their id ranges (vanilla `ByIdMap` WRAP).
             (EntityKind::Horse, 19, Int(v)) => {

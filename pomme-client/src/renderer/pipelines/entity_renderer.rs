@@ -2742,9 +2742,7 @@ fn mob_and_projectile_definitions() -> Vec<MobDef> {
             adult_overlays: vec![],
             baby_overlays: vec![],
         },
-        // TODO: `SnowGolemHeadLayer` (the carved pumpkin) needs block models
-        // rendered inside an entity pose, and the pumpkin flag (bit 0x10 of
-        // `DATA_PUMPKIN_ID`) tracked.
+        // (`SnowGolemHeadLayer`'s carved pumpkin is `build_mob_blocks`'.)
         MobDef {
             kind: EntityKind::SnowGolem,
             anim: AnimationType::SnowGolem,

@@ -5266,6 +5266,7 @@ pub fn update_game(
             core.input.selected_slot() as usize,
         );
         build_carried_items(game, &mut gfx.renderer, &entity_renders, &mut item_renders);
+        build_mob_blocks(game, &mut gfx.renderer, &entity_renders, &mut item_renders);
         build_thrown_items(
             game,
             &mut gfx.renderer,
@@ -8409,6 +8410,116 @@ fn build_thrown_items(
             light: entity_light(world_light, item.kind, position, false, 0),
             white_flash: false,
         });
+    }
+}
+
+/// The blocks some mobs wear or hold, drawn as the block's own model: the
+/// three mushrooms on a mooshroom's back and head
+/// (`MushroomCowMushroomLayer`), a snow golem's carved pumpkin
+/// (`SnowGolemHeadLayer`), and the poppy an iron golem holds out
+/// (`IronGolemFlowerLayer`).
+fn build_mob_blocks(
+    game: &GameState,
+    renderer: &mut Renderer,
+    entities: &[EntityRenderInfo],
+    out: &mut Vec<crate::renderer::pipelines::item_entity::ItemRenderInfo>,
+) {
+    use glam::{Mat4, Vec3};
+
+    use crate::renderer::pipelines::item_entity::ItemRenderInfo;
+    let table = game.block_registry.block_state_table();
+    // Vanilla draws a block from its corner; the meshes are centred.
+    let flipped = Mat4::from_scale(Vec3::new(-1.0, -1.0, 1.0));
+    for info in entities {
+        if !matches!(
+            info.entity_kind,
+            EntityKind::Mooshroom | EntityKind::SnowGolem | EntityKind::IronGolem
+        ) {
+            continue;
+        }
+        let Some(mob) = info
+            .entity_id
+            .and_then(|id| game.entity_store.living.get(&id))
+        else {
+            continue;
+        };
+        if mob.is_invisible {
+            continue;
+        }
+        let (block, poses): (&str, Vec<Mat4>) = match info.entity_kind {
+            EntityKind::Mooshroom if !info.is_baby => {
+                let root = renderer.entity_root_pose(info);
+                let Some(head) = renderer.entity_part_pose(info, "head") else {
+                    continue;
+                };
+                let back = root * Mat4::from_translation(Vec3::new(0.2, -0.35, 0.5));
+                (
+                    if mob.variant == 1 {
+                        "brown_mushroom"
+                    } else {
+                        "red_mushroom"
+                    },
+                    vec![
+                        back * Mat4::from_rotation_y((-48.0_f32).to_radians()) * flipped,
+                        back * Mat4::from_rotation_y(42.0_f32.to_radians())
+                            * Mat4::from_translation(Vec3::new(0.1, 0.0, -0.6))
+                            * Mat4::from_rotation_y((-48.0_f32).to_radians())
+                            * flipped,
+                        head * ARM_FRAME
+                            * Mat4::from_translation(Vec3::new(0.0, -0.7, -0.2))
+                            * Mat4::from_rotation_y((-78.0_f32).to_radians())
+                            * flipped,
+                    ],
+                )
+            }
+            EntityKind::SnowGolem if mob.snow_golem_pumpkin => {
+                let Some(head) = renderer.entity_part_pose(info, "head") else {
+                    continue;
+                };
+                (
+                    "carved_pumpkin",
+                    vec![
+                        head * ARM_FRAME
+                            * Mat4::from_translation(Vec3::new(0.0, -0.34375, 0.0))
+                            * Mat4::from_rotation_y(std::f32::consts::PI)
+                            * Mat4::from_scale(Vec3::new(0.625, -0.625, -0.625)),
+                    ],
+                )
+            }
+            EntityKind::IronGolem if mob.golem_offer_flower_ticks > 0 => {
+                let Some(arm) = renderer.entity_part_pose(info, "right_arm") else {
+                    continue;
+                };
+                (
+                    "poppy",
+                    vec![
+                        arm * ARM_FRAME
+                            * Mat4::from_translation(Vec3::new(-1.1875, 1.0625, -0.9375))
+                            * Mat4::from_translation(Vec3::splat(0.5))
+                            * Mat4::from_scale(Vec3::splat(0.5))
+                            * Mat4::from_rotation_x(-std::f32::consts::FRAC_PI_2),
+                    ],
+                )
+            }
+            _ => continue,
+        };
+        let Some(state) = table.state_with(block, &[]) else {
+            continue;
+        };
+        let Some((item_name, tints)) = renderer.ensure_block_display_mesh(table, state.id() as u32)
+        else {
+            continue;
+        };
+        for model_matrix in poses {
+            out.push(ItemRenderInfo {
+                item_name: item_name.clone(),
+                outline_color: info.outline_color,
+                tints: tints.clone(),
+                model_matrix,
+                light: info.light,
+                white_flash: false,
+            });
+        }
     }
 }
 

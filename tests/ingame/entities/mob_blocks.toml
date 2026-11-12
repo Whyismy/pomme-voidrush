@@ -1,0 +1,45 @@
+# The blocks mobs wear or hold (vanilla's own layers): a red mooshroom
+# and a brown one with their three mushrooms, a snow golem in its carved
+# pumpkin and one sheared of it, and an iron golem.
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/gamemode spectator"
+
+[[step]]
+chat = "/tp @s 2300.5 -59.0 596.5 0 5"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+chat = "/summon minecraft:mooshroom 2296.0 -60 602.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[135f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:mooshroom 2298.5 -60 602.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[225f,0f],Type:\"brown\"}"
+
+[[step]]
+chat = "/summon minecraft:snow_golem 2300.5 -60 602.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:snow_golem 2302.0 -60 602.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f],Pumpkin:0b}"
+
+[[step]]
+chat = "/summon minecraft:iron_golem 2304.5 -60 602.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+expect = { entity = "iron_golem" }
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+screenshot = "blocks"
