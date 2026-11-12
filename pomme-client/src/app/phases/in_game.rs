@@ -7672,8 +7672,14 @@ fn tick_conduits(game: &mut GameState, camera: glam::DVec3) {
             if fastrand::u32(0..50) != 0 {
                 continue;
             }
-            let from =
-                glam::DVec3::from(block.map(|c| f64::from(-0.5 + fastrand::f32() + c as f32)));
+            // From about the block, and two blocks lower than across:
+            // the particle flies to a point a block and a half up.
+            let [x, y, z] = block.map(|c| c as f32);
+            let from = glam::DVec3::new(
+                f64::from(-0.5 + fastrand::f32() + x),
+                f64::from(-2.0 + fastrand::f32() + y),
+                f64::from(-0.5 + fastrand::f32() + z),
+            );
             game.particle_store.add_particles_from_packet(
                 ServerParticleKind::Nautilus,
                 ParticleOptions::None,
