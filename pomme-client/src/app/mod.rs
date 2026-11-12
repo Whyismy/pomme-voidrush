@@ -457,6 +457,19 @@ fn create_window(
     if cfg!(not(mobile)) {
         window_attrs = window_attrs.with_inner_size(core.window_size);
     }
+    // Background mode: windowed (going fullscreen activates the window),
+    // off the screen, and shown without taking the focus.
+    if crate::background::on() {
+        window_attrs = window_attrs
+            .with_fullscreen(None)
+            .with_active(false)
+            .with_position(crate::background::OFF_SCREEN);
+        #[cfg(target_os = "windows")]
+        {
+            use winit::platform::windows::WindowAttributesExtWindows;
+            window_attrs = window_attrs.with_skip_taskbar(true);
+        }
+    }
     event_loop.create_window(window_attrs).map(Arc::new)
 }
 
@@ -1284,6 +1297,18 @@ impl ApplicationHandler for App {
             };
             if let Some(window) = window {
                 window.request_redraw();
+            }
+        }
+        // A window off the screen is never asked to paint (background mode),
+        // so its frames are driven from here instead: each pass of the loop
+        // draws one, paced as a requested redraw's would be.
+        if crate::background::on() && !self.suspended {
+            let window = match &self.install {
+                Some(install) => install.window().map(Window::id),
+                None => self.phase.gfx_mut().map(|gfx| gfx.window.id()),
+            };
+            if let Some(window) = window {
+                self.window_event(event_loop, window, WindowEvent::RedrawRequested);
             }
         }
         // iOS delivers each requested redraw on the next display refresh, and

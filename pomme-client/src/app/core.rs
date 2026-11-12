@@ -1264,6 +1264,11 @@ impl AppCore {
             // Vanilla centers on grab too; warp before locking, which
             // freezes the position on some platforms.
             self.center_cursor(window);
+            // In background mode the pointer belongs to whoever is at the
+            // desk: the game only believes it holds it.
+            if crate::background::on() {
+                return;
+            }
             let _ = window
                 .set_cursor_grab(CursorGrabMode::Locked)
                 .or_else(|_| window.set_cursor_grab(CursorGrabMode::Confined));
@@ -1307,8 +1312,10 @@ impl AppCore {
     /// gameplay starts with a centered cursor).
     fn release_cursor(&mut self, window: &Window) {
         if let CursorOp::Release { center } = self.step_cursor(false) {
-            let _ = window.set_cursor_grab(CursorGrabMode::None);
-            window.set_cursor_visible(true);
+            if !crate::background::on() {
+                let _ = window.set_cursor_grab(CursorGrabMode::None);
+                window.set_cursor_visible(true);
+            }
             if center {
                 self.center_cursor(window);
             }
@@ -1319,7 +1326,7 @@ impl AppCore {
     fn center_cursor(&mut self, window: &Window) {
         let size = window.inner_size();
         let (x, y) = (size.width as f32 / 2.0, size.height as f32 / 2.0);
-        if self.unfocused_since.is_none() {
+        if self.unfocused_since.is_none() && !crate::background::on() {
             let _ = window.set_cursor_position(winit::dpi::PhysicalPosition::new(x, y));
         }
         self.input.on_cursor_moved(x, y);

@@ -2430,7 +2430,7 @@ impl Renderer {
             self.cloud_pipeline.update_camera(frame, &uniform);
         }
 
-        if hide_cursor && !self.cursor_hidden {
+        if hide_cursor && !self.cursor_hidden && !crate::background::on() {
             window.set_cursor_visible(false);
         }
         self.cursor_hidden = hide_cursor;

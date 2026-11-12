@@ -529,6 +529,11 @@ fn run_script(
         .arg(script)
         .arg("--harness-out")
         .arg(&out);
+    // The client keeps out of the way of whoever is at the machine (its
+    // window off the screen and unfocused) unless asked to show itself.
+    if std::env::var_os("POMME_INGAME_FOREGROUND").is_none() {
+        command.env("POMME_BACKGROUND", "1");
+    }
     if capture {
         command.arg("--capture-frames").arg(&frames);
     }

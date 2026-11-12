@@ -30,6 +30,12 @@ pub struct LaunchArgs {
     #[arg(long)]
     pub launch_token: Option<String>,
 
+    /// Keeps the window off the screen and unfocused, and the pointer
+    /// free, so the client can run while the desktop is in use (test
+    /// runs). `POMME_BACKGROUND=1` does the same.
+    #[arg(long)]
+    pub background: bool,
+
     #[arg(long)]
     pub assets_dir: Option<String>,
 

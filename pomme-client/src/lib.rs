@@ -10,6 +10,7 @@ mod args;
 mod assets;
 mod attribute;
 mod audio;
+mod background;
 mod banner;
 mod benchmark;
 mod chat_component;
@@ -207,6 +208,7 @@ pub fn run(args: LaunchArgs, platform: Platform) {
     // names; launched without one (a release-profile harness build played
     // on a real server), they sign in like a release.
     let named = args.username.is_some() || args.uuid.is_some() || args.access_token.is_some();
+    crate::background::init(args.background);
     let (user, require_account) = UserData::for_launch(
         args.username,
         args.uuid,

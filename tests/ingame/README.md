@@ -23,6 +23,12 @@ just ingame-test --version 1.21.1         # against another version (repeatable)
 just ingame-test --versions all world     # every tested version, one folder
 ```
 
+The client runs in background mode (`POMME_BACKGROUND=1`, or `--background`
+by hand): its window opens off the screen, never takes the focus, stays off
+the taskbar and leaves the pointer alone, so a run doesn't interrupt whatever
+else the machine is being used for. It still renders every frame, so the
+screenshots are the same. Set `POMME_INGAME_FOREGROUND=1` to watch a run.
+
 `--versions all` is one version per joinable protocol, its newest patch
 (`pomme_protocol::version::tested_versions`, 26.3 down to 1.20.1). A full
 sweep takes a while: each version downloads its server jar once, and the client
