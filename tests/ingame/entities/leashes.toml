@@ -1,0 +1,53 @@
+# Leads (vanilla EntityRenderer.renderLeash): a pig tied to a fence post's
+# knot, and a cow led by a villager, each on its sagging rope.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/gamemode spectator"
+
+[[step]]
+chat = "/tp @s 1100.5 -57.8 598.5 0 15"
+
+[[step]]
+wait_ms = 2500
+
+[[step]]
+chat = "/setblock 1103 -60 604 minecraft:oak_fence"
+
+[[step]]
+chat = "/summon minecraft:pig 1105.5 -60 602.5 {NoAI:1b,Silent:1b,Rotation:[90f,0f],leash:[I;1103,-60,604]}"
+
+[[step]]
+chat = "/summon minecraft:villager 1096.5 -60 604.5 {NoAI:1b,Silent:1b,Rotation:[180f,0f],UUID:[I;1,2,3,4]}"
+
+[[step]]
+chat = "/summon minecraft:cow 1099.5 -60 602.5 {NoAI:1b,Silent:1b,Rotation:[90f,0f],leash:{UUID:[I;1,2,3,4]}}"
+
+[[step]]
+wait_ms = 3000
+
+[[step]]
+screenshot = "leashes"
+
+[[step]]
+chat = "/kill @e[type=!minecraft:player,distance=..40]"
+
+[[step]]
+chat = "/setblock 1103 -60 604 minecraft:air"
+
+[[step]]
+wait_ms = 300
+
+[[step]]
+chat = "/kill @e[type=minecraft:item,distance=..40]"
+
+[[step]]
+chat = "/gamemode creative"

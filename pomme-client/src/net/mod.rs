@@ -614,6 +614,11 @@ pub enum NetworkEvent {
             crate::particle::ParticleOptions,
         )>,
     },
+    /// `id` is leashed to `holder` (0 for nothing).
+    EntityLeash {
+        id: i32,
+        holder: i32,
+    },
     /// Entity event 17 on a firework rocket: it goes off.
     FireworkExplode {
         id: i32,

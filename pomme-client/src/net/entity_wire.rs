@@ -151,6 +151,7 @@ fn event(packet: EntityPacket) -> Option<NetworkEvent> {
             vehicle,
             passengers,
         },
+        EntityPacket::Link { source, holder } => NetworkEvent::EntityLeash { id: source, holder },
     })
 }
 

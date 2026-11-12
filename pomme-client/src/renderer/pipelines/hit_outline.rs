@@ -29,8 +29,13 @@ struct Push {
 const OUTLINE_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 0.4];
 /// A fishing line's colour (`FishingHookRenderer.stringVertex`'s -16777216).
 const LINE_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
-/// Far more than any outline shape's edges, and a few fishing lines, need.
-const MAX_VERTICES: usize = 6 * 512;
+/// A lead's colours (`EntityRenderer.addVertexPair`): brown, and every
+/// other piece seven tenths as bright.
+const ROPE_COLOR: [f32; 4] = [0.5, 0.4, 0.3, 1.0];
+const ROPE_DARK_COLOR: [f32; 4] = [0.35, 0.28, 0.21, 1.0];
+/// Far more than any outline shape's edges, a few fishing lines and a
+/// couple of dozen leads need.
+const MAX_VERTICES: usize = 6 * 2048;
 
 pub struct HitOutlinePipeline {
     pipeline: rhi::backend::RenderPipeline,
@@ -43,6 +48,8 @@ pub struct HitOutlinePipeline {
     target: Option<(DVec3, Vec<(DVec3, DVec3)>)>,
     /// Fishing lines' segments, in world space.
     lines: Vec<(DVec3, DVec3)>,
+    /// Leads' pieces, in world space, and whether each is a darker one.
+    ropes: Vec<(DVec3, DVec3, bool)>,
     vertices: Vec<LineVertex>,
 }
 
@@ -79,6 +86,7 @@ impl HitOutlinePipeline {
             vertex_buffers,
             target: None,
             lines: Vec::new(),
+            ropes: Vec::new(),
             vertices: Vec::new(),
         }
     }
@@ -107,9 +115,15 @@ impl HitOutlinePipeline {
         self.lines = lines;
     }
 
+    /// This frame's leads, as world-space pieces.
+    pub fn set_ropes(&mut self, ropes: Vec<(DVec3, DVec3, bool)>) {
+        self.ropes = ropes;
+    }
+
     /// This frame's quads, relative to the render anchor: the outline's,
-    /// then the fishing lines'. Returns how many are the outline's.
-    fn build(&mut self, anchor: DVec3) -> usize {
+    /// then the fishing lines', then the leads' lighter pieces and their
+    /// darker ones. Returns where each of the first three groups ends.
+    fn build(&mut self, anchor: DVec3) -> [usize; 3] {
         self.vertices.clear();
         if let Some((origin, edges)) = &self.target {
             let base = *origin - anchor;
@@ -121,8 +135,18 @@ impl HitOutlinePipeline {
         for &(from, to) in &self.lines {
             push_segment(&mut self.vertices, from - anchor, to - anchor);
         }
+        let lines = self.vertices.len();
+        let mut light = lines;
+        for dark in [false, true] {
+            for &(from, to, _) in self.ropes.iter().filter(|rope| rope.2 == dark) {
+                push_segment(&mut self.vertices, from - anchor, to - anchor);
+            }
+            if !dark {
+                light = self.vertices.len();
+            }
+        }
         self.vertices.truncate(MAX_VERTICES);
-        outline.min(self.vertices.len())
+        [outline, lines, light].map(|end| end.min(self.vertices.len()))
     }
 
     /// `screen` is the framebuffer size in pixels.
@@ -133,7 +157,7 @@ impl HitOutlinePipeline {
         anchor: DVec3,
         screen: [f32; 2],
     ) {
-        let outline = self.build(anchor);
+        let [outline, lines, light] = self.build(anchor);
         if self.vertices.is_empty() {
             return;
         }
@@ -145,7 +169,9 @@ impl HitOutlinePipeline {
         let line_width = (screen[0] / 1920.0 * 2.5).max(2.5);
         for (color, range) in [
             (OUTLINE_COLOR, 0..outline),
-            (LINE_COLOR, outline..self.vertices.len()),
+            (LINE_COLOR, outline..lines),
+            (ROPE_COLOR, lines..light),
+            (ROPE_DARK_COLOR, light..self.vertices.len()),
         ] {
             if range.is_empty() {
                 continue;

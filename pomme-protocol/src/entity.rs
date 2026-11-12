@@ -120,6 +120,12 @@ pub enum EntityPacket {
         vehicle: i32,
         passengers: Vec<i32>,
     },
+    /// `ClientboundSetEntityLinkPacket`: `source` is leashed to `holder`,
+    /// or to nothing when that is 0.
+    Link {
+        source: i32,
+        holder: i32,
+    },
 }
 
 /// Decodes packet `name`, or `None` if it isn't an entity packet.
@@ -219,6 +225,13 @@ pub fn read(name: &str, r: &mut Reader) -> Option<DecodeResult<EntityPacket>> {
             Ok(EntityPacket::Passengers {
                 vehicle: r.var_i32()?,
                 passengers: ids(r)?,
+            })
+        },
+        // ClientboundSetEntityLinkPacket.java: two plain ints.
+        "set_entity_link" => |r| {
+            Ok(EntityPacket::Link {
+                source: r.i32()?,
+                holder: r.i32()?,
             })
         },
         _ => return None,
@@ -474,6 +487,13 @@ mod tests {
             EntityPacket::Passengers {
                 vehicle: 1,
                 passengers: vec![2]
+            }
+        );
+        assert_eq!(
+            decode("set_entity_link", &[0, 0, 0, 9, 0, 0, 1, 4]),
+            EntityPacket::Link {
+                source: 9,
+                holder: 260
             }
         );
         assert_eq!(

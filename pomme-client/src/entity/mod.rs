@@ -12,6 +12,7 @@ pub mod glowing;
 pub mod heads;
 pub mod interaction;
 pub mod item_frame;
+pub mod leash;
 pub mod light;
 pub mod lightning;
 pub mod model_entity;

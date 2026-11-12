@@ -3075,6 +3075,7 @@ impl AppCore {
                     game.model_entities.remove(&ids);
                     game.paintings.remove(&ids);
                     game.effect_clouds.remove(&ids);
+                    game.leashes.remove(&ids);
                     game.arrows.remove(&ids);
                     game.fishing_hooks.remove(&ids);
                     game.display_store.remove(&ids);
@@ -3273,6 +3274,9 @@ impl AppCore {
                         game.particle_store
                             .start_fireworks(at, rocket.velocity, explosions);
                     }
+                }
+                NetworkEvent::EntityLeash { id, holder } => {
+                    game.leashes.set(id, holder);
                 }
                 NetworkEvent::EntityParticle { id, particle } => {
                     game.effect_clouds.set_particle(id, particle);
@@ -3556,6 +3560,7 @@ impl AppCore {
                     game.model_entities.clear();
                     game.paintings.clear();
                     game.effect_clouds.clear();
+                    game.leashes.clear();
                     game.arrows.clear();
                     game.fishing_hooks.clear();
                     game.display_store.clear();

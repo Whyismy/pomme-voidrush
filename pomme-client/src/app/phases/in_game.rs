@@ -376,6 +376,7 @@ pub struct GameState {
     pub model_entities: crate::entity::model_entity::ModelEntityStore,
     pub paintings: crate::entity::painting::PaintingStore,
     pub effect_clouds: crate::entity::effect_cloud::EffectCloudStore,
+    pub leashes: crate::entity::leash::LeashStore,
     pub fishing_hooks: crate::entity::fishing_hook::FishingHookStore,
     pub particle_store: crate::particle::ParticleStore,
     /// `WeatherEffectRenderer.rainSoundTime`: ticks since the last rain sound.
@@ -568,6 +569,7 @@ impl GameState {
             model_entities: Default::default(),
             paintings: Default::default(),
             effect_clouds: Default::default(),
+            leashes: Default::default(),
             fishing_hooks: Default::default(),
             rain_sound_time: 0,
             particle_store: {
@@ -5273,6 +5275,12 @@ pub fn update_game(
         add_fishing_hooks(game, core, &gfx.renderer, partial_tick, &mut particle_quads)
     };
     gfx.renderer.set_fishing_lines(fishing_lines);
+    let ropes = if benchmark_running {
+        Vec::new()
+    } else {
+        build_leashes(game, &gfx.renderer, partial_tick)
+    };
+    gfx.renderer.set_ropes(ropes);
     crate::frame_log::add(
         "particle_extract",
         extract_start.elapsed().as_secs_f32() * 1000.0,
@@ -7032,6 +7040,84 @@ fn add_experience_orbs(
 
 /// Vanilla `FishingHookRenderer`: each bobber, a camera-facing half-block
 /// sprite at full size, and its line's segments to the angler's rod tip.
+/// The leads between mobs and what holds them (`EntityRenderer.renderLeash`),
+/// as the pieces of each rope: its ends, and whether it is one of the
+/// darker pieces the rope alternates.
+// TODO: vanilla's rope is a lit ribbon a fortieth of a block wide; this is
+// a line of constant width, unlit.
+fn build_leashes(
+    game: &GameState,
+    renderer: &Renderer,
+    partial_tick: f32,
+) -> Vec<(glam::DVec3, glam::DVec3, bool)> {
+    use crate::entity::dimensions::EntityDimensions;
+    use crate::entity::leash;
+    let mut ropes = Vec::new();
+    let partial = f64::from(partial_tick);
+    for (&id, &holder) in &game.leashes.holders {
+        let Some(mob) = game.entity_store.living.get(&id) else {
+            continue;
+        };
+        let feet = *mob.prev_position.lerp(mob.position, partial);
+        let yaw = lerp_angle(mob.prev_body_y_rot_deg, mob.body_y_rot_deg, partial_tick);
+        let start = feet
+            + leash::leash_offset(
+                EntityDimensions::eye_height(mob.entity_type),
+                EntityDimensions::of(mob.entity_type).width,
+                yaw,
+            );
+        let end = if holder == game.player.entity_id {
+            if renderer.is_first_person() {
+                let look = renderer.camera_look_dir();
+                leash::first_person_hold(
+                    renderer.camera_render_position(),
+                    look.y_rot_deg(),
+                    look.x_rot_deg(),
+                )
+            } else {
+                leash::player_hold(
+                    *game
+                        .player
+                        .prev_position
+                        .lerp(game.player.position, partial),
+                    game.player.height(),
+                    lerp_angle(
+                        game.player_prev_body_y_rot,
+                        game.player_body_y_rot,
+                        partial_tick,
+                    ),
+                    game.player.crouching,
+                )
+            }
+        } else if let Some(holder) = game.entity_store.living.get(&holder) {
+            let feet = *holder.prev_position.lerp(holder.position, partial);
+            let yaw = lerp_angle(
+                holder.prev_body_y_rot_deg,
+                holder.body_y_rot_deg,
+                partial_tick,
+            );
+            if holder.entity_type == EntityKind::Player {
+                let height = f64::from(EntityDimensions::of(EntityKind::Player).height);
+                leash::player_hold(feet, height, yaw, false)
+            } else {
+                // `Entity.getRopeHoldPosition`.
+                let eye = f64::from(EntityDimensions::eye_height(holder.entity_type));
+                feet + glam::DVec3::new(0.0, eye * 0.7, 0.0)
+            }
+        } else if let Some(knot) = game.model_entities.entities.get(&holder) {
+            // `LeashFenceKnotEntity.getRopeHoldPosition`.
+            *knot.position + glam::DVec3::new(0.0, 0.2, 0.0)
+        } else {
+            continue;
+        };
+        let points = leash::rope_points(start, end);
+        for (i, pair) in points.windows(2).enumerate() {
+            ropes.push((pair[0], pair[1], i % 2 == 1));
+        }
+    }
+    ropes
+}
+
 fn add_fishing_hooks(
     game: &GameState,
     core: &AppCore,

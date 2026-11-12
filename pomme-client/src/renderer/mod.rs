@@ -1282,6 +1282,12 @@ impl Renderer {
         self.hit_outline_pipeline.set_lines(lines);
     }
 
+    /// This frame's leads, as world-space pieces, each one of the rope's
+    /// lighter or darker ones.
+    pub fn set_ropes(&mut self, ropes: Vec<(glam::DVec3, glam::DVec3, bool)>) {
+        self.hit_outline_pipeline.set_ropes(ropes);
+    }
+
     pub fn set_hit_outline(
         &mut self,
         target: Option<(glam::DVec3, &[crate::physics::block_shape::LocalBox])>,
