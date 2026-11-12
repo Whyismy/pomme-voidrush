@@ -2554,6 +2554,14 @@ impl AppCore {
                     {
                         game.block_entity_anim.ring_bell(pos, action_parameter);
                     } else if action_id == 1
+                        && action_parameter < 2
+                        && game.block_registry.block_state_data(state).id() == "decorated_pot"
+                    {
+                        // `DecoratedPotBlockEntity.triggerEvent`: it wobbles,
+                        // gladly or not.
+                        game.pot_wobbles
+                            .insert(pos, (game.sky_state.game_time, action_parameter));
+                    } else if action_id == 1
                         && game.block_registry.block_state_data(state).id() == "spawner"
                     {
                         // `BaseSpawner.onEventTriggered`: it spawned; the
@@ -3591,6 +3599,7 @@ impl AppCore {
                     game.effect_clouds.clear();
                     game.leashes.clear();
                     game.firework_twinkles.clear();
+                    game.pot_wobbles.clear();
                     game.arrows.clear();
                     game.fishing_hooks.clear();
                     game.display_store.clear();

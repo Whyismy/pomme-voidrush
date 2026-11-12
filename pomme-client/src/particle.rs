@@ -1355,6 +1355,8 @@ enum SpriteSet {
     Portal,
     /// `end_rod`, `totem_of_undying`: `glitter_7` to `glitter_0`.
     Glitter,
+    /// `nautilus`, drawn in to a conduit.
+    Nautilus,
     /// `enchant`: one random standard galactic glyph.
     Glyph,
     CriticalHit,
@@ -1431,6 +1433,7 @@ const SPRITE_SETS: &[(SpriteSet, &[&str])] = &[
         ],
     ),
     (SpriteSet::Glitter, &END_ROD_SPRITES),
+    (SpriteSet::Nautilus, &["particle/nautilus"]),
     (
         SpriteSet::Glyph,
         &[
@@ -1804,6 +1807,7 @@ pub enum ServerParticleKind {
     Portal,
     ReversePortal,
     Enchant,
+    Nautilus,
     Block,
     BlockCrumble,
     FallingDust,
@@ -1891,6 +1895,7 @@ impl ServerParticleKind {
             "portal" => Self::Portal,
             "reverse_portal" => Self::ReversePortal,
             "enchant" => Self::Enchant,
+            "nautilus" => Self::Nautilus,
             "block" => Self::Block,
             "block_crumble" => Self::BlockCrumble,
             "falling_dust" => Self::FallingDust,
@@ -2676,6 +2681,9 @@ impl ParticleStore {
                 sets.pick(SpriteSet::Portal),
             ),
             K::Enchant => with(Particle::enchant(pos, vel), sets.pick(SpriteSet::Glyph)),
+            // `FlyTowardsPositionParticle.NautilusProvider`: an enchanting
+            // glyph's flight, in its own sprite.
+            K::Nautilus => with(Particle::enchant(pos, vel), sets.pick(SpriteSet::Nautilus)),
             K::Block | K::BlockCrumble | K::FallingDust => {
                 let ParticleLook::Terrain(region, color) = spawn.look else {
                     return;

@@ -386,6 +386,9 @@ pub struct GameState {
     /// ticks until the crackle that ends them
     /// (`FireworkParticles.Starter`'s lifetime).
     pub firework_twinkles: Vec<(glam::DVec3, u32)>,
+    /// Decorated pots that have wobbled: the game time it began at and
+    /// which wobble (`DecoratedPotBlockEntity.WobbleStyle`'s ordinal).
+    pub pot_wobbles: HashMap<BlockPos, (u64, u8)>,
     /// Each loaded conduit, as `ConduitBlockEntity` keeps it on the client.
     pub conduits: HashMap<BlockPos, Conduit>,
     /// The boat the local player rows: what it keeps between ticks.
@@ -602,6 +605,7 @@ impl GameState {
             gateways: HashMap::new(),
             boat_drive: Default::default(),
             conduits: HashMap::new(),
+            pot_wobbles: HashMap::new(),
             firework_twinkles: Vec::new(),
             rider_turn: (0.0, 0.0),
             spawner_spins: HashMap::new(),
@@ -2895,7 +2899,7 @@ pub fn update_game(
         tick_model_entities(game, gfx.renderer.camera_render_position());
         update_beacon_beams(game);
         tick_gateways(game);
-        tick_conduits(game);
+        tick_conduits(game, gfx.renderer.camera_render_position());
         tick_enchanting_books(game);
         tick_spawners(game, gfx.renderer.camera_render_position());
         // `AreaEffectCloud.clientTick`: its particles, shown from any
@@ -5284,7 +5288,13 @@ pub fn update_game(
             &mut gfx.renderer,
             &mut item_renders,
         );
-        build_dragon_heads(game, &world_light, &mut gfx.renderer, &mut item_renders);
+        build_dragon_heads(
+            game,
+            &world_light,
+            partial_tick,
+            &mut gfx.renderer,
+            &mut item_renders,
+        );
         build_campfire_items(game, &world_light, &mut gfx.renderer, &mut item_renders);
         build_conduits(
             game,
@@ -6874,10 +6884,11 @@ fn build_banners(
 /// `DragonHeadModel`): the head item's own model, on the floor at its
 /// sixteenth or on its wall. Decorated pots (`DecoratedPotRenderer`) and
 /// conduits (`ConduitRenderer`) likewise, as their items' models.
-// TODO: the head's jaw working while it is powered, and a pot's wobble.
+// TODO: the head's jaw working while it is powered.
 fn build_dragon_heads(
     game: &GameState,
     world_light: &WorldLight,
+    partial_tick: f32,
     renderer: &mut Renderer,
     out: &mut Vec<crate::renderer::pipelines::item_entity::ItemRenderInfo>,
 ) {
@@ -6936,9 +6947,37 @@ fn build_dragon_heads(
                         .iter()
                         .map(|s| s.as_ref()),
                 );
+                // `DecoratedPotRenderer`: a pot that takes an item nods
+                // for seven ticks, one that won't shakes its head for ten,
+                // each about the middle of its foot.
+                let wobble = game
+                    .pot_wobbles
+                    .get(pos)
+                    .and_then(|&(began, style)| {
+                        let ticks =
+                            game.sky_state.game_time.saturating_sub(began) as f32 + partial_tick;
+                        let through = ticks / if style == 0 { 7.0 } else { 10.0 };
+                        (0.0..=1.0).contains(&through).then(|| {
+                            if style == 0 {
+                                let turn = through * std::f32::consts::TAU;
+                                let nod = -1.5 * (turn.cos() + 0.5) * (turn / 2.0).sin();
+                                Mat4::from_rotation_x(nod * 0.015_625)
+                                    * Mat4::from_rotation_z(turn.sin() * 0.015_625)
+                            } else {
+                                let shake = (-through * 3.0 * std::f32::consts::PI).sin() * 0.125;
+                                Mat4::from_rotation_y(shake * (1.0 - through))
+                            }
+                        })
+                    })
+                    .unwrap_or(Mat4::IDENTITY);
+                let foot = Vec3::new(0.0, -0.5, 0.0);
                 (
                     key.into(),
-                    centre * Mat4::from_rotation_y(degrees.to_radians()),
+                    centre
+                        * Mat4::from_rotation_y(degrees.to_radians())
+                        * Mat4::from_translation(foot)
+                        * wobble
+                        * Mat4::from_translation(-foot),
                 )
             }
             // An active one is `build_conduits`'.
@@ -7413,11 +7452,44 @@ fn conduit_frame(game: &GameState, pos: BlockPos) -> usize {
         .count()
 }
 
+/// The blocks of the frame round the conduit at `pos`
+/// (`ConduitBlockEntity.updateShape`'s `effectBlocks`), as offsets from it.
+fn conduit_frame_blocks(game: &GameState, pos: BlockPos) -> Vec<[i32; 3]> {
+    let mut blocks = Vec::new();
+    for x in -2..=2_i32 {
+        for y in -2..=2_i32 {
+            for z in -2..=2_i32 {
+                let (ax, ay, az) = (x.abs(), y.abs(), z.abs());
+                let on_frame = (ax > 1 || ay > 1 || az > 1)
+                    && (x == 0 && (ay == 2 || az == 2)
+                        || y == 0 && (ax == 2 || az == 2)
+                        || z == 0 && (ax == 2 || ay == 2));
+                if !on_frame {
+                    continue;
+                }
+                let state = game
+                    .chunk_store
+                    .get_block_state(pos.x + x, pos.y + y, pos.z + z);
+                if matches!(
+                    game.block_registry.block_state_data(state).id(),
+                    "prismarine" | "prismarine_bricks" | "sea_lantern" | "dark_prismarine"
+                ) {
+                    blocks.push([x, y, z]);
+                }
+            }
+        }
+    }
+    blocks
+}
+
 /// `ConduitBlockEntity.clientTick`: every loaded conduit ages, looks at its
-/// frame every two seconds, and spins while it is active.
-// TODO: the nautilus particles drawn in from its frame.
-fn tick_conduits(game: &mut GameState) {
+/// frame every two seconds, spins while it is active, and draws nautilus
+/// particles in from its frame's blocks (`animationTick`), one in fifty of
+/// them a tick.
+fn tick_conduits(game: &mut GameState, camera: glam::DVec3) {
     use azalea_registry::builtin::BlockEntityKind;
+
+    use crate::particle::{ParticleLook, ParticleOptions, ServerParticleKind};
     let loaded: Vec<BlockPos> = game
         .chunk_store
         .block_entities
@@ -7436,6 +7508,35 @@ fn tick_conduits(game: &mut GameState) {
         }
         if conduit.active {
             conduit.rotation += 1.0;
+        }
+        let (active, ticks) = (conduit.active, conduit.ticks);
+        if !active {
+            continue;
+        }
+        let bob = ((ticks + 35) as f32 * 0.1).sin() / 2.0 + 0.5;
+        let bob = f64::from((bob * bob + bob) * 0.3);
+        let to = glam::DVec3::new(
+            f64::from(pos.x) + 0.5,
+            f64::from(pos.y) + 1.5 + bob,
+            f64::from(pos.z) + 0.5,
+        );
+        for block in conduit_frame_blocks(game, *pos) {
+            if fastrand::u32(0..50) != 0 {
+                continue;
+            }
+            let from =
+                glam::DVec3::from(block.map(|c| f64::from(-0.5 + fastrand::f32() + c as f32)));
+            game.particle_store.add_particles_from_packet(
+                ServerParticleKind::Nautilus,
+                ParticleOptions::None,
+                ParticleLook::None,
+                false,
+                to,
+                from,
+                1.0,
+                0,
+                camera,
+            );
         }
     }
     game.conduits.retain(|pos, _| loaded.contains(pos));
