@@ -357,6 +357,29 @@ pub fn end_crystal(model: &BakedEntityModel, age_in_ticks: f32) -> PartAnim {
     anim
 }
 
+/// `BoatModel.setupAnim` (`animatePaddle`): each paddle at its place in
+/// the stroke, `rowing` being the left and right paddles' rowing times (0
+/// at rest, which holds them out of the water).
+pub fn boat(model: &BakedEntityModel, rowing: [f32; 2]) -> PartAnim {
+    let mut anim = PartAnim::default();
+    let mut parts = Parts {
+        model,
+        anim: &mut anim,
+    };
+    let lerp = |from: f32, to: f32, t: f32| from + (to - from) * t.clamp(0.0, 1.0);
+    for (name, time, right) in [
+        ("left_paddle", rowing[0], false),
+        ("right_paddle", rowing[1], true),
+    ] {
+        if let Some(rot) = parts.rot(name) {
+            rot.x = lerp(-PI / 3.0, -PI / 12.0, ((-time).sin() + 1.0) / 2.0);
+            let sweep = lerp(-PI / 4.0, PI / 4.0, ((1.0 - time).sin() + 1.0) / 2.0);
+            rot.y = if right { PI - sweep } else { sweep };
+        }
+    }
+    anim
+}
+
 /// `EvokerFangsModel.setupAnim`: the jaws start wide and snap shut over
 /// the first half of the bite as the base rises out of the ground (the
 /// model root's own rise and shrink are the renderer's).

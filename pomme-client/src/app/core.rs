@@ -3774,10 +3774,13 @@ impl AppCore {
             game.player.eye_height,
         );
         let (displays, positions) = (&game.display_store.displays, &game.entity_positions);
+        let vehicles = &game.model_entities;
         game.entity_store
             .position_riders(|vehicle, living| match displays.get(&vehicle) {
                 Some(display) => Some(display.position),
-                None => super::phases::in_game::display_seat(vehicle, living, positions, player),
+                None => vehicles.seat(vehicle).or_else(|| {
+                    super::phases::in_game::display_seat(vehicle, living, positions, player)
+                }),
             });
     }
 

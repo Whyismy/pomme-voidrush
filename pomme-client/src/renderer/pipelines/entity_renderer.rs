@@ -1321,6 +1321,9 @@ enum AnimationType {
     /// `EvokerFangsModel.setupAnim`, the bite's progress riding in
     /// [`EntityRenderInfo::attack_time`].
     EvokerFangs,
+    /// `BoatModel.setupAnim`: the paddles, their rowing times riding in
+    /// [`EntityRenderInfo::flap`] (left) and `flap_speed` (right).
+    Boat,
     /// `EnderDragonModel.setupAnim`, from [`EntityRenderInfo::dragon`].
     EnderDragon,
 }
@@ -1345,6 +1348,157 @@ struct MobDef {
 }
 
 fn mob_definitions() -> Vec<MobDef> {
+    let mut defs = mob_and_projectile_definitions();
+    defs.extend(vehicle_definitions());
+    defs
+}
+
+/// `MinecartRenderer` for every kind of cart, and `BoatRenderer` and
+/// `RaftRenderer` for every wood, with and without a chest.
+fn vehicle_definitions() -> Vec<MobDef> {
+    use entity_model::exported_data;
+    macro_rules! tex_table {
+        ($dir:expr => $name:literal) => {
+            &[&[concat!(
+                "minecraft/textures/entity/",
+                $dir,
+                "/",
+                $name,
+                ".png"
+            )]]
+        };
+    }
+    const MINECART_TEX: &[&[&str]] = &[&[
+        "minecraft/textures/entity/minecart/minecart.png",
+        "minecraft/textures/entity/minecart.png",
+    ]];
+    fn boat(
+        kind: EntityKind,
+        layer: &[entity_model::ExportedPart],
+        tex: &'static [&'static [&'static str]],
+    ) -> MobDef {
+        MobDef {
+            anim: AnimationType::Boat,
+            ..still(kind, layer, tex)
+        }
+    }
+    let mut defs: Vec<MobDef> = [
+        EntityKind::Minecart,
+        EntityKind::ChestMinecart,
+        EntityKind::FurnaceMinecart,
+        EntityKind::TntMinecart,
+        EntityKind::HopperMinecart,
+        EntityKind::SpawnerMinecart,
+        EntityKind::CommandBlockMinecart,
+    ]
+    .map(|kind| still(kind, exported_data::MINECART, MINECART_TEX))
+    .into();
+    defs.extend([
+        boat(
+            EntityKind::AcaciaBoat,
+            exported_data::BOAT,
+            tex_table!("boat" => "acacia"),
+        ),
+        boat(
+            EntityKind::AcaciaChestBoat,
+            exported_data::CHEST_BOAT,
+            tex_table!("chest_boat" => "acacia"),
+        ),
+        boat(
+            EntityKind::BirchBoat,
+            exported_data::BOAT,
+            tex_table!("boat" => "birch"),
+        ),
+        boat(
+            EntityKind::BirchChestBoat,
+            exported_data::CHEST_BOAT,
+            tex_table!("chest_boat" => "birch"),
+        ),
+        boat(
+            EntityKind::CherryBoat,
+            exported_data::BOAT,
+            tex_table!("boat" => "cherry"),
+        ),
+        boat(
+            EntityKind::CherryChestBoat,
+            exported_data::CHEST_BOAT,
+            tex_table!("chest_boat" => "cherry"),
+        ),
+        boat(
+            EntityKind::DarkOakBoat,
+            exported_data::BOAT,
+            tex_table!("boat" => "dark_oak"),
+        ),
+        boat(
+            EntityKind::DarkOakChestBoat,
+            exported_data::CHEST_BOAT,
+            tex_table!("chest_boat" => "dark_oak"),
+        ),
+        boat(
+            EntityKind::JungleBoat,
+            exported_data::BOAT,
+            tex_table!("boat" => "jungle"),
+        ),
+        boat(
+            EntityKind::JungleChestBoat,
+            exported_data::CHEST_BOAT,
+            tex_table!("chest_boat" => "jungle"),
+        ),
+        boat(
+            EntityKind::MangroveBoat,
+            exported_data::BOAT,
+            tex_table!("boat" => "mangrove"),
+        ),
+        boat(
+            EntityKind::MangroveChestBoat,
+            exported_data::CHEST_BOAT,
+            tex_table!("chest_boat" => "mangrove"),
+        ),
+        boat(
+            EntityKind::OakBoat,
+            exported_data::BOAT,
+            tex_table!("boat" => "oak"),
+        ),
+        boat(
+            EntityKind::OakChestBoat,
+            exported_data::CHEST_BOAT,
+            tex_table!("chest_boat" => "oak"),
+        ),
+        boat(
+            EntityKind::PaleOakBoat,
+            exported_data::BOAT,
+            tex_table!("boat" => "pale_oak"),
+        ),
+        boat(
+            EntityKind::PaleOakChestBoat,
+            exported_data::CHEST_BOAT,
+            tex_table!("chest_boat" => "pale_oak"),
+        ),
+        boat(
+            EntityKind::SpruceBoat,
+            exported_data::BOAT,
+            tex_table!("boat" => "spruce"),
+        ),
+        boat(
+            EntityKind::SpruceChestBoat,
+            exported_data::CHEST_BOAT,
+            tex_table!("chest_boat" => "spruce"),
+        ),
+        boat(
+            EntityKind::BambooRaft,
+            exported_data::RAFT,
+            tex_table!("boat" => "bamboo"),
+        ),
+        boat(
+            EntityKind::BambooChestRaft,
+            exported_data::CHEST_RAFT,
+            tex_table!("chest_boat" => "bamboo"),
+        ),
+    ]);
+    defs
+}
+
+fn mob_and_projectile_definitions() -> Vec<MobDef> {
     use entity_model::exported_data;
     // One single-fallback texture entry per name under an entity texture dir.
     macro_rules! tex_table {
@@ -3892,6 +4046,9 @@ impl EntityRenderer {
             }
             AnimationType::EvokerFangs => {
                 entity_model::mob_anims::evoker_fangs(model, info.attack_time)
+            }
+            AnimationType::Boat => {
+                entity_model::mob_anims::boat(model, [info.flap, info.flap_speed])
             }
             AnimationType::ArmorStand => {
                 entity_model::compute_armor_stand_anim(model, &info.armor_stand_pose)

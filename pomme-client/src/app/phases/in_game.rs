@@ -733,6 +733,9 @@ impl GameState {
         let vehicle = self.riding_vehicle_id?;
         let seat = match self.display_store.displays.get(&vehicle) {
             Some(display) => display.position,
+            None if self.model_entities.seat(vehicle).is_some() => {
+                self.model_entities.seat(vehicle)?
+            }
             None => display_seat(
                 vehicle,
                 &self.entity_store.living,
@@ -4755,15 +4758,17 @@ pub fn update_game(
         }
     }
 
-    // Shulker bullets, wither skulls, llama spit, evoker fangs and lead
-    // knots, each from vanilla's own model layer.
+    // Shulker bullets, wither skulls, llama spit, evoker fangs, lead knots,
+    // minecarts and boats, each from vanilla's own model layer.
     if !benchmark_running {
+        let table = game.block_registry.block_state_table();
+        let rails = rails_in(&game.chunk_store, table);
         for entity in game.model_entities.entities.values() {
             let feet = entity
                 .prev_position
                 .lerp(entity.position, partial_tick as f64);
             let light = entity_light(&world_light, entity.kind, feet, false, 0);
-            if let Some(info) = model_entity_render(entity, feet, partial_tick, light) {
+            if let Some(info) = model_entity_render(entity, feet, partial_tick, light, &rails) {
                 entity_renders.push(info);
             }
         }
@@ -5063,6 +5068,15 @@ pub fn update_game(
     if !benchmark_running {
         build_falling_blocks(
             &game.falling_blocks,
+            &world_light,
+            &mut gfx.renderer,
+            game.block_registry.block_state_table(),
+            partial_tick,
+            &mut item_renders,
+        );
+        build_minecart_contents(
+            &game.model_entities,
+            &game.chunk_store,
             &world_light,
             &mut gfx.renderer,
             game.block_registry.block_state_table(),
@@ -6325,6 +6339,101 @@ fn build_display_renders(
     }
 }
 
+/// The rails of the loaded world, for a minecart's place on them.
+fn rails_in<'a>(
+    chunks: &'a crate::world::chunk::ChunkStore,
+    table: crate::world::block::BlockStateTable,
+) -> impl Fn([i32; 3]) -> Option<crate::entity::model_entity::Exits> + 'a {
+    move |[x, y, z]| {
+        let data = table.block_state_data(chunks.get_block_state(x, y, z));
+        if !data.id().ends_with("rail") {
+            return None;
+        }
+        crate::entity::model_entity::rail_exits(data.properties().get("shape")?)
+    }
+}
+
+/// `AbstractMinecartRenderer.oldRender`'s pose before the cart and what it
+/// carries, from the cart's feet: on rails the cart sits on them and turns
+/// and tips to the line between the points 0.3 ahead of and behind it;
+/// off them it keeps its own facing. Then up 0.375 and turned.
+fn minecart_pose(
+    cart: &crate::entity::model_entity::ModelEntity,
+    feet: Position,
+    partial_tick: f32,
+    rails: crate::entity::model_entity::Rails,
+) -> glam::Mat4 {
+    use glam::{Mat4, Vec3};
+
+    use crate::entity::model_entity::{pos_on_rail, pos_on_rail_offset};
+    let at = *feet;
+    let mut y_rot = lerp_angle(cart.prev_y_rot, cart.y_rot, partial_tick);
+    let mut x_rot = cart.prev_x_rot + (cart.x_rot - cart.prev_x_rot) * partial_tick;
+    let mut offset = glam::DVec3::ZERO;
+    if let Some(on) = pos_on_rail(rails, at) {
+        let front = pos_on_rail_offset(rails, at, 0.3).unwrap_or(on);
+        let back = pos_on_rail_offset(rails, at, -0.3).unwrap_or(on);
+        offset = glam::dvec3(on.x - at.x, (front.y + back.y) / 2.0 - at.y, on.z - at.z);
+        if let Some(along) = (back - front).try_normalize() {
+            y_rot = along.z.atan2(along.x).to_degrees() as f32;
+            x_rot = (along.y.atan() * 73.0) as f32;
+        }
+    }
+    Mat4::from_translation(offset.as_vec3() + Vec3::new(0.0, 0.375, 0.0))
+        * Mat4::from_rotation_y((180.0 - y_rot).to_radians())
+        * Mat4::from_rotation_z((-x_rot).to_radians())
+}
+
+/// What a minecart carries (`AbstractMinecartRenderer.submitMinecartContents`):
+/// its block at three quarters of its size, riding in the cart.
+// TODO: a chest, which is a block entity's model rather than a block's.
+fn build_minecart_contents(
+    carts: &crate::entity::model_entity::ModelEntityStore,
+    chunks: &crate::world::chunk::ChunkStore,
+    world_light: &WorldLight,
+    renderer: &mut Renderer,
+    table: crate::world::block::BlockStateTable,
+    partial_tick: f32,
+    out: &mut Vec<crate::renderer::pipelines::item_entity::ItemRenderInfo>,
+) {
+    use glam::{Mat4, Vec3};
+
+    use crate::renderer::pipelines::item_entity::ItemRenderInfo;
+    let anchor = renderer.camera_anchor();
+    let rails = rails_in(chunks, table);
+    for cart in carts.entities.values() {
+        let Some(Some(contents)) = crate::entity::model_entity::minecart(cart.kind) else {
+            continue;
+        };
+        let Some(state) = table.state_with(contents.block, contents.props) else {
+            continue;
+        };
+        let Some((item_name, tints)) = renderer.ensure_block_display_mesh(table, state.id() as u32)
+        else {
+            continue;
+        };
+        let feet = cart
+            .prev_position
+            .lerp(cart.position, f64::from(partial_tick));
+        // The baked meshes are centred on the block; vanilla draws it from
+        // its corner.
+        let block = Mat4::from_scale(Vec3::splat(0.75))
+            * Mat4::from_translation(Vec3::new(-0.5, (contents.offset - 8) as f32 / 16.0, 0.5))
+            * Mat4::from_rotation_y(std::f32::consts::FRAC_PI_2)
+            * Mat4::from_translation(Vec3::splat(0.5));
+        out.push(ItemRenderInfo {
+            item_name,
+            outline_color: None,
+            tints,
+            model_matrix: Mat4::from_translation((*feet - anchor).as_vec3())
+                * minecart_pose(cart, feet, partial_tick, &rails)
+                * block,
+            light: entity_light(world_light, cart.kind, feet, false, 0),
+            white_flash: false,
+        });
+    }
+}
+
 /// Vanilla `FallingBlockRenderer`: the block's model, its corner at the
 /// entity's feet less half a block, lit where the entity is.
 fn build_falling_blocks(
@@ -6630,6 +6739,7 @@ fn model_entity_render(
     feet: Position,
     partial_tick: f32,
     light: crate::renderer::chunk::block_lighter::LightLevels,
+    rails: crate::entity::model_entity::Rails,
 ) -> Option<EntityRenderInfo> {
     use glam::{Mat4, Vec3};
     let unliving = crate::renderer::pipelines::entity_renderer::unliving_model_frame();
@@ -6691,6 +6801,22 @@ fn model_entity_render(
             info.head_y_rot_deg = info.body_y_rot_deg;
             info.body_transform = Some(unliving.inverse() * root * unliving);
             info.attack_time = bite;
+        }
+        // `AbstractBoatRenderer`: up 0.375, turned to its facing, with the
+        // model a quarter turn round; the paddles at their strokes.
+        kind if crate::entity::model_entity::boat(kind).is_some() => {
+            info.body_transform = Some(
+                Mat4::from_translation(Vec3::new(0.0, 0.375, 0.0))
+                    * Mat4::from_rotation_y(std::f32::consts::PI - yaw)
+                    * flipped
+                    * Mat4::from_rotation_y(std::f32::consts::FRAC_PI_2)
+                    * unliving,
+            );
+            [info.flap, info.flap_speed] = entity.rowing_time(partial_tick);
+        }
+        kind if crate::entity::model_entity::minecart(kind).is_some() => {
+            info.body_transform =
+                Some(minecart_pose(entity, feet, partial_tick, rails) * flipped * unliving);
         }
         _ => return None,
     }
