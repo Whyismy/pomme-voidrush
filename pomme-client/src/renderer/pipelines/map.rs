@@ -202,7 +202,7 @@ impl MapPipeline {
                 texture: self.decorations.1,
             });
         }
-        // TODO: `MapRenderer` writes a named marker's label under it.
+        // A named marker's label is drawn by the caller, as world text.
         quads
     }
 

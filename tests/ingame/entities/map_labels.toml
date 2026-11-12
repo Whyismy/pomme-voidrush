@@ -1,0 +1,98 @@
+# A named map marker's label (vanilla MapRenderer): a banner named "Home",
+# thirty blocks off, is marked on a map, and the map hung in a frame shows the banner's marker
+# with its name under it.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/kill @e[type=!player]"
+
+[[step]]
+chat = "/clear"
+
+[[step]]
+chat = "/fill -3 -60 4 3 -57 4 minecraft:stone"
+
+[[step]]
+chat = "/summon minecraft:item_frame 0 -59 3 {Facing:2b,Fixed:1b}"
+
+[[step]]
+chat = "/setblock 30 -60 -20 minecraft:red_banner{CustomName:\"Home\"}"
+
+[[step]]
+chat = "/tp @s 0.5 -60 0.5 0 5"
+
+[[step]]
+chat = "/gamemode survival"
+
+[[step]]
+chat = "/item replace entity @s hotbar.0 with minecraft:map"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+mouse_down = "right"
+
+[[step]]
+wait_ms = 400
+
+[[step]]
+mouse_up = "right"
+
+[[step]]
+wait_ms = 1500
+
+# Mark the banner: use the map on it.
+[[step]]
+chat = "/tp @s 28.5 -60 -19.5 -90 20"
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+look_at = [30.5, -59.5, -19.5]
+
+[[step]]
+wait_ms = 500
+
+
+[[step]]
+mouse_down = "right"
+
+[[step]]
+wait_ms = 400
+
+[[step]]
+mouse_up = "right"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+chat = "/item replace entity @e[type=minecraft:item_frame,limit=1] container.0 from entity @s weapon.mainhand"
+
+[[step]]
+chat = "/clear"
+
+[[step]]
+chat = "/tp @s 0.5 -60.1 2.3 0 -22"
+
+[[step]]
+wait_ms = 3000
+
+[[step]]
+screenshot = "label"
+
+[[step]]
+chat = "/setblock 30 -60 -20 minecraft:air"
+
+[[step]]
+chat = "/gamemode creative"

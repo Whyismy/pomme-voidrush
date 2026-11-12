@@ -377,6 +377,9 @@ pub struct GameState {
     pub paintings: crate::entity::painting::PaintingStore,
     pub effect_clouds: crate::entity::effect_cloud::EffectCloudStore,
     pub leashes: crate::entity::leash::LeashStore,
+    /// The laid-out labels of named map markers, by their text, so a label
+    /// drawn every frame keeps its glyphs.
+    pub map_labels: HashMap<String, Arc<crate::entity::display::TextLayout>>,
     pub fishing_hooks: crate::entity::fishing_hook::FishingHookStore,
     pub particle_store: crate::particle::ParticleStore,
     /// `WeatherEffectRenderer.rainSoundTime`: ticks since the last rain sound.
@@ -570,6 +573,7 @@ impl GameState {
             paintings: Default::default(),
             effect_clouds: Default::default(),
             leashes: Default::default(),
+            map_labels: HashMap::new(),
             fishing_hooks: Default::default(),
             rain_sound_time: 0,
             particle_store: {
@@ -5177,6 +5181,53 @@ pub fn update_game(
             partial_tick,
             &mut item_renders,
         );
+    }
+    // A named marker's label under it on a framed map (vanilla
+    // `MapRenderer`): white on a dark band, shrunk to fit 25 map pixels,
+    // at most two thirds of the font's size.
+    // TODO: the same labels on a map held in the hand.
+    for &(id, pose, light) in &framed_maps {
+        let Some(map) = game.maps.get(id) else {
+            continue;
+        };
+        let eye = gfx.renderer.camera_render_position() - gfx.renderer.camera_anchor();
+        let distance = f64::from(pose.w_axis.truncate().distance_squared(eye.as_vec3()));
+        for marker in map.decorations.iter().filter(|d| d.shows_on_item_frame()) {
+            let Some(name) = &marker.name else {
+                continue;
+            };
+            let layout = game
+                .map_labels
+                .entry(format!("{name:?}"))
+                .or_insert_with(|| Arc::new(gfx.renderer.layout_display_text(name, i32::MAX)))
+                .clone();
+            if layout.width <= 0.0 {
+                continue;
+            }
+            let scale = (25.0 / layout.width).clamp(0.0, 6.0 / 9.0);
+            // From a text display's space (y up, facing +z, 40 text pixels a
+            // unit, its one line just above the origin) into the map's (y
+            // down, facing -z): half a turn about x. The line's top sits 6
+            // text pixels under a point 4 map pixels below the marker.
+            let label = glam::Mat4::from_translation(glam::Vec3::new(
+                f32::from(marker.x) / 2.0 + 64.0,
+                f32::from(marker.y) / 2.0 + 68.0 + 16.0 * scale,
+                -0.1,
+            )) * glam::Mat4::from_scale(glam::Vec3::new(40.0, -40.0, -40.0) * scale);
+            world_texts.push((
+                distance,
+                crate::renderer::pipelines::menu_overlay::WorldTextRender {
+                    layout,
+                    pose: pose * label,
+                    align: crate::entity::display::TextAlign::Center,
+                    color: 0xFFFF_FFFF,
+                    background: 0x8000_0000,
+                    shadow: false,
+                    see_through: false,
+                    light: light.lane(),
+                },
+            ));
+        }
     }
     // Nothing writes depth, so overlapping texts layer back to front.
     world_texts.sort_by(|a, b| b.0.total_cmp(&a.0));
