@@ -52,6 +52,61 @@ const SHARED_FLAG_INVISIBLE: u8 = 0x20;
 
 /// Whether a shared entity flags byte is on fire, as the client's
 /// `Entity.isOnFire` reads it before fire immunity.
+/// Vanilla `ElytraAnimationState`: a worn elytra's wing angles (x, y and z,
+/// in radians), easing each tick toward where gliding, crouching or
+/// standing puts them.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ElytraAnim {
+    rot: [f32; 3],
+    prev: [f32; 3],
+}
+
+impl Default for ElytraAnim {
+    fn default() -> Self {
+        Self {
+            rot: Self::REST,
+            prev: Self::REST,
+        }
+    }
+}
+
+impl ElytraAnim {
+    /// Folded on a standing wearer's back.
+    pub const REST: [f32; 3] = [0.2617994, 0.0, -0.2617994];
+
+    /// One tick. `gliding` is the wearer's direction of movement's y (of
+    /// its normalized velocity) while it glides: level flight spreads the
+    /// wings, a dive folds them.
+    pub fn tick(&mut self, gliding: Option<f64>, crouching: bool) {
+        use std::f32::consts::{FRAC_PI_2, FRAC_PI_4};
+        self.prev = self.rot;
+        let target = match gliding {
+            Some(direction_y) => {
+                let spread = if direction_y < 0.0 {
+                    1.0 - (-direction_y).powf(1.5) as f32
+                } else {
+                    1.0
+                };
+                [
+                    0.2617994 + spread * (0.34906584 - 0.2617994),
+                    0.0,
+                    -0.2617994 + spread * (-FRAC_PI_2 + 0.2617994),
+                ]
+            }
+            None if crouching => [0.6981317, 0.08726646, -FRAC_PI_4],
+            None => Self::REST,
+        };
+        for (rot, target) in self.rot.iter_mut().zip(target) {
+            *rot += (target - *rot) * 0.3;
+        }
+    }
+
+    /// The angles `partial_tick` of the way through the tick.
+    pub fn at(&self, partial_tick: f32) -> [f32; 3] {
+        std::array::from_fn(|i| self.prev[i] + (self.rot[i] - self.prev[i]) * partial_tick)
+    }
+}
+
 pub fn shared_flags_on_fire(flags: u8) -> bool {
     flags & SHARED_FLAG_ON_FIRE != 0
 }
@@ -848,6 +903,10 @@ pub struct LivingEntity {
     pub prev_walk_anim_speed: f32,
     pub is_baby: bool,
     pub is_crouching: bool,
+    /// The shared fall-flying flag (0x80): gliding on an elytra.
+    pub is_fall_flying: bool,
+    /// The wings of the elytra it may wear.
+    pub elytra: ElytraAnim,
     /// Vanilla LivingEntity SLEEPING_POS metadata.
     pub sleeping_pos: Option<BlockPos>,
     pub on_ground: bool,
@@ -1282,6 +1341,8 @@ impl LivingEntity {
             prev_walk_anim_speed: 0.0,
             is_baby: false,
             is_crouching: false,
+            is_fall_flying: false,
+            elytra: ElytraAnim::default(),
             sleeping_pos: None,
             // Spawn grounded: on_ground is packet-driven and a stationary
             // entity gets no movement packet for up to 60 ticks.
@@ -2336,6 +2397,7 @@ impl EntityStore {
             (_, 0, Byte(f)) => {
                 entity.is_on_fire = shared_flags_on_fire(f);
                 entity.is_sprinting = f & 0x08 != 0;
+                entity.is_fall_flying = f & 0x80 != 0;
                 entity.is_invisible = shared_flags_invisible(f);
                 entity.is_glowing = shared_flags_glowing(f);
             }
@@ -2818,6 +2880,16 @@ impl EntityStore {
             if !(entity.entity_type == EntityKind::Armadillo && entity.armadillo.is_scared()) {
                 entity.tick_body_rotation();
             }
+            // `LivingEntity.tick`: an elytra's wings ease toward their pose.
+            let gliding = entity.is_fall_flying.then(|| {
+                let moved = DVec3::new(
+                    entity.position.x - entity.prev_position.x,
+                    entity.position.y - entity.prev_position.y,
+                    entity.position.z - entity.prev_position.z,
+                );
+                moved.try_normalize().map_or(0.0, |direction| direction.y)
+            });
+            entity.elytra.tick(gliding, entity.is_crouching);
             let dx = entity.position.x - entity.prev_position.x;
             let dz = entity.position.z - entity.prev_position.z;
             let dy = if omnidirectional_air_mover(entity.entity_type) {
@@ -3085,6 +3157,38 @@ fn probes_water(kind: &EntityKind) -> bool {
 
 #[cfg(test)]
 mod tests {
+    /// An elytra's wings fold at rest, spread in level flight, fold again
+    /// in a dive, and lift and open a little on a crouching wearer; each
+    /// tick goes three tenths of the way.
+    #[test]
+    fn elytra_wings_ease_toward_their_pose() {
+        use super::ElytraAnim;
+        let settle = |gliding: Option<f64>, crouching: bool| {
+            let mut wings = ElytraAnim::default();
+            for _ in 0..80 {
+                wings.tick(gliding, crouching);
+            }
+            wings.at(1.0)
+        };
+        let near = |a: [f32; 3], b: [f32; 3]| a.iter().zip(b).all(|(a, b)| (a - b).abs() < 1e-4);
+        assert!(near(settle(None, false), ElytraAnim::REST));
+        assert!(near(
+            settle(Some(0.0), false),
+            [0.34906584, 0.0, -std::f32::consts::FRAC_PI_2]
+        ));
+        assert!(near(settle(Some(-1.0), false), ElytraAnim::REST));
+        assert!(near(
+            settle(None, true),
+            [0.6981317, 0.08726646, -std::f32::consts::FRAC_PI_4]
+        ));
+
+        let mut wings = ElytraAnim::default();
+        wings.tick(None, true);
+        let [x, ..] = wings.at(1.0);
+        assert!((x - (0.2617994 + (0.6981317 - 0.2617994) * 0.3)).abs() < 1e-6);
+        assert_eq!(wings.at(0.0), ElytraAnim::REST);
+    }
+
     use azalea_registry::builtin::ItemKind;
 
     use super::*;

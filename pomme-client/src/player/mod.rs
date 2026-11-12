@@ -220,6 +220,8 @@ pub struct LocalPlayer {
     pub sprinting: bool,
     /// The physical CROUCHING pose, chosen by `Player.updatePlayerPose`.
     pub crouching: bool,
+    /// The wings of the elytra the player may wear.
+    pub elytra: crate::entity::ElytraAnim,
     /// `LocalPlayer`'s private `crouching` movement flag.
     pub movement_crouching: bool,
     // TODO: remaining Abilities fields - invulnerable, instabuild, may_build
@@ -351,6 +353,7 @@ impl LocalPlayer {
             cooldowns: Default::default(),
             sprinting: false,
             crouching: false,
+            elytra: crate::entity::ElytraAnim::default(),
             movement_crouching: false,
             flying: false,
             may_fly: false,

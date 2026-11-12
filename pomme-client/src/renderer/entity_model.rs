@@ -4251,6 +4251,25 @@ pub fn compute_armor_stand_anim(model: &BakedEntityModel, pose: &[[f32; 3]; 6]) 
     anim
 }
 
+/// Vanilla `ElytraModel.setupAnim` under `WingsLayer`'s pose: the left wing
+/// at `rot` (x, y, z), the right its mirror, both two pixels behind the
+/// wearer's back and three lower on one that crouches.
+pub fn compute_elytra_anim(model: &BakedEntityModel, rot: [f32; 3], crouching: bool) -> PartAnim {
+    let mut anim = PartAnim::default();
+    let [x, y, z] = rot;
+    let moved = Vec3::new(0.0, if crouching { 3.0 } else { 0.0 }, 2.0);
+    for (i, part) in model.parts.iter().enumerate() {
+        let side = match part.name.as_str() {
+            "left_wing" => 1.0,
+            "right_wing" => -1.0,
+            _ => continue,
+        };
+        anim.rotation.push((i, Vec3::new(x, side * y, side * z)));
+        anim.translation.push((i, moved));
+    }
+    anim
+}
+
 /// Head look and walking for models baked from vanilla's own layers
 /// ([`bake_exported`]) that have no hand-ported `setupAnim` yet, by vanilla
 /// part names: the head turns, biped legs and arms swing like

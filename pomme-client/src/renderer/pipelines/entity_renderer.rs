@@ -317,6 +317,8 @@ pub struct EntityRenderInfo {
     /// An armor stand's part poses in degrees
     /// (`crate::entity::ARMOR_STAND_POSES`).
     pub armor_stand_pose: [[f32; 3]; 6],
+    /// A worn elytra's wing angles (`crate::entity::ElytraAnim`).
+    pub elytra_rot: [f32; 3],
 }
 
 /// Everything inert: mob-family animation inputs zeroed, no overlays, white
@@ -324,6 +326,7 @@ pub struct EntityRenderInfo {
 impl Default for EntityRenderInfo {
     fn default() -> Self {
         Self {
+            elytra_rot: crate::entity::ElytraAnim::REST,
             position: Position::new(0.0, 0.0, 0.0),
             head_x_rot_deg: 0.0,
             head_y_rot_deg: 0.0,
@@ -537,6 +540,8 @@ struct ArmorAssetDef {
     llama_body: Vec<ArmorLayerDef>,
     /// 26.1's `humanoid_baby`: one sheet for every slot of a baby's armor.
     humanoid_baby: Vec<ArmorLayerDef>,
+    /// An elytra's.
+    wings: Vec<ArmorLayerDef>,
 }
 
 struct ArmorTextureLayer {
@@ -580,6 +585,7 @@ struct ArmorAsset {
     leggings: Vec<ArmorTextureLayer>,
     llama_body: Vec<ArmorTextureLayer>,
     humanoid_baby: Vec<ArmorTextureLayer>,
+    wings: Vec<ArmorTextureLayer>,
 }
 
 struct ArmorMesh {
@@ -603,6 +609,8 @@ struct ArmorMeshes {
     /// `PiglinModel.createArmorMeshSet`'s layers (`piglin#helmet`...), which
     /// the brute and the zombified piglin share; then a baby's.
     piglin: [[ArmorMesh; 4]; 2],
+    /// `ElytraModel`: the two wings.
+    elytra: ArmorMesh,
 }
 
 impl MobEntry {
@@ -877,13 +885,19 @@ fn load_armor_asset_defs(
             let leggings = layers("humanoid_leggings");
             let llama_body = layers("llama_body");
             let humanoid_baby = layers("humanoid_baby");
-            (!humanoid.is_empty() || !leggings.is_empty() || !llama_body.is_empty()).then_some((
+            let wings = layers("wings");
+            (!humanoid.is_empty()
+                || !leggings.is_empty()
+                || !llama_body.is_empty()
+                || !wings.is_empty())
+            .then_some((
                 id,
                 ArmorAssetDef {
                     humanoid,
                     leggings,
                     llama_body,
                     humanoid_baby,
+                    wings,
                 },
             ))
         })
@@ -902,7 +916,7 @@ pub(crate) struct PreparedArmorLayer {
 /// Every equipment definition's layers, decoded, and the trim sources
 /// ([`prepare_armor_assets`]).
 pub(crate) struct PreparedArmor {
-    assets: Vec<(String, [Vec<PreparedArmorLayer>; 4])>,
+    assets: Vec<(String, [Vec<PreparedArmorLayer>; 5])>,
     trims: TrimSources,
 }
 
@@ -1088,6 +1102,7 @@ pub(crate) fn prepare_armor_assets(
                 decode(&def.leggings),
                 decode(&def.llama_body),
                 decode(&def.humanoid_baby),
+                decode(&def.wings),
             ],
         )
     });
@@ -1103,25 +1118,33 @@ fn upload_armor_assets(
     prepared
         .assets
         .into_iter()
-        .map(|(id, [humanoid, leggings, llama_body, humanoid_baby])| {
-            let upload = |layers: Vec<PreparedArmorLayer>| -> Vec<ArmorTextureLayer> {
-                layers
-                    .into_iter()
-                    .map(|layer| {
-                        upload_armor_texture_layer(device, texture_layout, texture_sampler, layer)
-                    })
-                    .collect()
-            };
-            (
-                id,
-                ArmorAsset {
-                    humanoid: upload(humanoid),
-                    leggings: upload(leggings),
-                    llama_body: upload(llama_body),
-                    humanoid_baby: upload(humanoid_baby),
-                },
-            )
-        })
+        .map(
+            |(id, [humanoid, leggings, llama_body, humanoid_baby, wings])| {
+                let upload = |layers: Vec<PreparedArmorLayer>| -> Vec<ArmorTextureLayer> {
+                    layers
+                        .into_iter()
+                        .map(|layer| {
+                            upload_armor_texture_layer(
+                                device,
+                                texture_layout,
+                                texture_sampler,
+                                layer,
+                            )
+                        })
+                        .collect()
+                };
+                (
+                    id,
+                    ArmorAsset {
+                        humanoid: upload(humanoid),
+                        leggings: upload(leggings),
+                        llama_body: upload(llama_body),
+                        humanoid_baby: upload(humanoid_baby),
+                        wings: upload(wings),
+                    },
+                )
+            },
+        )
         .collect()
 }
 
@@ -1221,6 +1244,10 @@ fn build_armor_meshes(device: &rhi::backend::Device) -> ArmorMeshes {
                 set.map(|layer| build_armor_mesh(device, entity_model::bake_exported(layer)))
             })
         },
+        elytra: build_armor_mesh(
+            device,
+            entity_model::bake_exported(entity_model::exported_data::ELYTRA),
+        ),
     }
 }
 
@@ -1232,6 +1259,7 @@ fn destroy_armor_assets(device: &rhi::backend::Device, assets: &mut HashMap<Stri
             .chain(asset.leggings)
             .chain(asset.llama_body)
             .chain(asset.humanoid_baby)
+            .chain(asset.wings)
     }) {
         layer.texture.destroy(device);
         layer.set.destroy(device);
@@ -3508,7 +3536,6 @@ fn mob_and_projectile_definitions() -> Vec<MobDef> {
         // `ArmorStandRenderer`: arms only with `ShowArms`, the base plate
         // unless `NoBasePlate`; the variant is those two flags. A small
         // stand draws the small layer.
-        // TODO: the six synced poses (head, body, arms, legs).
         // `ArrowRenderer`: variant 1 is a tipped arrow.
         MobDef {
             kind: EntityKind::Arrow,
@@ -4192,6 +4219,36 @@ impl EntityRenderer {
                     }
                 }
             }
+            // Vanilla `WingsLayer`: what is worn on the chest, where its
+            // equipment has `wings` layers, an elytra's, on the wing model.
+            // TODO: a baby's wings (`elytra_baby`), and the player's own
+            // elytra or cape texture in the default's place.
+            if !v.info.is_baby
+                && let Some(chest) = &v.info.armor[1]
+            {
+                let mut layers = self
+                    .equipment_layers(chest, |asset| &asset.wings)
+                    .peekable();
+                if layers.peek().is_some() {
+                    let mesh = &self.armor_meshes.elytra;
+                    let anim = entity_model::compute_elytra_anim(
+                        &mesh.model,
+                        v.info.elytra_rot,
+                        v.info.is_crouching,
+                    );
+                    let foil = chest.foil.then_some(&mut glint);
+                    self.push_posed_draws(
+                        vi,
+                        v,
+                        mesh,
+                        &anim,
+                        layers,
+                        instances,
+                        &mut records,
+                        foil,
+                    );
+                }
+            }
         }
         (records, glint)
     }
@@ -4209,14 +4266,31 @@ impl EntityRenderer {
         layers: impl Iterator<Item = (rhi::backend::BindGroup, [f32; 4])>,
         instances: &mut Instances,
         records: &mut Vec<DrawRecord>,
-        mut glint: Option<&mut Vec<DrawRecord>>,
+        glint: Option<&mut Vec<DrawRecord>>,
     ) {
         let mut layers = layers.peekable();
         if layers.peek().is_none() {
             return;
         }
         let anim = self.compute_anim(v.entry.anim, &mesh.model, v.info);
-        let part_transforms = mesh.model.compute_part_transforms(&anim);
+        self.push_posed_draws(vi, v, mesh, &anim, layers, instances, records, glint);
+    }
+
+    /// [`Self::push_equipment_draws`] with the model's parts posed by
+    /// `anim`.
+    #[allow(clippy::too_many_arguments)]
+    fn push_posed_draws(
+        &self,
+        vi: usize,
+        v: &VisEntity<'_>,
+        mesh: &ArmorMesh,
+        anim: &entity_model::PartAnim,
+        layers: impl Iterator<Item = (rhi::backend::BindGroup, [f32; 4])>,
+        instances: &mut Instances,
+        records: &mut Vec<DrawRecord>,
+        mut glint: Option<&mut Vec<DrawRecord>>,
+    ) {
+        let part_transforms = mesh.model.compute_part_transforms(anim);
         for (layer, (texture_set, tint)) in layers.enumerate() {
             let first = records.len();
             for (part, (start, part_count)) in mesh.model.part_ranges.iter().enumerate() {
@@ -5096,6 +5170,7 @@ impl EntityRenderer {
             .chain([&mut self.armor_meshes.baby_llama_decor])
             .chain(self.armor_meshes.armor_stand.iter_mut().flatten())
             .chain(self.armor_meshes.piglin.iter_mut().flatten())
+            .chain([&mut self.armor_meshes.elytra])
         {
             std::mem::take(&mut mesh.vertex_buffer).destroy(device);
         }

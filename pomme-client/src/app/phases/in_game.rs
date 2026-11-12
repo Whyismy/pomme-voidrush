@@ -2772,6 +2772,14 @@ pub fn update_game(
     }
     for _ in 0..ticks {
         game.tick_count = game.tick_count.wrapping_add(1);
+        // `LivingEntity.tick`: an elytra's wings ease toward their pose.
+        let gliding = game.player.fall_flying.then(|| {
+            game.player
+                .velocity
+                .try_normalize()
+                .map_or(0.0, |direction| direction.y)
+        });
+        game.player.elytra.tick(gliding, game.player.crouching);
         if !game.deterministic {
             game.block_light_flicker = tick_block_light_flicker(game.block_light_flicker);
         }
@@ -4603,6 +4611,7 @@ pub fn update_game(
                         e.player_uuid
                     },
                     armor: e.armor.clone(),
+                    elytra_rot: e.elytra.at(partial_tick),
                     entity_id: Some(entity_id),
                     variant_index: extras.variant_index,
                     overlay_tints: extras.overlay_tints,
@@ -5092,6 +5101,7 @@ pub fn update_game(
             },
             light: player_light,
             armor: armor_render_infos(game.player.inventory.armor_slots()),
+            elytra_rot: game.player.elytra.at(partial_tick),
             scale: game
                 .player
                 .attributes
