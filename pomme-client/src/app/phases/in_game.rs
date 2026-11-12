@@ -2475,6 +2475,7 @@ fn tick_model_entities(game: &mut GameState, camera: glam::DVec3) {
         let (kind, at, speed) = match trail {
             Trail::EndRod(at) => (ServerParticleKind::EndRod, at, glam::DVec3::ZERO),
             Trail::Smoke(at) => (ServerParticleKind::Smoke, at, glam::DVec3::ZERO),
+            Trail::DragonBreath(at) => (ServerParticleKind::DragonBreath, at, glam::DVec3::ZERO),
             Trail::Crit(at, speed) => (ServerParticleKind::Crit, at, speed),
         };
         // A count of zero spawns one, moving at the spread times the speed.
@@ -5272,6 +5273,7 @@ pub fn update_game(
         Vec::new()
     } else {
         add_experience_orbs(game, &gfx.renderer, partial_tick, &mut particle_quads);
+        add_dragon_fireballs(game, &gfx.renderer, partial_tick, &mut particle_quads);
         add_fishing_hooks(game, core, &gfx.renderer, partial_tick, &mut particle_quads)
     };
     gfx.renderer.set_fishing_lines(fishing_lines);
@@ -6461,7 +6463,6 @@ fn minecart_pose(
 
 /// What a minecart carries (`AbstractMinecartRenderer.submitMinecartContents`):
 /// its block at three quarters of its size, riding in the cart.
-// TODO: a chest, which is a block entity's model rather than a block's.
 fn build_minecart_contents(
     carts: &crate::entity::model_entity::ModelEntityStore,
     chunks: &crate::world::chunk::ChunkStore,
@@ -6480,12 +6481,19 @@ fn build_minecart_contents(
         let Some(Some(contents)) = crate::entity::model_entity::minecart(cart.kind) else {
             continue;
         };
-        let Some(state) = table.state_with(contents.block, contents.props) else {
-            continue;
-        };
-        let Some((item_name, tints)) = renderer.ensure_block_display_mesh(table, state.id() as u32)
-        else {
-            continue;
+        // A chest is a block entity's model, not a block's: the chest
+        // item's mesh is that model.
+        let (item_name, tints): (Arc<str>, Arc<[u32]>) = if contents.block == "chest" {
+            renderer.ensure_item_mesh("chest");
+            (Arc::from("chest"), Arc::from([]))
+        } else {
+            let Some(state) = table.state_with(contents.block, contents.props) else {
+                continue;
+            };
+            let Some(mesh) = renderer.ensure_block_display_mesh(table, state.id() as u32) else {
+                continue;
+            };
+            mesh
         };
         let feet = cart
             .prev_position
@@ -7040,6 +7048,43 @@ fn add_experience_orbs(
 
 /// Vanilla `FishingHookRenderer`: each bobber, a camera-facing half-block
 /// sprite at full size, and its line's segments to the angler's rod tip.
+/// Vanilla `DragonFireballRenderer`: its sprite facing the viewer, two
+/// blocks across and full bright, a quarter of that above its feet.
+fn add_dragon_fireballs(
+    game: &GameState,
+    renderer: &Renderer,
+    partial_tick: f32,
+    out: &mut Vec<crate::renderer::pipelines::particle::ParticleQuad>,
+) {
+    use crate::renderer::chunk::block_lighter::LightLevels;
+    use crate::renderer::pipelines::particle::ParticleQuad;
+    let texture = crate::entity::model_entity::DRAGON_FIREBALL_TEXTURE;
+    let Some(region) = game.particle_store.item_region(texture) else {
+        return;
+    };
+    let anchor = renderer.camera_anchor();
+    for fireball in game.model_entities.entities.values() {
+        if fireball.kind != EntityKind::DragonFireball {
+            continue;
+        }
+        let feet = *fireball
+            .prev_position
+            .lerp(fireball.position, f64::from(partial_tick));
+        let centre = feet + glam::DVec3::new(0.0, 0.5, 0.0);
+        out.push(ParticleQuad {
+            pos: (centre - anchor).as_vec3().into(),
+            size: 1.0,
+            u0: region.u_min,
+            u1: region.u_max,
+            v0: region.v_min,
+            v1: region.v_max,
+            color: u32::MAX,
+            light: LightLevels::FULL_BRIGHT.lane(),
+            translucent: false,
+        });
+    }
+}
+
 /// The leads between mobs and what holds them (`EntityRenderer.renderLeash`),
 /// as the pieces of each rope: its ends, and whether it is one of the
 /// darker pieces the rope alternates.

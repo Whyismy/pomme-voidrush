@@ -20,6 +20,9 @@ const VEHICLE_LERP_STEPS: u8 = 3;
 /// How far a paddle's stroke moves on a tick (`AbstractBoat.tick`).
 const PADDLE_STEP: f32 = std::f32::consts::FRAC_PI_8;
 
+/// The dragon's fireball, a sprite facing the viewer.
+pub const DRAGON_FIREBALL_TEXTURE: &str = "entity/enderdragon/dragon_fireball";
+
 /// `EvokerFangs.lifeTicks` when the bite starts.
 const FANGS_LIFE_TICKS: i32 = 22;
 /// `AbstractHurtingProjectile.accelerationPower`'s default, which the spawn
@@ -161,6 +164,7 @@ pub fn is_model_entity(kind: EntityKind) -> bool {
             | EntityKind::LlamaSpit
             | EntityKind::EvokerFangs
             | EntityKind::LeashKnot
+            | EntityKind::DragonFireball
     ) || is_vehicle(kind)
 }
 
@@ -287,6 +291,8 @@ pub enum Trail {
     EndRod(DVec3),
     /// A wither skull's smoke.
     Smoke(DVec3),
+    /// A dragon fireball's breath.
+    DragonBreath(DVec3),
     /// One of the crits a pair of fangs throws as it snaps shut.
     Crit(DVec3, DVec3),
 }
@@ -430,14 +436,19 @@ impl ModelEntityStore {
                 }
                 // `AbstractHurtingProjectile.tick`: it speeds up along its
                 // flight and sheds some of that speed, then moves.
-                EntityKind::WitherSkull => {
+                EntityKind::WitherSkull | EntityKind::DragonFireball => {
                     let inertia = if entity.dangerous { 0.73f32 } else { 0.95f32 };
                     let v = entity.velocity;
                     entity.velocity =
                         (v + v.normalize_or_zero() * SKULL_ACCELERATION) * f64::from(inertia);
                     entity.position = (*entity.position + entity.velocity).into();
                     rotate_towards_movement(entity, 0.2);
-                    trails.push(Trail::Smoke(*entity.position + DVec3::new(0.0, 0.5, 0.0)));
+                    let behind = *entity.position + DVec3::new(0.0, 0.5, 0.0);
+                    trails.push(if entity.kind == EntityKind::DragonFireball {
+                        Trail::DragonBreath(behind)
+                    } else {
+                        Trail::Smoke(behind)
+                    });
                 }
                 // `LlamaSpit.tick`: an arc, turning to face it.
                 EntityKind::LlamaSpit => {
@@ -637,6 +648,12 @@ mod tests {
         let trails = store.tick();
         assert!((store.entities[&1].velocity.x - 1.1 * f64::from(0.73f32)).abs() < 1e-9);
         assert!(matches!(trails[..], [Trail::Smoke(at)] if at.y == 64.5));
+
+        // The dragon's fireball flies the same way, trailing its breath.
+        let mut store = store_with(EntityKind::DragonFireball, DVec3::new(1.0, 0.0, 0.0));
+        let trails = store.tick();
+        assert!((store.entities[&1].velocity.x - 1.1 * f64::from(0.95f32)).abs() < 1e-9);
+        assert!(matches!(trails[..], [Trail::DragonBreath(_)]));
     }
 
     #[test]

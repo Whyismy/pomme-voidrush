@@ -627,6 +627,7 @@ fn banner_pattern_textures(
             for sprite in FISHING_HOOK_TEXTURES
                 .into_iter()
                 .chain(crate::entity::experience_orb::TEXTURES)
+                .chain([crate::entity::model_entity::DRAGON_FIREBALL_TEXTURE])
             {
                 if ns == "minecraft"
                     && namespace

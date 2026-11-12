@@ -1,6 +1,7 @@
 # Entities with a small model of their own: a lead knot on a fence, a
 # trident stuck in the ground, a wither skull and a blue one, a shulker
-# bullet in its faint shell, llama spit, and evoker fangs mid-bite, then
+# bullet in its faint shell, llama spit, a dragon's fireball behind, and
+# evoker fangs mid-bite, then
 # shut; then the knot and a skull beside a block up close, behind them a
 # second pair of fangs seen from the front.
 
@@ -42,6 +43,9 @@ wait_ms = 1500
 
 [[step]]
 chat = "/summon minecraft:shulker_bullet 863.0 -58.5 604.5 {NoGravity:1b}"
+
+[[step]]
+chat = "/summon minecraft:dragon_fireball 866.5 -57.5 607.5 {Motion:[0.0d,0.0d,0.0d]}"
 
 [[step]]
 chat = "/summon minecraft:evoker_fangs 864.5 -60 604.5 {Warmup:0}"
