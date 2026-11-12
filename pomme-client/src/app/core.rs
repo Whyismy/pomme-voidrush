@@ -2552,6 +2552,12 @@ impl AppCore {
                         && game.block_registry.block_state_data(state).id() == "bell"
                     {
                         game.block_entity_anim.ring_bell(pos, action_parameter);
+                    } else if action_id == 1
+                        && game.block_registry.block_state_data(state).id() == "end_gateway"
+                    {
+                        // `TheEndGatewayBlockEntity.triggerEvent`: something
+                        // went through; its beam shows for two seconds.
+                        game.gateways.entry(pos).or_insert((200, 0)).1 = 40;
                     } else if action_id == 1 {
                         // Chest/shulker: the open-viewer count.
                         game.block_entity_anim.set_open_count(pos, action_parameter);

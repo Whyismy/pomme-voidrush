@@ -1384,12 +1384,19 @@ pub(crate) const BOOK_KIND: EntityKind = EntityKind::Interaction;
 /// and the client never draws a marker, so it is free.
 pub(crate) const BEAM_KIND: EntityKind = EntityKind::Marker;
 
-/// `BeaconRenderer`: for each of `BEAM_LENGTHS`, the beam and then its glow.
+/// `BeaconRenderer`: for each of `BEAM_LENGTHS`, the beam and then its
+/// glow, each in a beacon's texture and then an end gateway's.
 fn beam_definition() -> MobDef {
-    const TEXTURE: &[&[&str]] = &[&[
-        "minecraft/textures/entity/beacon/beacon_beam.png",
-        "minecraft/textures/entity/beacon_beam.png",
-    ]];
+    const TEXTURE: &[&[&str]] = &[
+        &[
+            "minecraft/textures/entity/beacon/beacon_beam.png",
+            "minecraft/textures/entity/beacon_beam.png",
+        ],
+        &[
+            "minecraft/textures/entity/end_portal/end_gateway_beam.png",
+            "minecraft/textures/entity/end_gateway_beam.png",
+        ],
+    ];
     let adult = entity_model::BEAM_LENGTHS
         .iter()
         .flat_map(|&length| [false, true].map(|glow| (length, glow)))

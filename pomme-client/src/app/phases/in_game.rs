@@ -380,6 +380,9 @@ pub struct GameState {
     /// Each nearby spawner's spin, last tick's and this one's, in the
     /// tenths of a degree vanilla counts it in (`BaseSpawner.spin`).
     pub spawner_spins: HashMap<BlockPos, (f32, f32)>,
+    /// Each loaded end gateway's age and teleport cooldown, in ticks
+    /// (`TheEndGatewayBlockEntity`), which its beam shows by.
+    pub gateways: HashMap<BlockPos, (i64, i32)>,
     /// The books over the enchanting tables near the player.
     pub enchanting_books: HashMap<BlockPos, crate::world::book::BookAnim>,
     /// Each beacon's beam as last worked out, and the tick it was.
@@ -582,6 +585,7 @@ impl GameState {
             leashes: Default::default(),
             beacon_beams: HashMap::new(),
             enchanting_books: HashMap::new(),
+            gateways: HashMap::new(),
             spawner_spins: HashMap::new(),
             map_labels: HashMap::new(),
             fishing_hooks: Default::default(),
@@ -2854,6 +2858,7 @@ pub fn update_game(
         }
         tick_model_entities(game, gfx.renderer.camera_render_position());
         update_beacon_beams(game);
+        tick_gateways(game);
         tick_enchanting_books(game);
         tick_spawners(game, gfx.renderer.camera_render_position());
         // `AreaEffectCloud.clientTick`: its particles, shown from any
@@ -4876,6 +4881,7 @@ pub fn update_game(
     // turning slowly inside its faint glow, the texture running upward.
     if !benchmark_running {
         build_beacon_beams(game, partial_tick, &mut entity_renders);
+        build_gateway_beams(game, partial_tick, &mut entity_renders);
         build_books(game, &world_light, partial_tick, &mut entity_renders);
         build_spawner_mobs(game, &world_light, partial_tick, &mut entity_renders);
     }
@@ -7104,6 +7110,93 @@ fn build_books(
     }
 }
 
+/// `TheEndGatewayBlockEntity.beamAnimationTick`: every loaded gateway ages,
+/// starting from the age the server gave it, and its cooldown runs down.
+fn tick_gateways(game: &mut GameState) {
+    use azalea_registry::builtin::BlockEntityKind;
+    let mut loaded = Vec::new();
+    for (pos, be) in &game.chunk_store.block_entities {
+        if be.kind != BlockEntityKind::EndGateway {
+            continue;
+        }
+        let gateway = game
+            .gateways
+            .entry(*pos)
+            .or_insert_with(|| (be.nbt.long("Age").unwrap_or(0), 0));
+        gateway.0 += 1;
+        gateway.1 = (gateway.1 - 1).max(0);
+        loaded.push(*pos);
+    }
+    game.gateways.retain(|pos, _| loaded.contains(pos));
+}
+
+/// A gateway's beam (`TheEndGatewayRenderer`): magenta and growing to the
+/// sky and back over the ten seconds after it appears, purple and fifty
+/// blocks each way for two seconds after something goes through.
+// TODO: vanilla also thins the beam's texture as it grows and shrinks.
+fn build_gateway_beams(game: &GameState, partial_tick: f32, out: &mut Vec<EntityRenderInfo>) {
+    use glam::{Mat4, Vec3};
+
+    use crate::renderer::entity_model::beam_pieces;
+    use crate::renderer::pipelines::entity_renderer::{BEAM_KIND, unliving_model_frame};
+    let top = game.chunk_store.min_y() + game.chunk_store.section_count() * 16 - 1;
+    let time = (game.sky_state.game_time.rem_euclid(40)) as f32 + partial_tick;
+    let run = (-time * 0.2 - (-time * 0.1).floor()).rem_euclid(1.0);
+    let unliving = unliving_model_frame();
+    let turn = Mat4::from_rotation_y((time * 2.25 - 45.0).to_radians());
+    for (pos, &(age, cooldown)) in &game.gateways {
+        let spawning = age < 200;
+        if !spawning && cooldown <= 0 {
+            continue;
+        }
+        let (progress, reach, color) = if spawning {
+            // `DyeColor.MAGENTA`'s diffuse colour.
+            (
+                (age as f32 + partial_tick) / 200.0,
+                top as f32,
+                0xC7_4EBD_u32,
+            )
+        } else {
+            // `DyeColor.PURPLE`'s.
+            (
+                1.0 - (cooldown as f32 - partial_tick) / 40.0,
+                50.0,
+                0x89_32B8,
+            )
+        };
+        let half = ((progress.clamp(0.0, 1.0) * std::f32::consts::PI).sin() * reach).floor() as u32;
+        let [r, g, b] = [16, 8, 0].map(|shift| ((color >> shift) & 0xFF) as f32 / 255.0);
+        let slide = (half as f32 * 2.0 * 2.5 + run).rem_euclid(1.0);
+        // The gateway's beam is three quarters as thick as a beacon's.
+        let thin = |scale: f32| Mat4::from_scale(Vec3::new(scale, 1.0, scale));
+        for (offset, length) in beam_pieces(half * 2) {
+            let position = Position::new(
+                f64::from(pos.x) + 0.5,
+                f64::from(pos.y) - f64::from(half) + f64::from(offset),
+                f64::from(pos.z) + 0.5,
+            );
+            for (glow, tint, pose) in [
+                (0, [r, g, b, 1.0], turn * thin(0.75) * unliving),
+                (1, [r, g, b, 32.0 / 255.0], thin(0.7) * unliving),
+            ] {
+                out.push(EntityRenderInfo {
+                    position,
+                    entity_kind: BEAM_KIND,
+                    head_y_rot_deg: 180.0,
+                    body_y_rot_deg: 180.0,
+                    variant_index: ((length * 2 + glow) * 2 + 1) as u32,
+                    base_tint: tint,
+                    body_transform: Some(pose),
+                    flap: slide,
+                    skip_cull: true,
+                    light: LightLevels::FULL_BRIGHT,
+                    ..Default::default()
+                });
+            }
+        }
+    }
+}
+
 /// How far up the last section of a beam is drawn. Vanilla draws 2048
 /// blocks of it; past a few hundred nothing of it is seen.
 const BEAM_TOP: u32 = 512;
@@ -7199,7 +7292,9 @@ fn build_beacon_beams(game: &GameState, partial_tick: f32, out: &mut Vec<EntityR
                         entity_kind: BEAM_KIND,
                         head_y_rot_deg: 180.0,
                         body_y_rot_deg: 180.0,
-                        variant_index: (length * 2 + glow) as u32,
+                        // Each piece's beam and glow, in the beacon's
+                        // texture (the gateway's follows it).
+                        variant_index: ((length * 2 + glow) * 2) as u32,
                         base_tint: tint,
                         body_transform: Some(pose),
                         flap: slide,

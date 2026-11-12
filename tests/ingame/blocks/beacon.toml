@@ -1,6 +1,8 @@
 # Beacon beams (vanilla BeaconRenderer): a beacon on its base with a white
 # beam, one whose beam turns red through stained glass and then purple
-# through blue glass above it, and one under a stone roof with no beam.
+# through blue glass above it, one under a stone roof with no beam, and an
+# end gateway five seconds old, its magenta beam at full height
+# (TheEndGatewayRenderer).
 
 [[step]]
 wait_ms = 15000
@@ -48,13 +50,16 @@ chat = "/setblock 1356 -59 604 minecraft:beacon"
 chat = "/setblock 1356 -56 604 minecraft:stone"
 
 [[step]]
+chat = "/setblock 1361 -56 604 minecraft:end_gateway"
+
+[[step]]
 wait_ms = 5000
 
 [[step]]
 screenshot = "beams"
 
 [[step]]
-chat = "/fill 1343 -60 603 1357 -50 605 minecraft:air"
+chat = "/fill 1343 -60 603 1361 -50 605 minecraft:air"
 
 [[step]]
 chat = "/gamemode creative"
