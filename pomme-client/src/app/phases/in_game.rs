@@ -5204,6 +5204,7 @@ pub fn update_game(
         );
         build_banners(game, &world_light, &mut gfx.renderer, &mut item_renders);
         build_dragon_heads(game, &world_light, &mut gfx.renderer, &mut item_renders);
+        build_campfire_items(game, &world_light, &mut gfx.renderer, &mut item_renders);
     }
     // What signs within 64 blocks say (vanilla `SignRenderer`): each line
     // of each side as its own one-line text, on the board.
@@ -6764,6 +6765,77 @@ fn build_dragon_heads(
             light: block_lighter::light_coords(world_light, [pos.x, pos.y, pos.z]),
             white_flash: false,
         });
+    }
+}
+
+/// What is cooking on the campfires within 64 blocks (vanilla
+/// `CampfireRenderer`): each of the four slots' items lying flat on its
+/// corner of the fire.
+fn build_campfire_items(
+    game: &GameState,
+    world_light: &WorldLight,
+    renderer: &mut Renderer,
+    out: &mut Vec<crate::renderer::pipelines::item_entity::ItemRenderInfo>,
+) {
+    use azalea_registry::builtin::BlockEntityKind;
+    use glam::{Mat4, Vec3};
+
+    use crate::renderer::pipelines::item_entity::ItemRenderInfo;
+    /// `ItemDisplayContext.FIXED`.
+    const FIXED: u8 = 8;
+    let eye = renderer.camera_render_position();
+    let anchor = renderer.camera_anchor();
+    for (pos, be) in &game.chunk_store.block_entities {
+        if be.kind != BlockEntityKind::Campfire {
+            continue;
+        }
+        let Some(items) = be.nbt.list("Items").and_then(|items| items.compounds()) else {
+            continue;
+        };
+        let corner = glam::DVec3::new(f64::from(pos.x), f64::from(pos.y), f64::from(pos.z));
+        if (corner + glam::DVec3::splat(0.5)).distance_squared(eye) > 64.0 * 64.0 {
+            continue;
+        }
+        let state = game.chunk_store.get_block_state(pos.x, pos.y, pos.z);
+        let data = game.block_registry.block_state_data(state);
+        // `Direction.get2DDataValue` of the fire's facing.
+        let facing = match data.properties().get("facing") {
+            Some("west") => 1,
+            Some("north") => 2,
+            Some("east") => 3,
+            _ => 0,
+        };
+        let light = block_lighter::light_coords(world_light, [pos.x, pos.y + 1, pos.z]);
+        for item in items {
+            let (Some(slot), Some(id)) = (item.byte("Slot"), item.string("id")) else {
+                continue;
+            };
+            let id = id.to_str();
+            let name = id.strip_prefix("minecraft:").unwrap_or(&id);
+            let model = renderer.render_assets().context_model_key(name, FIXED);
+            renderer.ensure_item_mesh(&model);
+            let tints: Arc<[u32]> = renderer
+                .render_assets()
+                .item_tint_palette(&model, None, None)
+                .into();
+            // Each slot a quarter turn on from the fire's facing.
+            let turn = ((i32::from(slot) + facing).rem_euclid(4) * 90) as f32;
+            let place = Mat4::from_translation(Vec3::new(0.5, 0.449_218_75, 0.5))
+                * Mat4::from_rotation_y((-turn).to_radians())
+                * Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2)
+                * Mat4::from_translation(Vec3::new(-0.3125, -0.3125, 0.0))
+                * Mat4::from_scale(Vec3::splat(0.375));
+            out.push(ItemRenderInfo {
+                item_name: model.clone().into(),
+                outline_color: None,
+                tints,
+                model_matrix: Mat4::from_translation((corner - anchor).as_vec3())
+                    * place
+                    * renderer.item_display_transform(&model, FIXED),
+                light,
+                white_flash: false,
+            });
+        }
     }
 }
 

@@ -1,0 +1,41 @@
+# What cooks on a campfire (vanilla CampfireRenderer): four different foods,
+# one on each corner of the fire, lying flat.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/gamemode spectator"
+
+[[step]]
+chat = "/tp @s 1500.5 -58.2 601.3 0 50"
+
+[[step]]
+wait_ms = 2500
+
+[[step]]
+chat = "/setblock 1500 -60 603 minecraft:campfire[facing=north,lit=true]{Items:[{Slot:0b,id:\"minecraft:beef\",count:1},{Slot:1b,id:\"minecraft:salmon\",count:1},{Slot:2b,id:\"minecraft:potato\",count:1},{Slot:3b,id:\"minecraft:chicken\",count:1}],CookingTimes:[I;0,0,0,0],CookingTotalTimes:[I;6000,6000,6000,6000]}"
+
+[[step]]
+wait_ms = 3000
+
+[[step]]
+screenshot = "cooking"
+
+[[step]]
+chat = "/setblock 1500 -60 603 minecraft:air"
+
+[[step]]
+wait_ms = 300
+
+[[step]]
+chat = "/kill @e[type=minecraft:item,distance=..40]"
+
+[[step]]
+chat = "/gamemode creative"
