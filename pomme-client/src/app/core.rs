@@ -1988,6 +1988,7 @@ impl AppCore {
                     game.display_store.set_passengers(vehicle, &passengers);
                     game.entity_store.set_passengers(vehicle, &passengers);
                     game.interactions.set_passengers(vehicle, &passengers);
+                    game.model_entities.set_passengers(vehicle, &passengers);
                     let me = game.player.entity_id;
                     if passengers.contains(&me) {
                         game.riding_vehicle_id = Some(vehicle);
@@ -3293,7 +3294,12 @@ impl AppCore {
                                 fastrand::u64(..),
                             );
                         }
-                        // TODO: the twinkle's crackle as the last star fades.
+                        // A twinkling star crackles as the firework ends,
+                        // fifteen ticks after its last star has burst.
+                        if explosions.iter().any(|e| e.twinkle) {
+                            game.firework_twinkles
+                                .push((at, explosions.len() as u32 * 2 + 15));
+                        }
                         game.particle_store
                             .start_fireworks(at, rocket.velocity, explosions);
                     }
@@ -3584,6 +3590,7 @@ impl AppCore {
                     game.paintings.clear();
                     game.effect_clouds.clear();
                     game.leashes.clear();
+                    game.firework_twinkles.clear();
                     game.arrows.clear();
                     game.fishing_hooks.clear();
                     game.display_store.clear();
@@ -3808,6 +3815,30 @@ impl AppCore {
         // TODO: a same-dimension `handleRespawn` re-adds it after them.
         self.tick_local_player(renderer, connection, game);
         self.tick_remote_entities(game);
+        // `FireworkParticles.Starter.tick`: a twinkling firework's last
+        // sound, the far one from sixteen blocks off.
+        let camera = renderer.camera_render_position();
+        let audio = &self.audio;
+        game.firework_twinkles.retain_mut(|(at, ticks)| {
+            *ticks = ticks.saturating_sub(1);
+            if *ticks > 0 {
+                return true;
+            }
+            let sound = if camera.distance_squared(*at) >= 256.0 {
+                "entity.firework_rocket.twinkle_far"
+            } else {
+                "entity.firework_rocket.twinkle"
+            };
+            audio.play_world_sound(
+                &crate::audio::SoundRef::event(sound),
+                crate::audio::CATEGORY_AMBIENT,
+                Position::new(at.x, at.y, at.z),
+                20.0,
+                0.9 + fastrand::f32() * 0.15,
+                fastrand::u64(..),
+            );
+            false
+        });
         super::sniffer::tick(&mut self.audio, game, renderer.camera_render_position());
         super::copper_golem::tick(&self.audio, game);
         panda_eating_particles(game, renderer.camera_render_position());
@@ -3862,11 +3893,16 @@ impl AppCore {
         let (displays, positions) = (&game.display_store.displays, &game.entity_positions);
         let vehicles = &game.model_entities;
         game.entity_store
-            .position_riders(|vehicle, living| match displays.get(&vehicle) {
+            .position_riders(|vehicle, rider, living| match displays.get(&vehicle) {
                 Some(display) => Some(display.position),
-                None => vehicles.seat(vehicle).or_else(|| {
-                    super::phases::in_game::display_seat(vehicle, living, positions, player)
-                }),
+                None => {
+                    let animal = living
+                        .get(&rider)
+                        .is_some_and(|e| crate::entity::is_animal(e.entity_type));
+                    vehicles.seat(vehicle, rider, animal).or_else(|| {
+                        super::phases::in_game::display_seat(vehicle, living, positions, player)
+                    })
+                }
             });
     }
 
@@ -4239,6 +4275,9 @@ impl AppCore {
         // paddles are in the water.
         let rowed = game.rowed_boat();
         game.model_entities.driven = rowed;
+        // `LocalPlayer.rideTick`: hands on the oars are busy.
+        game.interaction.hands_busy =
+            rowed.is_some() && (game.player.move_strafe != 0.0 || game.player.move_forward != 0.0);
         if game.boat_drive.vehicle != rowed {
             game.boat_drive = rowed
                 .map(crate::physics::boat::Drive::of)

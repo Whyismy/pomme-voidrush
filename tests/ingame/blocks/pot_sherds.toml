@@ -1,0 +1,42 @@
+# Decorated pots with sherds (vanilla DecoratedPotRenderer): each side in
+# its sherd's pattern, a brick's side plain. A pot's front is the side away
+# from its facing. On the right, a pot facing south: its front (an arms-up
+# figure) faces the camera. On the left, one facing east: its left side (a
+# heart) faces the camera and its front (a flame) the west. Between them a
+# plain pot.
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/gamemode spectator"
+
+[[step]]
+chat = "/tp @s 1502.0 -59.3 600.6 0 12"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+chat = "/setblock 1500 -60 603 minecraft:decorated_pot[facing=south]{sherds:[\"minecraft:brick\",\"minecraft:angler_pottery_sherd\",\"minecraft:archer_pottery_sherd\",\"minecraft:arms_up_pottery_sherd\"]}"
+
+[[step]]
+chat = "/setblock 1502 -60 603 minecraft:decorated_pot"
+
+[[step]]
+chat = "/setblock 1504 -60 603 minecraft:decorated_pot[facing=east]{sherds:[\"minecraft:skull_pottery_sherd\",\"minecraft:heart_pottery_sherd\",\"minecraft:prize_pottery_sherd\",\"minecraft:burn_pottery_sherd\"]}"
+
+[[step]]
+expect = { block = "decorated_pot", at = [1504, -60, 603], block_entity = "decorated_pot" }
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "pots"

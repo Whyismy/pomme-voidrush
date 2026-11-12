@@ -2102,10 +2102,42 @@ impl Renderer {
                 &self.atlas.uv_map,
             );
         }
+        // A decorated pot's sherds (`DecoratedPotRenderer`): each side in
+        // its sherd's pattern. The model's sides come left, back, right,
+        // front; the key's back, left, right, front.
+        if let Some(sides) = name.strip_prefix(crate::world::block::model::POT_SIDES_KEY)
+            && let Some(base) = self.render_assets.get_item_model("decorated_pot")
+        {
+            use crate::world::block::model::{POT_SIDE, TextureId};
+            let plain = TextureId::intern(POT_SIDE);
+            let sides: Vec<&str> = sides.split(',').collect();
+            let mut model = base.clone();
+            let order = [1, 0, 2, 3];
+            for (quad, side) in model
+                .quads
+                .iter_mut()
+                .filter(|quad| quad.texture == plain)
+                .zip(order)
+            {
+                if let Some(pattern) = sides.get(side).filter(|s| !s.is_empty()) {
+                    let texture = format!("entity/decorated_pot/{pattern}_pottery_pattern");
+                    if self.atlas.uv_map.has_region(&texture) {
+                        quad.texture = TextureId::intern(&texture);
+                    }
+                }
+            }
+            self.item_entity_pipeline.ensure_mesh(
+                &self.ctx.device,
+                name,
+                &model,
+                &self.atlas.uv_map,
+            );
+        }
         // A banner stack's pattern layers: copies of its flag's base pattern
         // in each layer's texture, taking the tints after the model's
         // (`BannerRenderer.renderPatterns`).
         if name.contains('~')
+            && !name.starts_with(crate::world::block::model::POT_SIDES_KEY)
             && !crate::banner::is_shield_key(name)
             && let Some(base) = self
                 .render_assets
@@ -2150,6 +2182,20 @@ impl Renderer {
                         p[1] -= 23.5 * pixel;
                         p[2] -= 10.5 * pixel;
                     }
+                }
+            }
+            // One half of a placed banner: the model's quads are its pole
+            // and bar, then the flag, its base pattern and its layers.
+            if let Some(pattern) = model
+                .quads
+                .iter()
+                .position(|quad| quad.texture == base_pattern)
+            {
+                let flag_start = pattern.saturating_sub(flag.len());
+                if crate::banner::has_mark(name, crate::banner::FLAG) {
+                    model.quads.drain(..flag_start);
+                } else if crate::banner::has_mark(name, crate::banner::POLE) {
+                    model.quads.truncate(flag_start);
                 }
             }
             self.item_entity_pipeline.ensure_mesh(

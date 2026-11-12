@@ -52,10 +52,14 @@ fn replaces_unseen(visible: &ItemStack, next: &ItemStack) -> bool {
 
 impl HandEquip {
     /// One tick. `swap_scale` is vanilla `Player.getItemSwapScale(1)`: how
-    /// far the main hand's swing has recharged, 0 to 1.
-    pub fn tick(&mut self, stacks: [&ItemStack; 2], swap_scale: f32) {
-        // TODO: `isHandsBusy` (rowing a boat) lowers both hands.
-        let targets = [swap_scale * swap_scale * swap_scale, 1.0];
+    /// far the main hand's swing has recharged, 0 to 1. `busy` hands
+    /// (`isHandsBusy`, rowing a boat) go down out of view.
+    pub fn tick(&mut self, stacks: [&ItemStack; 2], swap_scale: f32, busy: bool) {
+        let targets = if busy {
+            [0.0, 0.0]
+        } else {
+            [swap_scale * swap_scale * swap_scale, 1.0]
+        };
         for ((hand, next), target) in self.hands.iter_mut().zip(stacks).zip(targets) {
             hand.prev_height = hand.height;
             let changed = !replaces_unseen(&hand.visible, next);
@@ -114,23 +118,23 @@ mod tests {
         );
         let empty = ItemStack::Empty;
         for _ in 0..5 {
-            equip.tick([&sword, &empty], 1.0);
+            equip.tick([&sword, &empty], 1.0, false);
         }
         assert_eq!(equip.lowered(1.0), [0.0, 0.0]);
         assert_eq!(kind(equip.visible()[0]), Some(ItemKind::IronSword));
 
         // Down 0.4 a tick: the sword still shows until the hand is under 0.1.
-        equip.tick([&pick, &empty], 1.0);
+        equip.tick([&pick, &empty], 1.0, false);
         assert!((equip.lowered(1.0)[0] - 0.4).abs() < 1e-6);
         assert!((equip.lowered(0.5)[0] - 0.2).abs() < 1e-6);
         assert_eq!(kind(equip.visible()[0]), Some(ItemKind::IronSword));
-        equip.tick([&pick, &empty], 1.0);
+        equip.tick([&pick, &empty], 1.0, false);
         assert_eq!(kind(equip.visible()[0]), Some(ItemKind::IronSword));
-        equip.tick([&pick, &empty], 1.0);
+        equip.tick([&pick, &empty], 1.0, false);
         assert_eq!(equip.lowered(1.0)[0], 1.0);
         assert_eq!(kind(equip.visible()[0]), Some(ItemKind::IronPickaxe));
         for _ in 0..3 {
-            equip.tick([&pick, &empty], 1.0);
+            equip.tick([&pick, &empty], 1.0, false);
         }
         assert_eq!(equip.lowered(1.0)[0], 0.0);
     }
@@ -144,26 +148,26 @@ mod tests {
         let blocks = stack(ItemKind::Stone, 8);
         let shield = stack(ItemKind::Shield, 1);
         for _ in 0..5 {
-            equip.tick([&blocks, &shield], 1.0);
+            equip.tick([&blocks, &shield], 1.0, false);
         }
-        equip.tick([&blocks, &shield], 0.5);
+        equip.tick([&blocks, &shield], 0.5, false);
         // Toward 0.125, 0.4 a tick.
         assert!((equip.lowered(1.0)[0] - 0.4).abs() < 1e-6);
         assert_eq!(equip.lowered(1.0)[1], 0.0);
         for _ in 0..5 {
-            equip.tick([&blocks, &shield], 0.5);
+            equip.tick([&blocks, &shield], 0.5, false);
         }
         assert!((equip.lowered(1.0)[0] - 0.875).abs() < 1e-6);
         for _ in 0..5 {
-            equip.tick([&blocks, &shield], 1.0);
+            equip.tick([&blocks, &shield], 1.0, false);
         }
 
         let placed = stack(ItemKind::Stone, 7);
-        equip.tick([&placed, &shield], 1.0);
+        equip.tick([&placed, &shield], 1.0, false);
         assert_eq!(equip.lowered(1.0)[0], 0.0);
         assert_eq!(equip.visible()[0].count(), 7);
         let picked_up = stack(ItemKind::Stone, 9);
-        equip.tick([&picked_up, &shield], 1.0);
+        equip.tick([&picked_up, &shield], 1.0, false);
         assert!((equip.lowered(1.0)[0] - 0.4).abs() < 1e-6);
     }
 }

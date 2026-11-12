@@ -165,6 +165,17 @@ pub fn is_wall_key(key: &str) -> bool {
         .is_some_and(|(_, layers)| layers.split(',').next() == Some(WALL))
 }
 
+/// Marks among a key's layers for one half of a placed banner's model:
+/// the flag, which sways, or the pole and bar it hangs from.
+pub const FLAG: &str = "flag";
+pub const POLE: &str = "pole";
+
+/// Whether model key `key` carries `mark` ([`FLAG`], [`POLE`]).
+pub fn has_mark(key: &str, mark: &str) -> bool {
+    key.split_once('~')
+        .is_some_and(|(_, layers)| layers.split(',').any(|layer| layer == mark))
+}
+
 /// A key without its pattern layers: the baked model it builds on.
 pub fn base_key(key: &str) -> &str {
     key.split_once('~').map_or(key, |(base, _)| base)

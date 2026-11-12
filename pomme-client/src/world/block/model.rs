@@ -1053,10 +1053,8 @@ pub fn bake_item_models(
                     // pattern in the base colour (tint 0, the part's own).
                     // The pot's four sides, in the plain side's texture.
                     if matches!(special, SpecialModel::DecoratedPot) {
-                        let sides = bake_exported_item(
-                            exported_data::DECORATED_POT_SIDES,
-                            "entity/decorated_pot/decorated_pot_side",
-                        );
+                        let sides =
+                            bake_exported_item(exported_data::DECORATED_POT_SIDES, POT_SIDE);
                         baked.quads.extend(sides.quads);
                     }
                     if matches!(special, SpecialModel::Banner { .. }) {
@@ -1466,6 +1464,33 @@ impl HeadKind {
 /// The banner pattern every flag draws first, in the banner's base colour;
 /// a stack's pattern layers copy its quads.
 pub const BANNER_BASE_PATTERN: &str = "entity/banner/base";
+
+/// A decorated pot's plain side.
+pub const POT_SIDE: &str = "entity/decorated_pot/decorated_pot_side";
+/// What starts the sides of a decorated pot's model key: after it, the
+/// textures' names for its back, left, right and front
+/// (`PotDecorations`' order), each empty for a plain side.
+pub const POT_SIDES_KEY: &str = "decorated_pot~sides:";
+
+/// The model key of a decorated pot with these sherds (item ids, back,
+/// left, right, front), or the plain pot's when it has none
+/// (`DecoratedPotPatterns`: a sherd's pattern is named after it, and a
+/// brick is a plain side).
+pub fn decorated_pot_key<'a>(sherds: impl Iterator<Item = &'a str>) -> String {
+    let sides: Vec<&str> = sherds
+        .map(|sherd| {
+            let sherd = sherd.strip_prefix("minecraft:").unwrap_or(sherd);
+            sherd.strip_suffix("_pottery_sherd").unwrap_or("")
+        })
+        .chain(std::iter::repeat(""))
+        .take(4)
+        .collect();
+    if sides.iter().all(|side| side.is_empty()) {
+        "decorated_pot".to_owned()
+    } else {
+        format!("{POT_SIDES_KEY}{}", sides.join(","))
+    }
+}
 
 impl SpecialModel {
     /// A `minecraft:special` node's model, if pomme draws it.

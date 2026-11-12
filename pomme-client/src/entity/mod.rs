@@ -679,6 +679,21 @@ fn is_ageable_mob(kind: EntityKind) -> bool {
         || is_llama(kind)
 }
 
+/// Vanilla `Animal` and its descendants, which sit a little further
+/// forward in a boat: the ageable mobs but for the villagers and the
+/// water creatures.
+pub fn is_animal(kind: EntityKind) -> bool {
+    is_ageable_mob(kind)
+        && !matches!(
+            kind,
+            EntityKind::Villager
+                | EntityKind::WanderingTrader
+                | EntityKind::Squid
+                | EntityKind::GlowSquid
+                | EntityKind::Dolphin
+        )
+}
+
 /// Kinds whose entity-data index 16 is the baby flag: `AgeableMob`
 /// descendants plus the zombie family (which defines its own baby flag at
 /// the same index). NOT baby at 16: Bogged (sheared), Skeleton (stray
@@ -2666,19 +2681,20 @@ impl EntityStore {
     }
 
     /// Vanilla `Entity.positionRider` for every living passenger: at its
-    /// vehicle's riding position (`seat` gives it for a vehicle id) less
+    /// vehicle's riding position (`seat` gives it for a vehicle and a
+    /// rider) less
     /// its own vehicle attachment. A passenger whose vehicle is gone gets
     /// off.
     pub fn position_riders(
         &mut self,
-        seat: impl Fn(i32, &HashMap<i32, LivingEntity>) -> Option<DVec3>,
+        seat: impl Fn(i32, i32, &HashMap<i32, LivingEntity>) -> Option<DVec3>,
     ) {
         let seats: Vec<(i32, Option<DVec3>)> = self
             .living
             .iter()
             .filter_map(|(&id, entity)| {
                 let vehicle = entity.vehicle?;
-                Some((id, seat(vehicle, &self.living)))
+                Some((id, seat(vehicle, id, &self.living)))
             })
             .collect();
         for (id, seat) in seats {

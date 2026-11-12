@@ -147,6 +147,9 @@ pub struct InteractionState {
     /// Whether the main hand's item, then the off hand's, is on cooldown
     /// (`ItemCooldowns.isOnCooldown`), as of this tick.
     pub on_cooldown: [bool; 2],
+    /// Vanilla `LocalPlayer.isHandsBusy`: rowing a boat, which neither
+    /// attacks nor uses anything.
+    pub hands_busy: bool,
     seq: u32,
     carried_slot: u8,
     last_teleport_seq: u32,
@@ -185,6 +188,7 @@ impl InteractionState {
         Self {
             target: None,
             on_cooldown: [false; 2],
+            hands_busy: false,
             seq: 0,
             // Vanilla `MultiPlayerGameMode.carriedIndex` starts at 0, the slot
             // a fresh inventory selects, so a join sends nothing until it
@@ -502,7 +506,7 @@ impl InteractionState {
         // use, and `continueAttack` early-returns on `isUsingItem`.
         let using = self.using_item.is_some();
 
-        if !using && input.action_just_pressed(input::Action::Destroy) {
+        if !using && !self.hands_busy && input.action_just_pressed(input::Action::Destroy) {
             self.start_attack(
                 block_registry,
                 chunks,
@@ -529,6 +533,13 @@ impl InteractionState {
         if using {
             if !input.performing_action(input::Action::Use) {
                 self.release_using_item(sender);
+            }
+        } else if self.hands_busy {
+            // `startUseItem`: the click is spent, the hands being busy.
+            if input.action_just_pressed(input::Action::Use)
+                || (input.performing_action(input::Action::Use) && self.use_delay == 0)
+            {
+                self.use_delay = 4;
             }
         } else if input.action_just_pressed(input::Action::Use)
             || (input.performing_action(input::Action::Use) && self.use_delay == 0)

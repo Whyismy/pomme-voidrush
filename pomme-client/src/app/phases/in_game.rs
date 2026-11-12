@@ -382,6 +382,10 @@ pub struct GameState {
     /// the ticks to its next spawn (`spawnDelay`), which the spin quickens
     /// with.
     pub spawner_spins: HashMap<BlockPos, (f32, f32, i32)>,
+    /// Fireworks with a twinkling star that have gone off: where, and the
+    /// ticks until the crackle that ends them
+    /// (`FireworkParticles.Starter`'s lifetime).
+    pub firework_twinkles: Vec<(glam::DVec3, u32)>,
     /// The boat the local player rows: what it keeps between ticks.
     pub boat_drive: crate::physics::boat::Drive,
     /// The degrees a rowed boat turns its rower over this tick
@@ -595,6 +599,7 @@ impl GameState {
             enchanting_books: HashMap::new(),
             gateways: HashMap::new(),
             boat_drive: Default::default(),
+            firework_twinkles: Vec::new(),
             rider_turn: (0.0, 0.0),
             spawner_spins: HashMap::new(),
             map_labels: HashMap::new(),
@@ -779,8 +784,13 @@ impl GameState {
         let vehicle = self.riding_vehicle_id?;
         let seat = match self.display_store.displays.get(&vehicle) {
             Some(display) => display.position,
-            None if self.model_entities.seat(vehicle).is_some() => {
-                self.model_entities.seat(vehicle)?
+            None if self
+                .model_entities
+                .seat(vehicle, self.player.entity_id, false)
+                .is_some() =>
+            {
+                self.model_entities
+                    .seat(vehicle, self.player.entity_id, false)?
             }
             None => display_seat(
                 vehicle,
@@ -2789,6 +2799,7 @@ pub fn update_game(
                     inventory.offhand(),
                 ],
                 game.interaction.item_swap_scale(delay),
+                game.interaction.hands_busy,
             );
             game.player.effects.tick();
             game.player.tick_confusion();
@@ -5237,7 +5248,13 @@ pub fn update_game(
             partial_tick,
             &mut item_renders,
         );
-        build_banners(game, &world_light, &mut gfx.renderer, &mut item_renders);
+        build_banners(
+            game,
+            &world_light,
+            partial_tick,
+            &mut gfx.renderer,
+            &mut item_renders,
+        );
         build_dragon_heads(game, &world_light, &mut gfx.renderer, &mut item_renders);
         build_campfire_items(game, &world_light, &mut gfx.renderer, &mut item_renders);
     }
@@ -6684,6 +6701,7 @@ fn build_display_renders(
 fn build_banners(
     game: &GameState,
     world_light: &WorldLight,
+    partial_tick: f32,
     renderer: &mut Renderer,
     out: &mut Vec<crate::renderer::pipelines::item_entity::ItemRenderInfo>,
 ) {
@@ -6713,20 +6731,28 @@ fn build_banners(
         };
         // The model key a stack of this banner takes: its item, then each
         // layer's pattern and colour (`crate::banner::layers`), after the
-        // mark of a wall banner's model.
+        // mark of a wall banner's model. It is drawn in two halves: the
+        // pole and bar, and the flag, which sways.
         let mut layers = banner_layers(&be.nbt);
+        layers.insert(0, crate::banner::FLAG.to_owned());
         if wall {
             layers.insert(0, crate::banner::WALL.to_owned());
         }
-        let mut key = format!("{color}_banner");
-        if !layers.is_empty() {
-            key.push('~');
-            key.push_str(&layers.join(","));
-        }
-        renderer.ensure_item_mesh(&key);
+        let key = format!("{color}_banner~{}", layers.join(","));
+        let pole_key = format!(
+            "{color}_banner~{}{}",
+            if wall { "wall," } else { "" },
+            crate::banner::POLE
+        );
+        let flag = renderer.ensure_item_mesh(&key);
+        renderer.ensure_item_mesh(&pole_key);
         let tints: Arc<[u32]> = renderer
             .render_assets()
             .item_tint_palette(&key, None, None)
+            .into();
+        let pole_tints: Arc<[u32]> = renderer
+            .render_assets()
+            .item_tint_palette(&pole_key, None, None)
             .into();
         let props = data.properties();
         // The mesh is centred on its block; a standing banner turns in
@@ -6745,14 +6771,43 @@ fn build_banners(
                 .unwrap_or(0.0)
                 * 22.5
         };
-        let placement = Mat4::from_translation(Vec3::splat(0.5))
+        let placement = Mat4::from_translation((corner - anchor).as_vec3())
+            * Mat4::from_translation(Vec3::splat(0.5))
             * Mat4::from_rotation_y((-degrees).to_radians());
+        let light = block_lighter::light_coords(world_light, [pos.x, pos.y, pos.z]);
+        out.push(ItemRenderInfo {
+            item_name: pole_key.into(),
+            outline_color: None,
+            tints: pole_tints,
+            model_matrix: placement,
+            light,
+            white_flash: false,
+        });
+        // `BannerRenderer`: the flag swings from its top edge, a little
+        // out from the pole and back, over a hundred ticks, each banner
+        // at its own point in the swing. The item's model is two thirds
+        // of the block's size; a wall banner's hangs 10.5 pixels back.
+        let pixel = 2.0 / 3.0 / 16.0;
+        let pivot = Vec3::new(
+            0.0,
+            flag.bounds_max.y,
+            if wall { -10.5 * pixel } else { 0.0 },
+        );
+        let side = ((flag.bounds_min.z + flag.bounds_max.z) * 0.5 - pivot.z).signum();
+        let place = i64::from(pos.x) * 7 + i64::from(pos.y) * 9 + i64::from(pos.z) * 13;
+        let phase = ((place + game.sky_state.game_time as i64).rem_euclid(100) as f32
+            + partial_tick)
+            / 100.0;
+        let swing = (0.0125 - 0.01 * (std::f32::consts::TAU * phase).cos()) * std::f32::consts::PI;
         out.push(ItemRenderInfo {
             item_name: key.into(),
             outline_color: None,
             tints,
-            model_matrix: Mat4::from_translation((corner - anchor).as_vec3()) * placement,
-            light: block_lighter::light_coords(world_light, [pos.x, pos.y, pos.z]),
+            model_matrix: placement
+                * Mat4::from_translation(pivot)
+                * Mat4::from_rotation_x(-side * swing)
+                * Mat4::from_translation(-pivot),
+            light,
             white_flash: false,
         });
     }
@@ -6762,8 +6817,8 @@ fn build_banners(
 /// `DragonHeadModel`): the head item's own model, on the floor at its
 /// sixteenth or on its wall. Decorated pots (`DecoratedPotRenderer`) and
 /// conduits (`ConduitRenderer`) likewise, as their items' models.
-// TODO: the head's jaw working while it is powered, a pot's wobble and
-// sherds, and an active conduit's cage, wind and eye.
+// TODO: the head's jaw working while it is powered, a pot's wobble, and
+// an active conduit's cage, wind and eye.
 fn build_dragon_heads(
     game: &GameState,
     world_light: &WorldLight,
@@ -6792,7 +6847,7 @@ fn build_dragon_heads(
         let props = data.properties();
         // Each item's mesh is centred on its block.
         let centre = Mat4::from_translation(Vec3::splat(0.5));
-        let (item, placement) = match data.id() {
+        let (item, placement): (std::borrow::Cow<'static, str>, Mat4) = match data.id() {
             "dragon_head" | "dragon_wall_head" => {
                 let Some((offset, yaw)) =
                     crate::entity::heads::placed_skull(props.get("rotation"), props.get("facing"))
@@ -6804,7 +6859,7 @@ fn build_dragon_heads(
                 let placement = Mat4::from_translation(offset.as_vec3())
                     * Mat4::from_rotation_y((-yaw).to_radians())
                     * Mat4::from_translation(Vec3::new(0.0, 0.5, 0.0));
-                ("dragon_head", placement)
+                ("dragon_head".into(), placement)
             }
             // Turned to its facing; the item's faces north.
             "decorated_pot" => {
@@ -6814,17 +6869,28 @@ fn build_dragon_heads(
                     Some("east") => 270.0,
                     _ => 0.0_f32,
                 };
+                // Its sherds, back, left, right and front.
+                let sherds = be.nbt.list("sherds").and_then(|sherds| sherds.strings());
+                let key = crate::world::block::model::decorated_pot_key(
+                    sherds
+                        .into_iter()
+                        .flatten()
+                        .map(|s| s.to_str())
+                        .collect::<Vec<_>>()
+                        .iter()
+                        .map(|s| s.as_ref()),
+                );
                 (
-                    "decorated_pot",
+                    key.into(),
                     centre * Mat4::from_rotation_y(degrees.to_radians()),
                 )
             }
-            "conduit" => ("conduit", centre),
+            "conduit" => ("conduit".into(), centre),
             _ => continue,
         };
-        renderer.ensure_item_mesh(item);
+        renderer.ensure_item_mesh(&item);
         out.push(ItemRenderInfo {
-            item_name: Arc::from(item),
+            item_name: Arc::from(&*item),
             outline_color: None,
             tints: Arc::from([]),
             model_matrix: Mat4::from_translation((corner - anchor).as_vec3()) * placement,

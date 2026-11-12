@@ -3,8 +3,7 @@
 //! stops moving it and waits for the client's `move_vehicle`.
 //! `AbstractBoat.tick`'s `getStatus`, `floatBoat` and `controlBoat`, then
 //! `Entity.move`.
-// TODO: a current's push on the boat (`updateFluidHeightAndDoFluidPushing`),
-// bubble columns, and bumping into other boats and shulkers.
+// TODO: bubble columns, and bumping into other boats and shulkers.
 
 use glam::DVec3;
 
@@ -207,6 +206,66 @@ fn ground_friction(world: CollisionWorld<'_>, aabb: &Aabb) -> f32 {
     }
 }
 
+/// `Entity.updateFluidHeightAndDoFluidPushing` for the water a boat sits
+/// in: what its current adds to the boat's speed this tick.
+fn current_push(world: CollisionWorld<'_>, aabb: &Aabb, velocity: DVec3) -> DVec3 {
+    let aabb = aabb.deflate(0.001);
+    let mut depth = 0.0_f64;
+    let mut flow = DVec3::ZERO;
+    let mut count = 0_u32;
+    for x in cells(aabb.min.x, aabb.max.x) {
+        for y in cells(aabb.min.y, aabb.max.y) {
+            for z in cells(aabb.min.z, aabb.max.z) {
+                let Some((height, _)) = water_height(world, x, y, z) else {
+                    continue;
+                };
+                let surface = f64::from(y as f32 + height);
+                if surface < aabb.min.y {
+                    continue;
+                }
+                depth = depth.max(surface - aabb.min.y);
+                let fluid = world
+                    .block_state_table
+                    .block_state_data(world.chunks.get_block_state(x, y, z))
+                    .fluid();
+                let mut here = crate::player::fluid_flow_at(
+                    |x, y, z| world.chunks.get_block_state(x, y, z),
+                    world.block_state_table,
+                    x,
+                    y,
+                    z,
+                    fluid,
+                );
+                // Shallow water pushes by its depth so far.
+                if depth < 0.4 {
+                    here *= depth;
+                }
+                flow += here;
+                count += 1;
+            }
+        }
+    }
+    // `Vec3.normalize`, which gives up on anything too short.
+    let unit = |v: DVec3| {
+        let length = v.length();
+        if length < f64::from(1.0e-5_f32) {
+            DVec3::ZERO
+        } else {
+            v / length
+        }
+    };
+    if count == 0 || flow.length() <= 0.0 {
+        return DVec3::ZERO;
+    }
+    let mut push = unit(flow / f64::from(count)) * 0.014;
+    // A boat at rest is always nudged at least this much.
+    const LEAST: f64 = 0.004_500_000_000_000_000_5;
+    if velocity.x.abs() < 0.003 && velocity.z.abs() < 0.003 && push.length() < LEAST {
+        push = unit(push) * LEAST;
+    }
+    push
+}
+
 impl Drive {
     /// `AbstractBoat.getStatus`.
     fn status(&mut self, world: CollisionWorld<'_>, aabb: &Aabb) -> Status {
@@ -346,6 +405,8 @@ pub fn tick(
     let old = drive.status;
     let status = drive.status(world, &bounding_box(boat.position));
     drive.status = Some(status);
+    // `Entity.baseTick`: the current it floats in carries it.
+    boat.velocity += current_push(world, &bounding_box(boat.position), boat.velocity);
     drive.float(boat, old, status, world);
     let paddles = drive.control(boat);
 

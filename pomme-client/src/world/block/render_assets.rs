@@ -648,8 +648,9 @@ fn banner_pattern_textures(
             {
                 names.insert("entity/shield_base".to_owned());
             }
-            // Banners' pattern textures and shields' own.
-            for folder in ["banner", "shield"] {
+            // Banners' pattern textures, shields' own, and a decorated
+            // pot's sides.
+            for folder in ["banner", "shield", "decorated_pot"] {
                 let dir = namespace.path().join("textures/entity").join(folder);
                 let Ok(files) = std::fs::read_dir(dir) else {
                     continue;

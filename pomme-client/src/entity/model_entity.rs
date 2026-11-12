@@ -56,6 +56,8 @@ pub struct ModelEntity {
     /// (`AbstractBoat.DATA_ID_PADDLE_*`) and how far through its stroke.
     paddling: [bool; 2],
     paddle: [f32; 2],
+    /// Who rides it, the first at the oars.
+    passengers: Vec<i32>,
 }
 
 impl ModelEntity {
@@ -385,6 +387,7 @@ impl ModelEntityStore {
                 server_x_rot: x_rot,
                 lerp_steps: 0,
                 paddling: [false; 2],
+                passengers: Vec::new(),
                 paddle: [0.0; 2],
             },
         );
@@ -421,17 +424,32 @@ impl ModelEntityStore {
         }
     }
 
-    /// Where a passenger of vehicle `id` rides
-    /// (`Entity.getPassengerRidingPosition`): in the middle, but for a
-    /// chest boat's one rider, who sits forward of its chest
-    /// (`AbstractChestBoat.getSinglePassengerXOffset`).
-    // TODO: two riders in a boat sit fore and aft of its middle.
-    pub fn seat(&self, id: i32) -> Option<DVec3> {
+    /// Who rides vehicle `vehicle`, in the server's order.
+    pub fn set_passengers(&mut self, vehicle: i32, passengers: &[i32]) {
+        if let Some(entity) = self.entities.get_mut(&vehicle) {
+            entity.passengers = passengers.to_vec();
+        }
+    }
+
+    /// Where `rider` rides vehicle `id`
+    /// (`Entity.getPassengerRidingPosition`): in the middle, but in a
+    /// boat (`AbstractBoat.getPassengerAttachmentPoint`), where two sit
+    /// fore and aft, an animal a little further forward, and a chest
+    /// boat's one rider sits forward of its chest.
+    pub fn seat(&self, id: i32, rider: i32, animal: bool) -> Option<DVec3> {
         let vehicle = self.entities.get(&id)?;
         if !is_vehicle(vehicle.kind) {
             return None;
         }
         let forward = match boat(vehicle.kind) {
+            Some(_) if vehicle.passengers.len() > 1 => {
+                let seat = if vehicle.passengers.first() == Some(&rider) {
+                    0.2
+                } else {
+                    -0.6
+                };
+                f64::from(if animal { seat + 0.2_f32 } else { seat })
+            }
             Some((_, true, _)) => 0.15,
             _ => 0.0,
         };
@@ -642,9 +660,25 @@ mod tests {
         let boat = &store.entities[&1];
         assert!((boat.position.x - 3.0).abs() < 1e-9 && (boat.y_rot + 90.0).abs() < 1e-4);
         assert_eq!(
-            store.seat(1),
+            store.seat(1, 7, false),
             Some(DVec3::new(boat.position.x, 64.1875, 0.0))
         );
+        // Two aboard: the rower forward of the middle, the other aft (the
+        // boat faces west here, so forward is along -x... east is +x).
+        store.set_passengers(1, &[7, 8]);
+        let (rower, other) = (
+            store.seat(1, 7, false).unwrap(),
+            store.seat(1, 8, true).unwrap(),
+        );
+        let boat = &store.entities[&1];
+        let bow = DVec3::new(
+            -f64::from(boat.y_rot).to_radians().sin(),
+            0.0,
+            f64::from(boat.y_rot).to_radians().cos(),
+        );
+        assert!((rower - *boat.position).dot(bow) > 0.19);
+        assert!(((other - *boat.position).dot(bow) + 0.4).abs() < 1.0e-6);
+        store.set_passengers(1, &[7]);
         store.apply_entity_data(1, 11, crate::entity::MetaValue::Bool(false));
         store.tick();
         assert_eq!(store.entities[&1].rowing_time(0.5), [0.0, 0.0]);
@@ -768,7 +802,7 @@ mod tests {
         assert_eq!(store.entities[&1].bite_progress(0.0), 1.0);
 
         // Fangs aren't sat on.
-        assert!(store.seat(1).is_none());
+        assert!(store.seat(1, 7, false).is_none());
         // Only fangs bite.
         let mut store = store_with(EntityKind::LeashKnot, DVec3::ZERO);
         assert!(store.start_bite(1).is_none());
