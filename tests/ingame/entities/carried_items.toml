@@ -1,7 +1,8 @@
 # What the mobs without hands carry (vanilla's own layers for each): a fox
 # with a sweet berry in its mouth, a villager with an emerald in its
 # crossed arms, a wandering trader with a lead, a witch with a potion at
-# its nose, and a dolphin in a pool with a cod at its snout.
+# its nose, a dolphin in a pool with a cod at its snout, and an allay
+# holding out an amethyst shard.
 
 [[step]]
 wait_ms = 2000
@@ -38,6 +39,9 @@ chat = "/summon minecraft:witch 1802.5 -60 601.5 {NoAI:1b,Silent:1b,PersistenceR
 
 [[step]]
 chat = "/summon minecraft:dolphin 1804.5 -60.5 601.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[200f,0f],equipment:{mainhand:{id:\"minecraft:cod\",count:1}}}"
+
+[[step]]
+chat = "/summon minecraft:allay 1799.5 -58.5 599.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f],equipment:{mainhand:{id:\"minecraft:amethyst_shard\",count:1}}}"
 
 [[step]]
 expect = { entity = "witch" }

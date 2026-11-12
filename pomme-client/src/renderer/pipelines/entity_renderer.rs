@@ -249,6 +249,8 @@ pub struct EntityRenderInfo {
     /// Sniffer search flag + its five animation clocks.
     pub sniffer: entity_model::SnifferAnims,
     pub breeze: entity_model::BreezeAnims,
+    /// Whether something rides it (`isRidden`): a saddle's reins show.
+    pub ridden: bool,
     pub allay: entity_model::AllayAnims,
     pub copper_golem: entity_model::CopperGolemAnims,
     /// Llama carpet or trader decor.
@@ -365,6 +367,7 @@ impl Default for EntityRenderInfo {
             bat_elapsed_secs: None,
             sniffer: entity_model::SnifferAnims::default(),
             breeze: entity_model::BreezeAnims::default(),
+            ridden: false,
             allay: entity_model::AllayAnims::default(),
             copper_golem: entity_model::CopperGolemAnims::default(),
             llama_decor: None,
@@ -1363,6 +1366,109 @@ struct MobDef {
     baby_overlays: Vec<VariantDef>,
 }
 
+/// A saddle's texture (`entity/equipment/<kind>_saddle/saddle.png`).
+macro_rules! saddle_tex {
+    ($kind:literal) => {
+        &[&[concat!(
+            "minecraft/textures/entity/equipment/",
+            $kind,
+            "_saddle/saddle.png"
+        )]]
+    };
+}
+
+/// Horse armor's textures, in `HORSE_ARMORS`' order, and the layer over
+/// leather armor that its dye leaves alone.
+const HORSE_ARMOR_TEX: &[&[&str]] = &[
+    &["minecraft/textures/entity/equipment/horse_body/leather.png"],
+    &["minecraft/textures/entity/equipment/horse_body/copper.png"],
+    &["minecraft/textures/entity/equipment/horse_body/iron.png"],
+    &["minecraft/textures/entity/equipment/horse_body/gold.png"],
+    &["minecraft/textures/entity/equipment/horse_body/diamond.png"],
+    &["minecraft/textures/entity/equipment/horse_body/netherite.png"],
+];
+const HORSE_ARMOR_OVERLAY_TEX: &[&[&str]] =
+    &[&["minecraft/textures/entity/equipment/horse_body/leather_overlay.png"]];
+/// The horse armors, by the start of their items' names.
+pub(crate) const HORSE_ARMORS: [&str; 6] = [
+    "leather",
+    "copper",
+    "iron",
+    "golden",
+    "diamond",
+    "netherite",
+];
+
+/// Wolf armor, the layer its dye colours, and its three stages of cracks.
+const WOLF_ARMOR_TEX: &[&[&str]] =
+    &[&["minecraft/textures/entity/equipment/wolf_body/armadillo_scute.png"]];
+const WOLF_ARMOR_DYE_TEX: &[&[&str]] =
+    &[&["minecraft/textures/entity/equipment/wolf_body/armadillo_scute_overlay.png"]];
+const WOLF_ARMOR_CRACKS_TEX: &[&[&str]] = &[
+    &["minecraft/textures/entity/wolf/wolf_armor_crackiness_low.png"],
+    &["minecraft/textures/entity/wolf/wolf_armor_crackiness_medium.png"],
+    &["minecraft/textures/entity/wolf/wolf_armor_crackiness_high.png"],
+];
+
+/// A happy ghast's harnesses, in `HARNESS_COLORS`' order.
+macro_rules! harness_tex {
+    ($($color:literal),*) => {
+        &[$(&[concat!(
+            "minecraft/textures/entity/equipment/happy_ghast_body/",
+            $color,
+            "_harness.png"
+        )]),*]
+    };
+}
+const HARNESS_TEX: &[&[&str]] = harness_tex!(
+    "white",
+    "orange",
+    "magenta",
+    "light_blue",
+    "yellow",
+    "lime",
+    "pink",
+    "gray",
+    "light_gray",
+    "cyan",
+    "purple",
+    "blue",
+    "brown",
+    "green",
+    "red",
+    "black"
+);
+pub(crate) const HARNESS_COLORS: [&str; 16] = [
+    "white",
+    "orange",
+    "magenta",
+    "light_blue",
+    "yellow",
+    "lime",
+    "pink",
+    "gray",
+    "light_gray",
+    "cyan",
+    "purple",
+    "blue",
+    "brown",
+    "green",
+    "red",
+    "black",
+];
+
+/// A saddle or a piece of armor over a mob (`SimpleEquipmentLayer`): its
+/// own layer of the mob's model, cut out of its texture.
+fn worn(model: BakedEntityModel, tex_variants: &'static [&'static [&'static str]]) -> VariantDef {
+    VariantDef {
+        model,
+        tex_variants,
+        tex_size: 64,
+        overlay_kind: OverlayKind::Opaque,
+        invisible_outline: false,
+    }
+}
+
 fn mob_definitions() -> Vec<MobDef> {
     let mut defs = mob_and_projectile_definitions();
     defs.extend(vehicle_definitions());
@@ -2007,9 +2113,7 @@ fn mob_and_projectile_definitions() -> Vec<MobDef> {
         llama(EntityKind::Llama),
         llama(EntityKind::TraderLlama),
         // Vanilla `MushroomCowRenderer`: the cow meshes.
-        // TODO: `MushroomCowMushroomLayer` (three mushroom block models on
-        // the back and head) needs block models drawn through the entity
-        // pass.
+        // (`MushroomCowMushroomLayer`'s mushrooms are `build_mob_blocks`'.)
         MobDef {
             kind: EntityKind::Mooshroom,
             anim: AnimationType::Quadruped,
@@ -2130,7 +2234,6 @@ fn mob_and_projectile_definitions() -> Vec<MobDef> {
             adult_overlays: vec![],
             baby_overlays: vec![],
         },
-        // TODO: `DolphinCarryingItemLayer` (the item held in its mouth).
         // TODO: `Dolphin.tick`'s client bubble trail (DOLPHIN particles while
         // fast in water, which needs it in `probes_water`), entity event 38's
         // happy-villager particles when fed, and a stranded dolphin's client
@@ -2172,7 +2275,14 @@ fn mob_and_projectile_definitions() -> Vec<MobDef> {
                 PIG_BABY_TEX,
                 32,
             )),
-            adult_overlays: vec![],
+            adult_overlays: vec![worn(
+                entity_model::bake_exported_like(
+                    &entity_model::bake_pig_model(),
+                    entity_model::exported_data::PIG_SADDLE,
+                    None,
+                ),
+                saddle_tex!("pig"),
+            )],
             baby_overlays: vec![],
         },
         MobDef {
@@ -2407,8 +2517,6 @@ fn mob_and_projectile_definitions() -> Vec<MobDef> {
                 VILLAGER_BABY_TEX,
                 64,
             )),
-            // TODO: CustomHeadLayer (worn head items) and CrossedArmsItemLayer
-            // (held item) need a held-item layer first.
             adult_overlays: villager_like_overlays(
                 entity_model::bake_villager_model,
                 VILLAGER_TYPE_TEX,
@@ -2520,7 +2628,6 @@ fn mob_and_projectile_definitions() -> Vec<MobDef> {
             adult_overlays: vec![],
             baby_overlays: vec![],
         },
-        // TODO: wolf armor layer (needs the equipment-asset pipeline).
         MobDef {
             kind: EntityKind::Wolf,
             anim: AnimationType::Wolf,
@@ -2530,12 +2637,35 @@ fn mob_and_projectile_definitions() -> Vec<MobDef> {
                 WOLF_BABY_TEX,
                 32,
             )),
-            // Slot 0: dye-tinted collar, tame only.
-            adult_overlays: vec![opaque(
-                entity_model::bake_wolf_collar_model(),
-                WOLF_COLLAR_TEX,
-                64,
-            )],
+            // Slot 0: dye-tinted collar, tame only. Slot 1: its armor;
+            // slot 2: the armor's dyed layer; slot 3: the armor's cracks.
+            adult_overlays: vec![
+                opaque(entity_model::bake_wolf_collar_model(), WOLF_COLLAR_TEX, 64),
+                worn(
+                    entity_model::bake_exported_like(
+                        &entity_model::bake_wolf_model(),
+                        entity_model::exported_data::WOLF_ARMOR,
+                        None,
+                    ),
+                    WOLF_ARMOR_TEX,
+                ),
+                worn(
+                    entity_model::bake_exported_like(
+                        &entity_model::bake_wolf_model(),
+                        entity_model::exported_data::WOLF_ARMOR,
+                        None,
+                    ),
+                    WOLF_ARMOR_DYE_TEX,
+                ),
+                worn(
+                    entity_model::bake_exported_like(
+                        &entity_model::bake_wolf_model(),
+                        entity_model::exported_data::WOLF_ARMOR,
+                        None,
+                    ),
+                    WOLF_ARMOR_CRACKS_TEX,
+                ),
+            ],
             baby_overlays: vec![opaque(
                 entity_model::bake_baby_wolf_model(),
                 WOLF_COLLAR_BABY_TEX,
@@ -2588,7 +2718,6 @@ fn mob_and_projectile_definitions() -> Vec<MobDef> {
             adult_overlays: vec![],
             baby_overlays: vec![],
         },
-        // TODO: saddle and horse-armor equipment layers.
         MobDef {
             kind: EntityKind::Horse,
             anim: AnimationType::Equine,
@@ -2600,13 +2729,41 @@ fn mob_and_projectile_definitions() -> Vec<MobDef> {
             )),
             // Slot 0: markings (vanilla `entityTranslucent`), gated on
             // markings != NONE.
-            adult_overlays: vec![VariantDef {
-                model: entity_model::bake_horse_model(),
-                tex_variants: HORSE_MARKINGS_TEX,
-                tex_size: 64,
-                overlay_kind: OverlayKind::BodyTranslucent,
-                invisible_outline: false,
-            }],
+            // Slot 1: the saddle; slot 2: its armor; slot 3: the layer of
+            // leather armor its dye leaves alone.
+            adult_overlays: vec![
+                VariantDef {
+                    model: entity_model::bake_horse_model(),
+                    tex_variants: HORSE_MARKINGS_TEX,
+                    tex_size: 64,
+                    overlay_kind: OverlayKind::BodyTranslucent,
+                    invisible_outline: false,
+                },
+                worn(
+                    entity_model::bake_exported_like(
+                        &entity_model::bake_horse_model(),
+                        entity_model::exported_data::HORSE_SADDLE,
+                        Some(1.1),
+                    ),
+                    saddle_tex!("horse"),
+                ),
+                worn(
+                    entity_model::bake_exported_like(
+                        &entity_model::bake_horse_model(),
+                        entity_model::exported_data::HORSE_ARMOR,
+                        Some(1.1),
+                    ),
+                    HORSE_ARMOR_TEX,
+                ),
+                worn(
+                    entity_model::bake_exported_like(
+                        &entity_model::bake_horse_model(),
+                        entity_model::exported_data::HORSE_ARMOR,
+                        Some(1.1),
+                    ),
+                    HORSE_ARMOR_OVERLAY_TEX,
+                ),
+            ],
             baby_overlays: vec![VariantDef {
                 model: entity_model::bake_baby_horse_model(),
                 tex_variants: HORSE_MARKINGS_BABY_TEX,
@@ -2629,7 +2786,14 @@ fn mob_and_projectile_definitions() -> Vec<MobDef> {
                 DONKEY_BABY_TEX,
                 64,
             )),
-            adult_overlays: vec![],
+            adult_overlays: vec![worn(
+                entity_model::bake_exported_like(
+                    &entity_model::bake_donkey_model(0.87, false),
+                    entity_model::exported_data::DONKEY_SADDLE,
+                    Some(0.87),
+                ),
+                saddle_tex!("donkey"),
+            )],
             baby_overlays: vec![],
         },
         MobDef {
@@ -2644,7 +2808,14 @@ fn mob_and_projectile_definitions() -> Vec<MobDef> {
                 MULE_BABY_TEX,
                 64,
             )),
-            adult_overlays: vec![],
+            adult_overlays: vec![worn(
+                entity_model::bake_exported_like(
+                    &entity_model::bake_donkey_model(0.92, false),
+                    entity_model::exported_data::MULE_SADDLE,
+                    Some(0.92),
+                ),
+                saddle_tex!("mule"),
+            )],
             baby_overlays: vec![],
         },
         MobDef {
@@ -2660,7 +2831,33 @@ fn mob_and_projectile_definitions() -> Vec<MobDef> {
                 SKELETON_HORSE_BABY_TEX,
                 64,
             )),
-            adult_overlays: vec![],
+            // The saddle, then armor as a horse's.
+            adult_overlays: vec![
+                worn(
+                    entity_model::bake_exported_like(
+                        &entity_model::bake_undead_horse_model(),
+                        entity_model::exported_data::SKELETON_HORSE_SADDLE,
+                        None,
+                    ),
+                    saddle_tex!("skeleton_horse"),
+                ),
+                worn(
+                    entity_model::bake_exported_like(
+                        &entity_model::bake_undead_horse_model(),
+                        entity_model::exported_data::UNDEAD_HORSE_ARMOR,
+                        None,
+                    ),
+                    HORSE_ARMOR_TEX,
+                ),
+                worn(
+                    entity_model::bake_exported_like(
+                        &entity_model::bake_undead_horse_model(),
+                        entity_model::exported_data::UNDEAD_HORSE_ARMOR,
+                        None,
+                    ),
+                    HORSE_ARMOR_OVERLAY_TEX,
+                ),
+            ],
             baby_overlays: vec![],
         },
         MobDef {
@@ -2676,7 +2873,32 @@ fn mob_and_projectile_definitions() -> Vec<MobDef> {
                 ZOMBIE_HORSE_BABY_TEX,
                 64,
             )),
-            adult_overlays: vec![],
+            adult_overlays: vec![
+                worn(
+                    entity_model::bake_exported_like(
+                        &entity_model::bake_undead_horse_model(),
+                        entity_model::exported_data::ZOMBIE_HORSE_SADDLE,
+                        None,
+                    ),
+                    saddle_tex!("zombie_horse"),
+                ),
+                worn(
+                    entity_model::bake_exported_like(
+                        &entity_model::bake_undead_horse_model(),
+                        entity_model::exported_data::UNDEAD_HORSE_ARMOR,
+                        None,
+                    ),
+                    HORSE_ARMOR_TEX,
+                ),
+                worn(
+                    entity_model::bake_exported_like(
+                        &entity_model::bake_undead_horse_model(),
+                        entity_model::exported_data::UNDEAD_HORSE_ARMOR,
+                        None,
+                    ),
+                    HORSE_ARMOR_OVERLAY_TEX,
+                ),
+            ],
             baby_overlays: vec![],
         },
         MobDef {
@@ -2733,7 +2955,6 @@ fn mob_and_projectile_definitions() -> Vec<MobDef> {
             adult_overlays: vec![],
             baby_overlays: vec![],
         },
-        // TODO: `ItemInHandLayer` (the held item) needs a held-item layer.
         MobDef {
             kind: EntityKind::Allay,
             anim: AnimationType::Allay,
@@ -2777,8 +2998,6 @@ fn mob_and_projectile_definitions() -> Vec<MobDef> {
             }],
             baby_overlays: vec![],
         },
-        // TODO: `CustomHeadLayer` and `CrossedArmsItemLayer` need a
-        // held-item layer, as on the villager.
         MobDef {
             kind: EntityKind::WanderingTrader,
             anim: AnimationType::Villager,
@@ -2885,8 +3104,6 @@ fn mob_and_projectile_definitions() -> Vec<MobDef> {
             adult_overlays: vec![],
             baby_overlays: vec![],
         },
-        // TODO: `IronGolemFlowerLayer` (the offered poppy) needs block models
-        // rendered inside an entity pose.
         MobDef {
             kind: EntityKind::IronGolem,
             anim: AnimationType::Golem,
@@ -3013,6 +3230,14 @@ fn mob_and_projectile_definitions() -> Vec<MobDef> {
                 tex_table!("strider" => "strider_baby"),
                 64,
             )),
+            adult_overlays: vec![worn(
+                entity_model::bake_exported_like(
+                    &entity_model::bake_exported(entity_model::exported_data::STRIDER),
+                    entity_model::exported_data::STRIDER_SADDLE,
+                    None,
+                ),
+                saddle_tex!("strider"),
+            )],
             ..exported(
                 EntityKind::Strider,
                 exported_data::STRIDER,
@@ -3094,17 +3319,35 @@ fn mob_and_projectile_definitions() -> Vec<MobDef> {
                 tex_table!("camel" => "camel_baby"),
                 64,
             )),
+            adult_overlays: vec![worn(
+                entity_model::bake_exported_like(
+                    &entity_model::bake_exported(entity_model::exported_data::CAMEL),
+                    entity_model::exported_data::CAMEL_SADDLE,
+                    None,
+                ),
+                saddle_tex!("camel"),
+            )],
             ..exported(
                 EntityKind::Camel,
                 exported_data::CAMEL,
                 tex_table!("camel" => "camel"),
             )
         },
-        exported(
-            EntityKind::CamelHusk,
-            exported_data::CAMEL,
-            tex_table!("camel" => "camel_husk"),
-        ),
+        MobDef {
+            adult_overlays: vec![worn(
+                entity_model::bake_exported_like(
+                    &entity_model::bake_exported(entity_model::exported_data::CAMEL),
+                    entity_model::exported_data::CAMEL_HUSK_SADDLE,
+                    None,
+                ),
+                saddle_tex!("camel_husk"),
+            )],
+            ..exported(
+                EntityKind::CamelHusk,
+                exported_data::CAMEL,
+                tex_table!("camel" => "camel_husk"),
+            )
+        },
         // `WitherBossRenderer`: variant 1 is the invulnerable skin.
         exported(
             EntityKind::Wither,
@@ -3138,6 +3381,14 @@ fn mob_and_projectile_definitions() -> Vec<MobDef> {
                 tex_table!("nautilus" => "nautilus_baby"),
                 64,
             )),
+            adult_overlays: vec![worn(
+                entity_model::bake_exported_like(
+                    &entity_model::bake_exported(entity_model::exported_data::NAUTILUS),
+                    entity_model::exported_data::NAUTILUS_SADDLE,
+                    None,
+                ),
+                saddle_tex!("nautilus"),
+            )],
             ..exported(
                 EntityKind::Nautilus,
                 exported_data::NAUTILUS,
@@ -3150,8 +3401,16 @@ fn mob_and_projectile_definitions() -> Vec<MobDef> {
             exported_data::ZOMBIE_NAUTILUS,
             tex_table!("nautilus" => "zombie_nautilus"),
         ),
-        // TODO: the harness and its ropes.
+        // Slot 0: its harness, in its colour.
         MobDef {
+            adult_overlays: vec![worn(
+                entity_model::bake_exported_like(
+                    &entity_model::bake_exported(entity_model::exported_data::HAPPY_GHAST),
+                    entity_model::exported_data::HAPPY_GHAST_HARNESS,
+                    None,
+                ),
+                HARNESS_TEX,
+            )],
             baby: Some(opaque(
                 entity_model::bake_exported(exported_data::HAPPY_GHAST_BABY),
                 tex_table!("ghast" => "happy_ghast_baby"),
@@ -4879,10 +5138,33 @@ impl<'a> VariantGroups<'a> {
     fn emit(&self, vis: &[VisEntity], instances: &mut Instances, unlit: bool) -> Vec<DrawRecord> {
         let mut records = Vec::new();
         for (variant, texture_set, members) in &self.groups {
+            // `EquineSaddleModel` and `CamelSaddleModel`: a saddle's reins
+            // hang only in a rider's hands.
+            let reins: Vec<usize> = variant
+                .model
+                .parts
+                .iter()
+                .enumerate()
+                .filter(|(_, part)| {
+                    matches!(
+                        part.name.as_str(),
+                        "left_saddle_line" | "right_saddle_line" | "reins"
+                    )
+                })
+                .map(|(i, _)| i)
+                .collect();
             let own: Option<Vec<Vec<glam::Mat4>>> = variant.own_pivots.then(|| {
                 members
                     .iter()
-                    .map(|(vi, ..)| variant.model.compute_part_transforms(&vis[*vi].anim))
+                    .map(|(vi, ..)| {
+                        if reins.is_empty() || vis[*vi].info.ridden {
+                            return variant.model.compute_part_transforms(&vis[*vi].anim);
+                        }
+                        let mut anim = vis[*vi].anim.clone();
+                        anim.scale
+                            .extend(reins.iter().map(|part| (*part, glam::Vec3::ZERO)));
+                        variant.model.compute_part_transforms(&anim)
+                    })
                     .collect()
             });
             let beam = variant.overlay_kind == OverlayKind::Beam;
@@ -5220,8 +5502,11 @@ fn link_overlays(base: &[MobVariant], overlays: &mut [Vec<MobVariant>]) {
             .iter()
             .map(|p| p.name.as_str())
             .collect();
+        // An overlay may add parts of its own after the base's (a saddle
+        // on a horse); they keep their rest pose under their parents.
         assert_eq!(
-            base_names, overlay_names,
+            Some(&base_names[..]),
+            overlay_names.get(..base_names.len()),
             "overlay part order must match base; anim indices are shared across both"
         );
         overlay.own_pivots = !base_first.model.same_part_poses(&overlay.model);

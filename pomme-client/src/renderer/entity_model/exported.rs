@@ -35,6 +35,94 @@ pub(crate) fn bake_exported(parts: &[ExportedPart]) -> BakedEntityModel {
 
 /// [`bake_exported`] with the parts named in `hidden` left without
 /// geometry (kept as parts, so poses still find them by name).
+/// A layer worn over `base` (a saddle, a piece of armor): its parts in
+/// `base`'s order, so the base's animation poses them, with any parts of
+/// its own after them (and an empty one wherever it has none of the
+/// base's). `factor` puts it under the root vanilla's
+/// `MeshTransformer.scaling` gives the mob's model, which the export
+/// leaves out: every part hangs from a root scaled about the model's
+/// feet, as the hand-ported `bake_root_scaled` models do.
+pub(crate) fn bake_exported_like(
+    base: &BakedEntityModel,
+    parts: &[ExportedPart],
+    factor: Option<f32>,
+) -> BakedEntityModel {
+    let mut all: Vec<ExportedPart> = Vec::new();
+    if let Some(factor) = factor {
+        all.push(ExportedPart {
+            name: "root",
+            parent: None,
+            pose: [
+                0.0,
+                24.016 * (1.0 - factor),
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                factor,
+                factor,
+                factor,
+            ],
+            quads: &[],
+        });
+    }
+    let shift = all.len() as u8;
+    all.extend(parts.iter().map(|part| ExportedPart {
+        name: part.name,
+        parent: match (part.parent, factor) {
+            (Some(parent), _) => Some(parent + shift),
+            (None, Some(_)) => Some(0),
+            (None, None) => None,
+        },
+        pose: part.pose,
+        quads: part.quads,
+    }));
+    // The base's parts first, in its order; then what is left.
+    let mut order: Vec<Option<usize>> = base
+        .parts
+        .iter()
+        .map(|part| all.iter().position(|own| own.name == part.name))
+        .collect();
+    for i in 0..all.len() {
+        if !order.contains(&Some(i)) {
+            order.push(Some(i));
+        }
+    }
+    let moved = |old: u8| {
+        order
+            .iter()
+            .position(|slot| *slot == Some(usize::from(old)))
+    };
+    let ordered: Vec<ExportedPart> = order
+        .iter()
+        .enumerate()
+        .map(|(at, slot)| match slot {
+            Some(i) => ExportedPart {
+                name: all[*i].name,
+                parent: all[*i].parent.and_then(moved).map(|parent| {
+                    assert!(parent < at, "{}'s parent comes after it", all[*i].name);
+                    parent as u8
+                }),
+                pose: all[*i].pose,
+                quads: all[*i].quads,
+            },
+            // A part of the base this layer has nothing on.
+            None => ExportedPart {
+                name: "",
+                parent: None,
+                pose: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+                quads: &[],
+            },
+        })
+        .collect();
+    let mut model = bake_exported(&ordered);
+    // The empty ones answer to the base's names, as an overlay's must.
+    for (part, like) in model.parts.iter_mut().zip(&base.parts) {
+        part.name = like.name.clone();
+    }
+    model
+}
+
 pub(crate) fn bake_exported_hiding(parts: &[ExportedPart], hidden: &[&str]) -> BakedEntityModel {
     let mut entity_parts = Vec::with_capacity(parts.len());
     let mut vertices = Vec::new();

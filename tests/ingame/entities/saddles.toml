@@ -1,0 +1,55 @@
+# What mobs wear (vanilla SimpleEquipmentLayer): a saddled horse in
+# diamond armor, a horse in leather armor dyed blue, a saddled donkey, a
+# saddled pig and strider, a saddled camel, a wolf in armor, and a happy
+# ghast in a red harness.
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/gamemode spectator"
+
+[[step]]
+chat = "/tp @s 2400.5 -58.5 594.0 0 5"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+chat = "/summon minecraft:horse 2394.0 -60 602.5 {NoAI:1b,Silent:1b,Tame:1b,Variant:0,Rotation:[150f,0f],equipment:{saddle:{id:\"minecraft:saddle\",count:1},body:{id:\"minecraft:diamond_horse_armor\",count:1}}}"
+
+[[step]]
+chat = "/summon minecraft:horse 2396.5 -60 602.5 {NoAI:1b,Silent:1b,Tame:1b,Variant:3,Rotation:[150f,0f],equipment:{body:{id:\"minecraft:leather_horse_armor\",count:1,components:{\"minecraft:dyed_color\":3949738}}}}"
+
+[[step]]
+chat = "/summon minecraft:donkey 2399.0 -60 602.5 {NoAI:1b,Silent:1b,Tame:1b,Rotation:[150f,0f],equipment:{saddle:{id:\"minecraft:saddle\",count:1}}}"
+
+[[step]]
+chat = "/summon minecraft:pig 2401.0 -60 602.5 {NoAI:1b,Silent:1b,Rotation:[150f,0f],equipment:{saddle:{id:\"minecraft:saddle\",count:1}}}"
+
+[[step]]
+chat = "/summon minecraft:strider 2402.5 -60 602.5 {NoAI:1b,Silent:1b,Rotation:[150f,0f],equipment:{saddle:{id:\"minecraft:saddle\",count:1}}}"
+
+[[step]]
+chat = "/summon minecraft:camel 2405.0 -60 602.5 {NoAI:1b,Silent:1b,Tame:1b,Rotation:[150f,0f],equipment:{saddle:{id:\"minecraft:saddle\",count:1}}}"
+
+[[step]]
+chat = "/summon minecraft:wolf 2407.5 -60 602.5 {NoAI:1b,Silent:1b,Rotation:[150f,0f],equipment:{body:{id:\"minecraft:wolf_armor\",count:1}}}"
+
+[[step]]
+chat = "/summon minecraft:happy_ghast 2400.5 -53 612.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f],equipment:{body:{id:\"minecraft:red_harness\",count:1}}}"
+
+[[step]]
+expect = { entity = "camel" }
+
+[[step]]
+wait_ms = 2500
+
+[[step]]
+screenshot = "worn"

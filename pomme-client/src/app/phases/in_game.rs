@@ -4521,8 +4521,17 @@ pub fn update_game(
             .filter(|&(&id, _)| !(first_person && game.camera_entity == Some(id)))
             .map(|(&entity_id, e)| {
                 let interp_pos = e.prev_position.lerp(e.position, partial_tick as f64);
-                let extras =
+                let mut extras =
                     entity_extras(entity_id, e, partial_tick, game.sky_state.game_time as i64);
+                worn_overlays(e, &mut extras);
+                // Something rides it: the local player, or another mob.
+                let ridden = e.equipment(EquipmentSlot::Saddle).is_some()
+                    && (game.riding_vehicle_id == Some(entity_id)
+                        || game
+                            .entity_store
+                            .living
+                            .values()
+                            .any(|rider| rider.vehicle == Some(entity_id)));
                 let is_sleeping = e.sleeping_pos.is_some();
                 let (radius, strength) = crate::entity::shadow::of_living(e);
 
@@ -4649,6 +4658,7 @@ pub fn update_game(
                     bat_elapsed_secs: extras.bat_elapsed_secs,
                     sniffer: extras.sniffer,
                     breeze: extras.breeze,
+                    ridden,
                     allay: extras.allay,
                     copper_golem: extras.copper_golem,
                     llama_decor: extras.llama_decor,
@@ -6786,7 +6796,6 @@ fn build_display_renders(
 /// Placed banners within 64 blocks (vanilla `BannerRenderer`): the banner
 /// item's own model, with the block entity's pattern layers, standing in
 /// the block turned to its sixteenth or hung against its wall.
-// TODO: the flag's sway.
 fn build_banners(
     game: &GameState,
     world_light: &WorldLight,
@@ -8528,7 +8537,9 @@ fn build_mob_blocks(
 /// fox in the mouth (`DolphinCarryingItemLayer`, `FoxHeldItemLayer`), a
 /// sitting panda in its paws (`PandaHoldsItemLayer`), a villager or a
 /// wandering trader in its crossed arms (`CrossedArmsItemLayer`), and a
-/// witch its potion at its nose (`WitchItemLayer`).
+/// witch its potion at its nose (`WitchItemLayer`). And what an allay
+/// holds out in its hands (`ItemInHandLayer` after
+/// `AllayModel.translateToHand`), which lies as one in a hand does.
 fn build_carried_items(
     game: &GameState,
     renderer: &mut Renderer,
@@ -8550,6 +8561,7 @@ fn build_carried_items(
                 | EntityKind::Villager
                 | EntityKind::WanderingTrader
                 | EntityKind::Witch
+                | EntityKind::Allay
         ) {
             continue;
         }
@@ -8563,7 +8575,37 @@ fn build_carried_items(
         };
         let root = renderer.entity_root_pose(info);
         let x_rot = info.head_x_rot_deg;
+        // `ItemDisplayContext.THIRD_PERSON_RIGHT_HAND` for the allay.
+        let context = if info.entity_kind == EntityKind::Allay {
+            2
+        } else {
+            GROUND
+        };
         let pose = match info.entity_kind {
+            // In front of its body, turned as its arms are raised, at
+            // seven tenths the size; then as any hand holds an item.
+            EntityKind::Allay => {
+                let (Some(body), Some(arm)) = (
+                    renderer.entity_part_pose(info, "body"),
+                    renderer.entity_part_pose(info, "right_arm"),
+                ) else {
+                    continue;
+                };
+                // The arm's own turn about x, in vanilla's frame.
+                let raised = (ARM_FRAME * body.inverse() * arm * ARM_FRAME)
+                    .to_scale_rotation_translation()
+                    .1
+                    .to_euler(glam::EulerRot::XYZ)
+                    .0;
+                body * ARM_FRAME
+                    * Mat4::from_translation(Vec3::new(0.0, 0.0625, 0.1875))
+                    * Mat4::from_rotation_x(raised)
+                    * Mat4::from_scale(Vec3::splat(0.7))
+                    * Mat4::from_translation(Vec3::new(0.0625, 0.0, 0.0))
+                    * Mat4::from_rotation_x(-std::f32::consts::FRAC_PI_2)
+                    * Mat4::from_rotation_y(std::f32::consts::PI)
+                    * Mat4::from_translation(Vec3::new(1.0 / 16.0, 0.125, -0.625))
+            }
             // Out in front of its snout, nearer as it tips up or down.
             EntityKind::Dolphin => {
                 let tip = x_rot.abs() / 60.0;
@@ -8647,7 +8689,7 @@ fn build_carried_items(
         };
         let name = crate::player::inventory::item_resource_name(stack.kind);
         let model = renderer.render_assets().stack_model_key(&name, stack);
-        let model = renderer.render_assets().context_model_key(&model, GROUND);
+        let model = renderer.render_assets().context_model_key(&model, context);
         renderer.ensure_item_mesh(&model);
         let tints: Arc<[u32]> = renderer
             .render_assets()
@@ -8657,7 +8699,7 @@ fn build_carried_items(
             item_name: model.clone().into(),
             outline_color: info.outline_color,
             tints,
-            model_matrix: pose * renderer.item_display_transform(&model, GROUND),
+            model_matrix: pose * renderer.item_display_transform(&model, context),
             light: info.light,
             white_flash: false,
         });
@@ -9046,8 +9088,6 @@ fn add_dragon_fireballs(
 /// The leads between mobs and what holds them (`EntityRenderer.renderLeash`),
 /// as the pieces of each rope: its ends, and whether it is one of the
 /// darker pieces the rope alternates.
-// TODO: vanilla's rope is a lit ribbon a fortieth of a block wide; this is
-// a line of constant width, unlit.
 fn build_leashes(
     game: &GameState,
     renderer: &Renderer,
@@ -9820,6 +9860,102 @@ fn slot0_overlay(id: u32) -> ([Option<[f32; 4]>; MAX_OVERLAYS], [u32; MAX_OVERLA
         [None; MAX_OVERLAYS]
     };
     (tints, [id.saturating_sub(1), 0, 0, 0])
+}
+
+/// What a mob wears over its model (vanilla `SimpleEquipmentLayer`s, each
+/// an overlay of the mob's definition): a saddle, a horse's armor (its
+/// leather dyed), a wolf's armor with its dye and cracks, and a happy
+/// ghast's harness.
+fn worn_overlays(e: &crate::entity::LivingEntity, extras: &mut EntityExtras) {
+    use azalea_inventory::components::{Damage, DyedColor, MaxDamage};
+
+    use crate::renderer::pipelines::entity_renderer::{HARNESS_COLORS, HORSE_ARMORS};
+    if e.is_baby {
+        return;
+    }
+    let worn = |slot| e.equipment(slot).and_then(|stack| stack.as_present());
+    let rgb = |color: i32| {
+        let [r, g, b] = [16, 8, 0].map(|shift| ((color >> shift) & 0xFF) as f32 / 255.0);
+        [r, g, b, 1.0]
+    };
+    let kind = e.entity_type;
+    // Where each kind's saddle and armor sit among its overlays.
+    let saddle = match kind {
+        EntityKind::Horse => Some(1),
+        EntityKind::Donkey
+        | EntityKind::Mule
+        | EntityKind::SkeletonHorse
+        | EntityKind::ZombieHorse
+        | EntityKind::Pig
+        | EntityKind::Strider
+        | EntityKind::Camel
+        | EntityKind::CamelHusk
+        | EntityKind::Nautilus => Some(0),
+        _ => None,
+    };
+    if let Some(slot) = saddle
+        && worn(EquipmentSlot::Saddle).is_some()
+    {
+        extras.overlay_tints[slot] = Some(WHITE_TINT);
+    }
+    let Some(body) = worn(EquipmentSlot::Body) else {
+        return;
+    };
+    let name = crate::player::inventory::item_resource_name(body.kind);
+    let dye = body.get_component::<DyedColor>().map(|color| color.rgb);
+    match kind {
+        EntityKind::Horse | EntityKind::SkeletonHorse | EntityKind::ZombieHorse => {
+            let slot = if kind == EntityKind::Horse { 2 } else { 1 };
+            let Some(armor) = name
+                .strip_suffix("_horse_armor")
+                .and_then(|material| HORSE_ARMORS.iter().position(|m| *m == material))
+            else {
+                return;
+            };
+            extras.overlay_variants[slot] = armor as u32;
+            if armor == 0 {
+                // Leather, in its dye (`DyedItemColor.LEATHER_COLOR` undyed),
+                // under the layer the dye leaves alone.
+                extras.overlay_tints[slot] = Some(rgb(dye.unwrap_or(0xA0_6540)));
+                extras.overlay_tints[slot + 1] = Some(WHITE_TINT);
+            } else {
+                extras.overlay_tints[slot] = Some(WHITE_TINT);
+            }
+        }
+        EntityKind::Wolf if name == "wolf_armor" => {
+            extras.overlay_tints[1] = Some(WHITE_TINT);
+            if let Some(dye) = dye {
+                extras.overlay_tints[2] = Some(rgb(dye));
+            }
+            // `Crackiness.WOLF_ARMOR`: cracks by how much of it is left.
+            let damage = body.get_component::<Damage>().map_or(0, |d| d.amount);
+            let max = body.get_component::<MaxDamage>().map_or(64, |d| d.amount);
+            let left = 1.0 - damage as f32 / (max.max(1)) as f32;
+            let cracks = if left < 0.32 {
+                Some(2)
+            } else if left < 0.69 {
+                Some(1)
+            } else if left < 0.95 {
+                Some(0)
+            } else {
+                None
+            };
+            if let Some(stage) = cracks {
+                extras.overlay_tints[3] = Some(WHITE_TINT);
+                extras.overlay_variants[3] = stage;
+            }
+        }
+        EntityKind::HappyGhast => {
+            if let Some(color) = name
+                .strip_suffix("_harness")
+                .and_then(|color| HARNESS_COLORS.iter().position(|c| *c == color))
+            {
+                extras.overlay_tints[0] = Some(WHITE_TINT);
+                extras.overlay_variants[0] = color as u32;
+            }
+        }
+        _ => {}
+    }
 }
 
 fn entity_extras(

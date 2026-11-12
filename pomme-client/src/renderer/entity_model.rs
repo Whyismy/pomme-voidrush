@@ -29,7 +29,7 @@ pub use axolotl::*;
 pub(crate) use beam::{BEAM_LENGTHS, bake_beam, beam_pieces};
 pub use bee::*;
 pub use dolphin::*;
-pub(crate) use exported::{ExportedPart, bake_exported, bake_exported_hiding};
+pub(crate) use exported::{ExportedPart, bake_exported, bake_exported_hiding, bake_exported_like};
 pub use fox::*;
 pub use goat::*;
 pub use llama::*;
@@ -161,7 +161,7 @@ pub struct BakedEntityModel {
     pub part_scales: Vec<f32>,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct PartAnim {
     pub rotation: Vec<(usize, Vec3)>,
     pub translation: Vec<(usize, Vec3)>,
