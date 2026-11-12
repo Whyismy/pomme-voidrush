@@ -2048,6 +2048,18 @@ fn mob_definitions() -> Vec<MobDef> {
             baby_overlays: vec![],
         },
         MobDef {
+            kind: EntityKind::Parched,
+            anim: AnimationType::Skeleton,
+            adult: vec![opaque(
+                entity_model::bake_skeleton_model(),
+                tex_table!("skeleton" => "parched"),
+                64,
+            )],
+            baby: None,
+            adult_overlays: vec![],
+            baby_overlays: vec![],
+        },
+        MobDef {
             kind: EntityKind::Bogged,
             anim: AnimationType::Skeleton,
             // Variant 0 = mushrooms, 1 = sheared (empty mushroom parts).
@@ -2608,11 +2620,18 @@ fn mob_definitions() -> Vec<MobDef> {
         },
         // Mobs without a hand-ported model: vanilla's own layer geometry,
         // with head look and walking.
-        exported(
-            EntityKind::Piglin,
-            exported_data::PIGLIN,
-            tex_table!("piglin" => "piglin"),
-        ),
+        MobDef {
+            baby: Some(opaque(
+                entity_model::bake_exported(exported_data::PIGLIN_BABY),
+                tex_table!("piglin" => "piglin_baby"),
+                64,
+            )),
+            ..exported(
+                EntityKind::Piglin,
+                exported_data::PIGLIN,
+                tex_table!("piglin" => "piglin"),
+            )
+        },
         exported(
             EntityKind::PiglinBrute,
             exported_data::PIGLIN_BRUTE,
@@ -2620,6 +2639,11 @@ fn mob_definitions() -> Vec<MobDef> {
         ),
         MobDef {
             anim: AnimationType::Zombie,
+            baby: Some(opaque(
+                entity_model::bake_exported(exported_data::ZOMBIFIED_PIGLIN_BABY),
+                tex_table!("piglin" => "zombified_piglin_baby"),
+                64,
+            )),
             ..exported(
                 EntityKind::ZombifiedPiglin,
                 exported_data::ZOMBIFIED_PIGLIN,
@@ -2661,21 +2685,42 @@ fn mob_definitions() -> Vec<MobDef> {
             exported_data::BLAZE,
             tex_table!("blaze" => "blaze"),
         ),
-        exported(
-            EntityKind::Hoglin,
-            exported_data::HOGLIN,
-            tex_table!("hoglin" => "hoglin"),
-        ),
-        exported(
-            EntityKind::Zoglin,
-            exported_data::ZOGLIN,
-            tex_table!("hoglin" => "zoglin"),
-        ),
-        exported(
-            EntityKind::Strider,
-            exported_data::STRIDER,
-            tex_table!("strider" => "strider"),
-        ),
+        MobDef {
+            baby: Some(opaque(
+                entity_model::bake_exported(exported_data::HOGLIN_BABY),
+                tex_table!("hoglin" => "hoglin_baby"),
+                64,
+            )),
+            ..exported(
+                EntityKind::Hoglin,
+                exported_data::HOGLIN,
+                tex_table!("hoglin" => "hoglin"),
+            )
+        },
+        MobDef {
+            baby: Some(opaque(
+                entity_model::bake_exported(exported_data::ZOGLIN_BABY),
+                tex_table!("hoglin" => "zoglin_baby"),
+                64,
+            )),
+            ..exported(
+                EntityKind::Zoglin,
+                exported_data::ZOGLIN,
+                tex_table!("hoglin" => "zoglin"),
+            )
+        },
+        MobDef {
+            baby: Some(opaque(
+                entity_model::bake_exported(exported_data::STRIDER_BABY),
+                tex_table!("strider" => "strider_baby"),
+                64,
+            )),
+            ..exported(
+                EntityKind::Strider,
+                exported_data::STRIDER,
+                tex_table!("strider" => "strider"),
+            )
+        },
         exported(
             EntityKind::Phantom,
             exported_data::PHANTOM,
@@ -2721,11 +2766,90 @@ fn mob_definitions() -> Vec<MobDef> {
             exported_data::CREAKING,
             tex_table!("creaking" => "creaking"),
         ),
+        MobDef {
+            baby: Some(opaque(
+                entity_model::bake_exported(exported_data::CAMEL_BABY),
+                tex_table!("camel" => "camel_baby"),
+                64,
+            )),
+            ..exported(
+                EntityKind::Camel,
+                exported_data::CAMEL,
+                tex_table!("camel" => "camel"),
+            )
+        },
         exported(
-            EntityKind::Camel,
+            EntityKind::CamelHusk,
             exported_data::CAMEL,
-            tex_table!("camel" => "camel"),
+            tex_table!("camel" => "camel_husk"),
         ),
+        // `WitherBossRenderer`: variant 1 is the invulnerable skin.
+        exported(
+            EntityKind::Wither,
+            exported_data::WITHER,
+            tex_table!("wither" => "wither", "wither_invulnerable"),
+        ),
+        exported(
+            EntityKind::Silverfish,
+            exported_data::SILVERFISH,
+            &[&[
+                "minecraft/textures/entity/silverfish/silverfish.png",
+                "minecraft/textures/entity/silverfish.png",
+            ]],
+        ),
+        exported(
+            EntityKind::Endermite,
+            exported_data::ENDERMITE,
+            &[&[
+                "minecraft/textures/entity/endermite/endermite.png",
+                "minecraft/textures/entity/endermite.png",
+            ]],
+        ),
+        exported(
+            EntityKind::Tadpole,
+            exported_data::TADPOLE,
+            tex_table!("tadpole" => "tadpole"),
+        ),
+        MobDef {
+            baby: Some(opaque(
+                entity_model::bake_exported(exported_data::NAUTILUS_BABY),
+                tex_table!("nautilus" => "nautilus_baby"),
+                64,
+            )),
+            ..exported(
+                EntityKind::Nautilus,
+                exported_data::NAUTILUS,
+                tex_table!("nautilus" => "nautilus"),
+            )
+        },
+        // TODO: the warm variant's coral model.
+        exported(
+            EntityKind::ZombieNautilus,
+            exported_data::ZOMBIE_NAUTILUS,
+            tex_table!("nautilus" => "zombie_nautilus"),
+        ),
+        // TODO: the harness and its ropes.
+        MobDef {
+            baby: Some(opaque(
+                entity_model::bake_exported(exported_data::HAPPY_GHAST_BABY),
+                tex_table!("ghast" => "happy_ghast_baby"),
+                64,
+            )),
+            ..exported(
+                EntityKind::HappyGhast,
+                exported_data::HAPPY_GHAST,
+                tex_table!("ghast" => "happy_ghast"),
+            )
+        },
+        // `GiantMobRenderer`: a zombie six times the size.
+        MobDef {
+            anim: AnimationType::Zombie,
+            ..exported(
+                EntityKind::Giant,
+                exported_data::GIANT,
+                tex_table!("zombie" => "zombie"),
+            )
+        },
         // `ArmorStandRenderer`: arms only with `ShowArms`, the base plate
         // unless `NoBasePlate`; the variant is those two flags. A small
         // stand draws the small layer.
@@ -3715,6 +3839,8 @@ impl EntityRenderer {
                         local_head_y_rot_deg: local_head_y,
                         aggressive: info.aggressive,
                         attack_time: info.attack_time,
+                        head_x_rot_deg: info.head_x_rot_deg,
+                        in_water: info.is_in_water,
                     },
                 );
                 anim

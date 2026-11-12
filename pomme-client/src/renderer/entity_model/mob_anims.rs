@@ -18,6 +18,9 @@ pub struct MobAnimInput {
     pub local_head_y_rot_deg: f32,
     pub aggressive: bool,
     pub attack_time: f32,
+    /// Head pitch, degrees.
+    pub head_x_rot_deg: f32,
+    pub in_water: bool,
 }
 
 /// Applies `kind`'s own `setupAnim` over the generic pose in `anim`.
@@ -30,7 +33,11 @@ pub fn apply(
     let mut parts = Parts { model, anim };
     match kind {
         EntityKind::Blaze => blaze(&mut parts, input),
-        EntityKind::Ghast => ghast(&mut parts, input),
+        EntityKind::Ghast | EntityKind::HappyGhast => ghast(&mut parts, input),
+        EntityKind::Wither => wither(&mut parts, input),
+        EntityKind::Silverfish => crawl(&mut parts, input, 7, 0.05, 0.2),
+        EntityKind::Endermite => crawl(&mut parts, input, 4, 0.01, 0.1),
+        EntityKind::Tadpole => tadpole(&mut parts, input),
         EntityKind::Phantom => phantom(&mut parts, input),
         EntityKind::Vex => vex(&mut parts, input),
         EntityKind::Piglin | EntityKind::PiglinBrute => piglin(&mut parts, input),
@@ -56,6 +63,14 @@ impl Parts<'_> {
     fn rot(&mut self, name: &str) -> Option<&mut Vec3> {
         let i = find_part(&self.model.parts, name)?;
         Some(self.anim.rotation_mut(self.model, i))
+    }
+
+    /// Moves the part's pivot along x to `x`, keeping its height and depth.
+    fn set_x(&mut self, name: &str, x: f32) {
+        if let Some(i) = find_part(&self.model.parts, name) {
+            let rest = self.model.parts[i].offset;
+            self.set_pos(name, Vec3::new(x, rest.y, rest.z));
+        }
     }
 
     /// Moves the part's pivot to `pos` (model pixels, vanilla's `x y z`).
@@ -97,6 +112,77 @@ fn ghast(p: &mut Parts, input: &MobAnimInput) {
         if let Some(rot) = p.rot(&format!("tentacle{i}")) {
             rot.x = 0.2 * (input.age_in_ticks * 0.3 + i as f32).sin() + 0.4;
         }
+    }
+}
+
+/// `WitherBossModel.setupAnim`: the ribcage and tail breathe, and the
+/// middle head looks where the wither does.
+// TODO: the side heads' own targets (`yRotHeads`, `xRotHeads`).
+fn wither(p: &mut Parts, input: &MobAnimInput) {
+    let breath = (input.age_in_ticks * 0.1).cos();
+    let ribcage = (0.065 + 0.05 * breath) * PI;
+    if let Some(rot) = p.rot("ribcage") {
+        rot.x = ribcage;
+    }
+    p.set_pos(
+        "tail",
+        Vec3::new(
+            -2.0,
+            6.9 + ribcage.cos() * 10.0,
+            -0.5 + ribcage.sin() * 10.0,
+        ),
+    );
+    if let Some(rot) = p.rot("tail") {
+        rot.x = (0.265 + 0.1 * breath) * PI;
+    }
+    if let Some(rot) = p.rot("center_head") {
+        *rot = Vec3::new(
+            input.head_x_rot_deg.to_radians(),
+            input.local_head_y_rot_deg.to_radians(),
+            0.0,
+        );
+    }
+}
+
+/// `SilverfishModel.setupAnim` and `EndermiteModel.setupAnim`: the body's
+/// segments wriggle side to side, more the farther they are from the third
+/// (`turn` and `slide` are each model's own sizes), and a silverfish's
+/// three scale layers ride on their segments.
+fn crawl(p: &mut Parts, input: &MobAnimInput, segments: usize, turn: f32, slide: f32) {
+    let mut poses = [(0.0_f32, 0.0_f32); 7];
+    for (i, pose) in poses.iter_mut().enumerate().take(segments) {
+        let phase = input.age_in_ticks * 0.9 + i as f32 * 0.15 * PI;
+        let from_middle = (i as f32 - 2.0).abs();
+        *pose = (
+            phase.cos() * PI * turn * (1.0 + from_middle),
+            phase.sin() * PI * slide * from_middle,
+        );
+        let name = format!("segment{i}");
+        if let Some(rot) = p.rot(&name) {
+            rot.y = pose.0;
+        }
+        p.set_x(&name, pose.1);
+    }
+    // (layer, the segment it follows, whether it slides with it too)
+    for (layer, segment, slides) in [
+        ("layer0", 2, false),
+        ("layer1", 4, true),
+        ("layer2", 1, true),
+    ] {
+        if let Some(rot) = p.rot(layer) {
+            rot.y = poses[segment].0;
+        }
+        if slides {
+            p.set_x(layer, poses[segment].1);
+        }
+    }
+}
+
+/// `TadpoleModel.setupAnim`: the tail beats, harder out of water.
+fn tadpole(p: &mut Parts, input: &MobAnimInput) {
+    let strength = if input.in_water { 1.0 } else { 1.5 };
+    if let Some(rot) = p.rot("tail") {
+        rot.y = -strength * 0.25 * (0.3 * input.age_in_ticks).sin();
     }
 }
 
@@ -466,7 +552,60 @@ mod tests {
             local_head_y_rot_deg: 0.0,
             aggressive: false,
             attack_time: 0.0,
+            head_x_rot_deg: 0.0,
+            in_water: true,
         }
+    }
+
+    /// The wither's tail hangs from the end of its breathing ribcage, a
+    /// silverfish's scale layers ride their segments, and a tadpole's tail
+    /// beats harder out of water.
+    #[test]
+    fn wither_silverfish_and_tadpole_move_as_vanilla_does() {
+        let model = bake_exported(exported_data::WITHER);
+        let mut anim = PartAnim::default();
+        apply(EntityKind::Wither, &model, &mut anim, &input(0.0));
+        let part = |name: &str| find_part(&model.parts, name).unwrap();
+        let rot = |anim: &PartAnim, i: usize| anim.rotation.iter().find(|r| r.0 == i).unwrap().1;
+        // At tick 0 the breath is at its rest pose: vanilla's layer values.
+        let ribcage = rot(&anim, part("ribcage")).x;
+        assert!((ribcage - 0.115 * PI).abs() < 1e-5);
+        let tail = anim
+            .translation
+            .iter()
+            .find(|t| t.0 == part("tail"))
+            .unwrap()
+            .1;
+        let expected = Vec3::new(0.0, ribcage.cos() * 10.0, ribcage.sin() * 10.0)
+            + Vec3::new(-2.0, 6.9, -0.5)
+            - model.parts[part("tail")].offset;
+        assert!((tail - expected).length() < 1e-4);
+
+        let model = bake_exported(exported_data::SILVERFISH);
+        let mut anim = PartAnim::default();
+        apply(EntityKind::Silverfish, &model, &mut anim, &input(3.0));
+        let part = |name: &str| find_part(&model.parts, name).unwrap();
+        assert_eq!(rot(&anim, part("layer1")).y, rot(&anim, part("segment4")).y);
+        // The third segment only turns; the others slide too.
+        let slide = |name: &str| {
+            let i = part(name);
+            anim.translation.iter().find(|t| t.0 == i).unwrap().1.x
+        };
+        assert_eq!(slide("segment2"), 0.0);
+        assert!(slide("segment6").abs() > 0.0);
+        assert_eq!(slide("layer1"), slide("segment4"));
+
+        let model = bake_exported(exported_data::TADPOLE);
+        let swing = |in_water: bool| {
+            let mut anim = PartAnim::default();
+            let input = MobAnimInput {
+                in_water,
+                ..input(5.0)
+            };
+            apply(EntityKind::Tadpole, &model, &mut anim, &input);
+            anim.rotation[0].1.y
+        };
+        assert!((swing(false) - swing(true) * 1.5).abs() < 1e-6);
     }
 
     /// The blaze's rods circle: the top ring's first rod is 9 pixels out on

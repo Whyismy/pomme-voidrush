@@ -663,6 +663,14 @@ fn is_ageable_mob(kind: EntityKind) -> bool {
             | EntityKind::Turtle
             | EntityKind::Axolotl
             | EntityKind::PolarBear
+            | EntityKind::Camel
+            | EntityKind::CamelHusk
+            | EntityKind::Hoglin
+            | EntityKind::Strider
+            | EntityKind::Frog
+            | EntityKind::HappyGhast
+            | EntityKind::Nautilus
+            | EntityKind::ZombieNautilus
     ) || is_equine(&kind)
         || is_llama(kind)
 }
@@ -680,6 +688,8 @@ fn is_baby_kind(kind: EntityKind) -> bool {
                 | EntityKind::Husk
                 | EntityKind::Drowned
                 | EntityKind::ZombieVillager
+                | EntityKind::ZombifiedPiglin
+                | EntityKind::Zoglin
         )
 }
 
@@ -896,6 +906,8 @@ pub struct LivingEntity {
     pub copper_golem: CopperGolemAnim,
     /// Sulfur cube fuse ticks left, -1 while unprimed (`SulfurCube.fuse`).
     pub sulfur_fuse: i32,
+    /// `WitherBoss.DATA_ID_INV`: ticks of the spawning invulnerability left.
+    pub wither_invulnerable_ticks: i32,
     pub fox: FoxSim,
     pub panda: PandaSim,
     pub axolotl: AxolotlSim,
@@ -1282,6 +1294,7 @@ impl LivingEntity {
             dragon: Default::default(),
             copper_golem: CopperGolemAnim::default(),
             sulfur_fuse: -1,
+            wither_invulnerable_ticks: 0,
             fox: FoxSim::default(),
             panda: PandaSim::default(),
             axolotl: AxolotlSim::default(),
@@ -2271,6 +2284,8 @@ impl EntityStore {
                 entity.aggressive = f & 0x04 != 0;
             }
             (k, 16, Bool(b)) if is_baby_kind(k) => entity.is_baby = b,
+            // `Piglin.DATA_BABY_ID`, after `AbstractPiglin`'s immunity flag.
+            (EntityKind::Piglin, 17, Bool(b)) => entity.is_baby = b,
             // Skeleton: powder-snow stray conversion; drives the vanilla
             // `isShaking` body jitter.
             (EntityKind::Skeleton, 16, Bool(b)) => entity.is_converting = b,
@@ -2281,6 +2296,7 @@ impl EntityStore {
             | (EntityKind::SulfurCube, 18, Int(s)) => entity.slime_size = s.clamp(1, 127) as u8,
             // `SulfurCube.onSyncedDataUpdated` primes the fuse from MAX_FUSE.
             (EntityKind::SulfurCube, 19, Int(f)) => entity.sulfur_fuse = f,
+            (EntityKind::Wither, 19, Int(t)) => entity.wither_invulnerable_ticks = t,
             (EntityKind::Allay, 16, Bool(b)) => entity.allay.dancing = b,
             (EntityKind::EnderDragon, dragon::PHASE_DATA, Int(phase)) => {
                 entity.dragon.phase = phase
@@ -2927,6 +2943,16 @@ pub fn is_living_mob(kind: &EntityKind) -> bool {
                 | EntityKind::Breeze
                 | EntityKind::Creaking
                 | EntityKind::Camel
+                | EntityKind::CamelHusk
+                | EntityKind::Parched
+                | EntityKind::Wither
+                | EntityKind::Silverfish
+                | EntityKind::Endermite
+                | EntityKind::Tadpole
+                | EntityKind::Nautilus
+                | EntityKind::ZombieNautilus
+                | EntityKind::HappyGhast
+                | EntityKind::Giant
         )
 }
 

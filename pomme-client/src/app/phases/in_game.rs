@@ -7383,16 +7383,38 @@ fn entity_extras(
             ..Default::default()
         },
         // The renderers' fixed `scale`: `WitherSkeletonRenderer`,
-        // `GhastRenderer`, `ElderGuardianRenderer`.
-        EntityKind::WitherSkeleton | EntityKind::Ghast | EntityKind::ElderGuardian => {
+        // `GhastRenderer`, `ElderGuardianRenderer`, `GiantMobRenderer`,
+        // `HappyGhastRenderer`.
+        EntityKind::WitherSkeleton
+        | EntityKind::Ghast
+        | EntityKind::ElderGuardian
+        | EntityKind::Giant
+        | EntityKind::HappyGhast => EntityExtras {
+            body_transform: Some(glam::Mat4::from_scale(glam::Vec3::splat(
+                match e.entity_type {
+                    EntityKind::WitherSkeleton => 1.2,
+                    EntityKind::Ghast => 4.5,
+                    EntityKind::Giant => 6.0,
+                    EntityKind::HappyGhast if e.is_baby => 0.95,
+                    EntityKind::HappyGhast => 4.0,
+                    _ => 2.35,
+                },
+            ))),
+            ..Default::default()
+        },
+        // `WitherBossRenderer`: twice the model's size, less while it's
+        // still charging up, when its skin flickers to the invulnerable one.
+        EntityKind::Wither => {
+            let ticks = e.wither_invulnerable_ticks;
+            let left = (ticks as f32 - alpha).max(0.0);
+            let scale = if ticks > 0 {
+                2.0 - left / 220.0 * 0.5
+            } else {
+                2.0
+            };
             EntityExtras {
-                body_transform: Some(glam::Mat4::from_scale(glam::Vec3::splat(
-                    match e.entity_type {
-                        EntityKind::WitherSkeleton => 1.2,
-                        EntityKind::Ghast => 4.5,
-                        _ => 2.35,
-                    },
-                ))),
+                variant_index: u32::from(ticks > 0 && (ticks > 80 || ticks / 5 % 2 != 1)),
+                body_transform: Some(glam::Mat4::from_scale(glam::Vec3::splat(scale))),
                 ..Default::default()
             }
         }

@@ -1,0 +1,131 @@
+# Mobs drawn from vanilla's own layers that had no model before: silverfish,
+# endermite, tadpole, nautilus (adult, baby, zombie), parched and camel
+# husk, then the wither, happy ghasts (adult and baby) and a giant, then
+# hoglin, zoglin, strider, camel, piglin and zombified piglin with their
+# babies in front.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/gamemode spectator"
+
+[[step]]
+chat = "/tp @s 660.5 -58.5 600.5 0 20"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+chat = "/summon minecraft:silverfish 659.0 -60 603.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:endermite 660.5 -60 603.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:tadpole 662.0 -60 603.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:nautilus 664.5 -60 605.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:zombie_nautilus 656.5 -60 605.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f],fire:-1s}"
+
+[[step]]
+chat = "/summon minecraft:nautilus 666.5 -60 605.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f],Age:-24000}"
+
+[[step]]
+chat = "/summon minecraft:parched 662.5 -60 607.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:camel_husk 658.5 -60 609.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+wait_ms = 2500
+
+[[step]]
+screenshot = "small"
+
+[[step]]
+chat = "/tp @s 700.5 -57 596.5 0 0"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+chat = "/summon minecraft:wither 693.5 -60 606.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:happy_ghast 708.5 -59 612.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:happy_ghast 700.5 -59 603.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f],Age:-24000}"
+
+[[step]]
+chat = "/summon minecraft:giant 700.5 -60 628.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+wait_ms = 3000
+
+[[step]]
+screenshot = "big"
+
+[[step]]
+chat = "/tp @s 740.5 -58.5 600.5 0 20"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+chat = "/summon minecraft:hoglin 747.5 -60 607.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f],IsImmuneToZombification:1b}"
+
+[[step]]
+chat = "/summon minecraft:hoglin 747.5 -60 604.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f],IsImmuneToZombification:1b,Age:-24000}"
+
+[[step]]
+chat = "/summon minecraft:zoglin 744.7 -60 607.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:zoglin 744.7 -60 604.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f],IsBaby:1b}"
+
+[[step]]
+chat = "/summon minecraft:strider 741.9 -60 607.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:strider 741.9 -60 604.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f],Age:-24000}"
+
+[[step]]
+chat = "/summon minecraft:camel 739.1 -60 607.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:camel 739.1 -60 604.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f],Age:-24000}"
+
+[[step]]
+chat = "/summon minecraft:piglin 736.3 -60 607.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f],IsImmuneToZombification:1b}"
+
+[[step]]
+chat = "/summon minecraft:piglin 736.3 -60 604.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f],IsImmuneToZombification:1b,IsBaby:1b}"
+
+[[step]]
+chat = "/summon minecraft:zombified_piglin 733.5 -60 607.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:zombified_piglin 733.5 -60 604.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f],IsBaby:1b}"
+
+[[step]]
+wait_ms = 3000
+
+[[step]]
+screenshot = "babies"
+
+[[step]]
+chat = "/kill @e[type=!minecraft:player,distance=..120]"
+
+[[step]]
+chat = "/gamemode creative"
