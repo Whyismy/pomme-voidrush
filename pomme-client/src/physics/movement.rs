@@ -281,21 +281,34 @@ fn can_glide(player: &LocalPlayer, is_passenger: bool) -> bool {
         })
 }
 
+/// Vanilla `Entity.calculateViewVector`: where a look (degrees) points.
+fn look_angle(x_rot_deg: f32, y_rot_deg: f32) -> DVec3 {
+    let x_rot = x_rot_deg * DEG_TO_RAD;
+    let y_rot = -y_rot_deg * DEG_TO_RAD;
+    let (cos_y, sin_y) = (mth_cos(y_rot), mth_sin(y_rot));
+    let (cos_x, sin_x) = (mth_cos(x_rot), mth_sin(x_rot));
+    dvec3(
+        f64::from(sin_y * cos_x),
+        f64::from(-sin_x),
+        f64::from(cos_y * cos_x),
+    )
+}
+
+/// Vanilla `FireworkRocketEntity.tick` for the glider a rocket is attached
+/// to: each tick the rocket lasts, the glide is pushed a tenth of a block
+/// along the look and half way toward a block and a half a tick that way.
+pub(crate) fn firework_boost(movement: DVec3, x_rot_deg: f32, y_rot_deg: f32) -> DVec3 {
+    let look = look_angle(x_rot_deg, y_rot_deg);
+    movement + look * 0.1 + (look * 1.5 - movement) * 0.5
+}
+
 /// Vanilla `LivingEntity.updateFallFlyingMovement`: a glide's new velocity,
 /// from the old one, where the glider looks (degrees) and gravity. Looking
 /// level trades almost no height for distance, looking down dives and
 /// gathers speed, and looking up spends speed to climb.
 fn fall_flying_movement(movement: DVec3, x_rot_deg: f32, y_rot_deg: f32, gravity: f64) -> DVec3 {
-    // `Entity.calculateViewVector`.
+    let look = look_angle(x_rot_deg, y_rot_deg);
     let x_rot = x_rot_deg * DEG_TO_RAD;
-    let y_rot = -y_rot_deg * DEG_TO_RAD;
-    let (cos_y, sin_y) = (mth_cos(y_rot), mth_sin(y_rot));
-    let (cos_x, sin_x) = (mth_cos(x_rot), mth_sin(x_rot));
-    let look = dvec3(
-        f64::from(sin_y * cos_x),
-        f64::from(-sin_x),
-        f64::from(cos_y * cos_x),
-    );
 
     let look_horizontal = (look.x * look.x + look.z * look.z).sqrt();
     let move_horizontal = (movement.x * movement.x + movement.z * movement.z).sqrt();
@@ -1776,6 +1789,23 @@ mod tests {
         assert!(glided.x.abs() < 1e-12);
         assert!((glided.y - (-0.02 + 0.002) * drag_y).abs() < 1e-12);
         assert!((glided.z - (1.002 + (1.0 - 1.002) * 0.1) * drag).abs() < 1e-12);
+    }
+
+    /// A rocket takes a still glider to 0.85 of a block a tick along its
+    /// look at once, and on toward a block and a half.
+    #[test]
+    fn a_rocket_speeds_a_glide_along_the_look() {
+        let first = firework_boost(DVec3::ZERO, 0.0, 0.0);
+        assert!(first.x.abs() < 1e-9 && first.y.abs() < 1e-9);
+        assert!((first.z - 0.85).abs() < 1e-6);
+        let mut speed = first;
+        for _ in 0..40 {
+            speed = firework_boost(speed, 0.0, 0.0);
+        }
+        assert!((speed.z - 1.7).abs() < 1e-3);
+        // Straight up: the same push, upward.
+        let up = firework_boost(DVec3::ZERO, -90.0, 0.0);
+        assert!((up.y - 0.85).abs() < 1e-6);
     }
 
     /// Looking down, a glide dives and gathers speed; looking up, it spends

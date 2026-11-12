@@ -28,6 +28,30 @@ wait_ms = 4000
 expect = { player = { y_between = [80.0, 139.5] } }
 timeout_ms = 500
 
+# A rocket fired while gliding carries the player along its look: three
+# seconds on it is near z 789, where the glide alone would have got to 760.
+[[step]]
+chat = "/item replace entity @s weapon.mainhand with minecraft:firework_rocket[minecraft:fireworks={flight_duration:3}] 8"
+
+[[step]]
+wait_ms = 300
+
+[[step]]
+mouse_down = "right"
+
+[[step]]
+wait_ms = 100
+
+[[step]]
+mouse_up = "right"
+
+[[step]]
+wait_ms = 3000
+
+[[step]]
+expect = { player = { z_between = [773.0, 100000.0] } }
+timeout_ms = 500
+
 [[step]]
 press = { action = "key.togglePerspective" }
 

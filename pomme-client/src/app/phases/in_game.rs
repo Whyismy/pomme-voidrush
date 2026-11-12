@@ -2895,8 +2895,34 @@ pub fn update_game(
                 fastrand::u64(..),
             );
         }
+        // `FireworkRocketEntity.tick`: each rocket attached to the gliding
+        // player speeds it along its look, and a rocket rides with whoever
+        // it is attached to.
+        if game.player.fall_flying {
+            for _ in 0..game.thrown_items.rockets_attached_to(game.player.entity_id) {
+                *game.player.velocity = crate::physics::movement::firework_boost(
+                    *game.player.velocity,
+                    game.player.look_dir.x_rot_deg(),
+                    game.player.look_dir.y_rot_deg(),
+                );
+            }
+        }
+        let player_id = game.player.entity_id;
+        let player_at = (
+            glam::DVec3::from(game.player.position),
+            *game.player.velocity,
+        );
+        let living = &game.entity_store.living;
+        let holder = |id: i32| {
+            if id == player_id {
+                return Some(player_at);
+            }
+            let entity = living.get(&id)?;
+            let at = glam::DVec3::from(entity.position);
+            Some((at, at - glam::DVec3::from(entity.prev_position)))
+        };
         // A rocket's trail of sparks (`FireworkRocketEntity.tick`).
-        for (at, speed) in game.thrown_items.tick() {
+        for (at, speed) in game.thrown_items.tick_with(holder) {
             game.particle_store.add_particles_from_packet(
                 crate::particle::ServerParticleKind::Firework,
                 crate::particle::ParticleOptions::None,

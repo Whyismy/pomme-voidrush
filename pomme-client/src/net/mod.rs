@@ -623,6 +623,13 @@ pub enum NetworkEvent {
     FireworkExplode {
         id: i32,
     },
+    /// The entity a firework rocket is attached to
+    /// (`FireworkRocketEntity.DATA_ATTACHED_TO_TARGET`): the glider it
+    /// speeds along.
+    RocketTarget {
+        id: i32,
+        target: Option<i32>,
+    },
     /// An entity's optional block: the one a minecart is set to show in
     /// place of its own (`AbstractMinecart.DATA_ID_CUSTOM_DISPLAY_BLOCK`),
     /// or the one an enderman carries (`EnderMan.DATA_CARRY_STATE`).

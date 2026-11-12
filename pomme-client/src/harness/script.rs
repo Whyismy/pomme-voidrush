@@ -207,6 +207,8 @@ struct PlayerFields {
     position: Option<[f64; 3]>,
     /// The feet strictly between these heights, for falls and jumps.
     y_between: Option<[f32; 2]>,
+    /// The player strictly between these on the z axis, for flights.
+    z_between: Option<[f32; 2]>,
     /// Yaw, within 0.01 degrees.
     y_rot: Option<f32>,
     spectating: Option<String>,
@@ -264,6 +266,8 @@ struct ChatExpect {
     chat: String,
 }
 
+// A script is a few dozen steps, read once.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, PartialEq)]
 enum Step {
     Run(Command),
@@ -645,6 +649,9 @@ fn check(expect: &Expect, phase: &AppPhase) -> Result<(), String> {
                     && want.day_time.is_none_or(|t| seen.day_time == t)
                     && want.y_between.is_none_or(|[low, high]| {
                         seen.position[1] > f64::from(low) && seen.position[1] < f64::from(high)
+                    })
+                    && want.z_between.is_none_or(|[low, high]| {
+                        seen.position[2] > f64::from(low) && seen.position[2] < f64::from(high)
                     })
                     && want.position.is_none_or(|p| {
                         p.iter()

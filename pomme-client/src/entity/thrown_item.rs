@@ -31,6 +31,9 @@ pub struct ThrownItem {
     /// `FireworkRocketEntity.DATA_SHOT_AT_ANGLE`: a rocket from a crossbow,
     /// which keeps its speed.
     shot_at_angle: bool,
+    /// `FireworkRocketEntity.DATA_ATTACHED_TO_TARGET`: the entity a rocket
+    /// rides with, speeding its glide.
+    attached_to: Option<i32>,
 }
 
 impl ThrownItem {
@@ -120,6 +123,7 @@ impl ThrownItemStore {
                 age: 0,
                 no_gravity: false,
                 shot_at_angle: false,
+                attached_to: None,
             },
         );
     }
@@ -166,21 +170,55 @@ impl ThrownItemStore {
         }
     }
 
-    /// `ThrowableProjectile.tick` on the client: move, then drag and fall.
-    /// A rocket instead speeds up as it goes (`FireworkRocketEntity.tick`);
-    /// returned are where each rocket's spark starts this tick and how it
-    /// moves.
-    // TODO: water drag (0.8) and the eye of ender's own flight.
+    /// `FireworkRocketEntity.DATA_ATTACHED_TO_TARGET` (index 9).
+    pub fn set_attached(&mut self, id: i32, target: Option<i32>) {
+        if let Some(item) = self.items.get_mut(&id)
+            && item.kind == EntityKind::FireworkRocket
+        {
+            item.attached_to = target;
+        }
+    }
+
+    /// How many rockets are attached to the entity `id`: each speeds its
+    /// glide.
+    pub fn rockets_attached_to(&self, id: i32) -> usize {
+        self.items
+            .values()
+            .filter(|item| item.attached_to == Some(id))
+            .count()
+    }
+
+    /// [`Self::tick_with`] where nothing a rocket is attached to is known.
+    #[cfg(test)]
     pub fn tick(&mut self) -> Vec<(DVec3, DVec3)> {
+        self.tick_with(|_| None)
+    }
+
+    /// `ThrowableProjectile.tick` on the client: move, then drag and fall.
+    /// A rocket instead speeds up as it goes (`FireworkRocketEntity.tick`),
+    /// or rides with the entity it is attached to, at `holder`'s position
+    /// and velocity for it; returned are where each rocket's spark starts
+    /// this tick and how it moves.
+    // TODO: water drag (0.8) and the eye of ender's own flight.
+    pub fn tick_with(
+        &mut self,
+        holder: impl Fn(i32) -> Option<(DVec3, DVec3)>,
+    ) -> Vec<(DVec3, DVec3)> {
         let mut sparks = Vec::new();
         for item in self.items.values_mut() {
             item.prev_position = item.position;
             if item.kind == EntityKind::FireworkRocket {
-                if !item.shot_at_angle {
-                    item.velocity =
-                        item.velocity * DVec3::new(1.15, 1.0, 1.15) + DVec3::new(0.0, 0.04, 0.0);
+                if let Some((at, velocity)) = item.attached_to.and_then(&holder) {
+                    // TODO: `getHandHoldingItemAngle`, the hand it leaves.
+                    item.position = at.into();
+                    item.velocity = velocity;
+                } else {
+                    if !item.shot_at_angle {
+                        item.velocity = item.velocity * DVec3::new(1.15, 1.0, 1.15)
+                            + DVec3::new(0.0, 0.04, 0.0);
+                    }
+                    item.position = (DVec3::from(item.position) + item.velocity).into();
                 }
-                item.position = (DVec3::from(item.position) + item.velocity).into();
                 item.age = item.age.saturating_add(1);
                 let drift = || crate::particle::next_gaussian() * 0.05;
                 sparks.push((
@@ -213,6 +251,39 @@ impl ThrownItemStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A rocket attached to an entity rides with it, and counts toward
+    /// that entity's boost; only rockets attach.
+    #[test]
+    fn an_attached_rocket_rides_with_its_holder() {
+        let mut store = ThrownItemStore::default();
+        store.spawn(
+            1,
+            EntityKind::FireworkRocket,
+            Position::new(0.0, 0.0, 0.0),
+            DVec3::new(0.0, 0.1, 0.0),
+        );
+        store.spawn(
+            2,
+            EntityKind::Snowball,
+            Position::new(0.0, 0.0, 0.0),
+            DVec3::ZERO,
+        );
+        store.set_attached(1, Some(7));
+        store.set_attached(2, Some(7));
+        assert_eq!(store.rockets_attached_to(7), 1);
+        assert_eq!(store.rockets_attached_to(8), 0);
+
+        let at = DVec3::new(5.0, 80.0, -3.0);
+        let speed = DVec3::new(0.0, -0.1, 1.5);
+        store.tick_with(|id| (id == 7).then_some((at, speed)));
+        let rocket = &store.items[&1];
+        assert_eq!(DVec3::from(rocket.position), at);
+        assert_eq!(rocket.velocity, speed);
+
+        store.set_attached(1, None);
+        assert_eq!(store.rockets_attached_to(7), 0);
+    }
 
     #[test]
     fn snowballs_arc_and_fireballs_fly_level() {

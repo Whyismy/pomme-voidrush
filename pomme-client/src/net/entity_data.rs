@@ -376,6 +376,12 @@ fn send_data_value(
             index,
             state: *state,
         },
+        // `FireworkRocketEntity.DATA_ATTACHED_TO_TARGET`, the one value of
+        // its kind.
+        (_, Value::OptionalUnsignedInt(target)) => NetworkEvent::RocketTarget {
+            id,
+            target: target.map(|target| target as i32),
+        },
         (_, Value::Component(nbt)) => match super::chat::component_spans(nbt) {
             Some(spans) => display(DisplayValue::Text(spans)),
             None => return,
@@ -437,6 +443,7 @@ pub(super) fn from_azalea(value: &EntityDataValue) -> Option<Value> {
             Value::OptionalBlockPos(pos.map(|pos| (pos.x, pos.y, pos.z)))
         }
         EntityDataValue::Pose(pose) => Value::Pose(*pose as u32),
+        EntityDataValue::OptionalUnsignedInt(target) => Value::OptionalUnsignedInt(target.0),
         EntityDataValue::VillagerData(data) => Value::VillagerData {
             kind: data.kind.to_u32(),
             profession: data.profession.to_u32(),

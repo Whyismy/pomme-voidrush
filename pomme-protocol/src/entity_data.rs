@@ -40,6 +40,8 @@ pub enum Serializer {
     Quaternion,
     OptionalBlockPos,
     VillagerData,
+    /// `OPTIONAL_UNSIGNED_INT`: 0 for none, else the value plus one.
+    OptionalUnsignedInt,
     Pose,
     Variant(Variant),
     /// `RESOLVABLE_PROFILE`: a mannequin's skin.
@@ -68,6 +70,8 @@ pub enum Value {
     BlockState(u32),
     /// A minecart's custom display block.
     OptionalBlockState(Option<u32>),
+    /// The entity a firework rocket is attached to.
+    OptionalUnsignedInt(Option<u32>),
     Vector3([f32; 3]),
     Quaternion([f32; 4]),
     Item(Option<ItemStack>),
@@ -196,8 +200,7 @@ macro_rules! serializers_26_2 {
     S::Particle,
     S::Skip(List(usize::MAX, &PARTICLE)),
     S::VillagerData,
-    // OPTIONAL_UNSIGNED_INT: 0 for none, else the value + 1.
-    S::Skip(VarInt),
+    S::OptionalUnsignedInt,
     S::Pose,
     S::Variant(Variant::Cat),
     // CAT_SOUND_VARIANT
@@ -298,6 +301,7 @@ impl ItemCodec {
                 profession: r.varint()?,
                 level: r.varint()?,
             },
+            S::OptionalUnsignedInt => Value::OptionalUnsignedInt(r.varint()?.checked_sub(1)),
             S::Pose => Value::Pose(r.varint()?),
             S::Variant(variant) => Value::Variant(*variant, r.varint()?),
             S::Profile => Value::Profile(Box::new(read_profile(r)?)),
@@ -554,10 +558,16 @@ mod tests {
         ]);
         let decoded = values(&bytes);
         assert_eq!(decoded[0], Value::OptionalBlockState(None));
-        assert_eq!(decoded[1..3], [const { Value::Other }; 2]);
+        assert_eq!(decoded[1], Value::OptionalUnsignedInt(None));
+        assert_eq!(decoded[2], Value::Other);
         assert_eq!(
             values(&frame(&[(11, 15, &[9])])),
             [Value::OptionalBlockState(Some(9))]
+        );
+        // A firework rocket's target: the entity id plus one.
+        assert_eq!(
+            values(&frame(&[(9, 19, &[8])])),
+            [Value::OptionalUnsignedInt(Some(7))]
         );
         // A painting variant spelled out, its title skipped, and by id.
         assert_eq!(
