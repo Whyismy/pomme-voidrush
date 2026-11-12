@@ -605,6 +605,11 @@ pub enum NetworkEvent {
     },
     /// Registry/wire variant slot; meaning is per-kind. `kind` is the mob
     /// the emitting arm resolved for, guarding overloaded metadata indices.
+    /// A painting's variant (`Painting.DATA_PAINTING_VARIANT_ID`).
+    PaintingVariant {
+        id: i32,
+        variant: crate::entity::painting::PaintingVariant,
+    },
     EntityVariant {
         id: i32,
         kind: EntityKind,

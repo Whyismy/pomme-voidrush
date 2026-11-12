@@ -201,6 +201,50 @@ fn send_display_item(id: i32, stack: Option<ItemStack>, event_tx: &Sender<Networ
     );
 }
 
+/// What a painting holder names: its own fields, or the `painting_variant`
+/// registry entry's (entries the server left to a known pack are filled in
+/// from the client's own copy first).
+fn painting_variant(
+    registry_holder: &RegistryHolder,
+    painting: &pomme_protocol::entity_data::Painting,
+) -> Option<crate::entity::painting::PaintingVariant> {
+    use pomme_protocol::entity_data::Painting;
+    Some(match painting {
+        Painting::Direct {
+            width,
+            height,
+            asset_id,
+        } => crate::entity::painting::PaintingVariant {
+            width: *width,
+            height: *height,
+            asset_id: namespaced(asset_id),
+        },
+        Painting::Id(id) => {
+            let (_, nbt) = registry_holder
+                .extra
+                .get(&azalea_registry::identifier::Identifier::new(
+                    "minecraft:painting_variant",
+                ))?
+                .map
+                .get_index(*id as usize)?;
+            crate::entity::painting::PaintingVariant {
+                width: nbt.int("width")?.try_into().ok()?,
+                height: nbt.int("height")?.try_into().ok()?,
+                asset_id: namespaced(&nbt.string("asset_id")?.to_str()),
+            }
+        }
+    })
+}
+
+/// An identifier with its namespace spelled out.
+fn namespaced(id: &str) -> String {
+    if id.contains(':') {
+        id.to_owned()
+    } else {
+        format!("minecraft:{id}")
+    }
+}
+
 fn send_data_value(
     id: i32,
     index: u8,
@@ -275,6 +319,15 @@ fn send_data_value(
                 .as_ref()
                 .map(|nbt| super::chat::component_spans(nbt).unwrap_or_default()),
         },
+        // Painting.DATA_PAINTING_VARIANT_ID, the only painting-valued entity
+        // data: at 9 since 1.21.6 synced a hanging entity's facing ahead of
+        // it, at 8 before.
+        (_, Value::Painting(painting)) => {
+            let Some(variant) = painting_variant(registry_holder, painting) else {
+                return;
+            };
+            NetworkEvent::PaintingVariant { id, variant }
+        }
         (18, Value::Variant(Variant::Cow, v)) => variant(EntityKind::Cow, *v),
         (18, Value::Variant(Variant::Chicken, v)) => variant(EntityKind::Chicken, *v),
         // Cat / wolf variants: 20 / 23 on 26.x, one lower on 1.21.9-1.21.11
@@ -376,6 +429,11 @@ pub(super) fn from_azalea(value: &EntityDataValue) -> Option<Value> {
         EntityDataValue::CowVariant(v) => Value::Variant(Variant::Cow, v.protocol_id()),
         EntityDataValue::WolfVariant(v) => Value::Variant(Variant::Wolf, v.protocol_id()),
         EntityDataValue::ChickenVariant(v) => Value::Variant(Variant::Chicken, v.protocol_id()),
+        // azalea reads the holder's varint as the id itself: one more than
+        // the id, and zero for a variant spelled out (which it can't read).
+        EntityDataValue::PaintingVariant(v) => Value::Painting(
+            pomme_protocol::entity_data::Painting::Id(v.protocol_id().checked_sub(1)?),
+        ),
         EntityDataValue::SnifferState(state) => Value::Int(*state as i32),
         EntityDataValue::CopperGolemState(state) => Value::Int(*state as i32),
         EntityDataValue::WeatheringCopperState(state) => Value::Int(*state as i32),

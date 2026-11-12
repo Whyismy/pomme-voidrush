@@ -1,0 +1,76 @@
+# Paintings (vanilla PaintingRenderer) on a wall facing the camera: a small
+# one, a wide one, a tall one, a two-by-two and a four-by-three; then the
+# same wall from behind the corner, where a painting on the side wall shows
+# its edge and faces east.
+
+[[step]]
+wait_ms = 15000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/gamemode spectator"
+
+[[step]]
+chat = "/tp @s 950.5 -57.0 599.5 0 5"
+
+[[step]]
+wait_ms = 2500
+
+[[step]]
+chat = "/fill 942 -60 608 958 -52 608 minecraft:white_concrete"
+
+[[step]]
+chat = "/fill 959 -60 602 959 -55 608 minecraft:white_concrete"
+
+[[step]]
+chat = "/summon minecraft:painting 956 -58 607 {facing:2b,variant:\"minecraft:kebab\"}"
+
+[[step]]
+chat = "/summon minecraft:painting 953 -58 607 {facing:2b,variant:\"minecraft:pool\"}"
+
+[[step]]
+chat = "/summon minecraft:painting 951 -58 607 {facing:2b,variant:\"minecraft:wanderer\"}"
+
+[[step]]
+chat = "/summon minecraft:painting 948 -58 607 {facing:2b,variant:\"minecraft:match\"}"
+
+[[step]]
+chat = "/summon minecraft:painting 944 -58 607 {facing:2b,variant:\"minecraft:skeleton\"}"
+
+[[step]]
+chat = "/summon minecraft:painting 958 -58 605 {facing:1b,variant:\"minecraft:bust\"}"
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+screenshot = "wall"
+
+[[step]]
+chat = "/tp @s 955.5 -57.5 603.5 -60 0"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "side"
+
+[[step]]
+chat = "/kill @e[type=minecraft:painting,distance=..60]"
+
+[[step]]
+chat = "/fill 942 -60 608 958 -52 608 minecraft:air"
+
+[[step]]
+chat = "/fill 959 -60 602 959 -55 608 minecraft:air"
+
+[[step]]
+chat = "/kill @e[type=minecraft:item,distance=..60]"
+
+[[step]]
+chat = "/gamemode creative"

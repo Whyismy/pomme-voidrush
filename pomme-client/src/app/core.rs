@@ -2748,6 +2748,9 @@ impl AppCore {
                     if crate::entity::fishing_hook::is_fishing_hook(entity_type) {
                         game.fishing_hooks.spawn(id, data, *position);
                     }
+                    if entity_type == azalea_registry::builtin::EntityKind::Painting {
+                        game.paintings.spawn(id, position, data);
+                    }
                     if crate::entity::model_entity::is_model_entity(entity_type) {
                         game.model_entities.spawn(
                             id,
@@ -3064,6 +3067,7 @@ impl AppCore {
                     game.experience_orbs.remove(&ids);
                     game.thrown_items.remove(&ids);
                     game.model_entities.remove(&ids);
+                    game.paintings.remove(&ids);
                     game.arrows.remove(&ids);
                     game.fishing_hooks.remove(&ids);
                     game.display_store.remove(&ids);
@@ -3223,6 +3227,9 @@ impl AppCore {
                             game.player.look_dir,
                         );
                     }
+                }
+                NetworkEvent::PaintingVariant { id, variant } => {
+                    game.paintings.set_variant(id, variant);
                 }
                 NetworkEvent::EntityVariant { id, kind, variant } => {
                     game.entity_store.set_variant(id, kind, variant);
@@ -3498,6 +3505,7 @@ impl AppCore {
                     game.experience_orbs.clear();
                     game.thrown_items.clear();
                     game.model_entities.clear();
+                    game.paintings.clear();
                     game.arrows.clear();
                     game.fishing_hooks.clear();
                     game.display_store.clear();

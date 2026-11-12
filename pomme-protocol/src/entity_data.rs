@@ -44,6 +44,8 @@ pub enum Serializer {
     Profile,
     /// `ROTATIONS`: an armor stand's part poses, x y z degrees.
     Rotations,
+    /// `PAINTING_VARIANT`: a holder, by registry id or spelled out.
+    Painting,
     Skip(Shape),
 }
 
@@ -75,8 +77,22 @@ pub enum Value {
     Variant(Variant, u32),
     Profile(Box<Profile>),
     Rotations([f32; 3]),
+    Painting(Painting),
     /// A value the client doesn't read.
     Other,
+}
+
+/// A painting's variant (`Holder<PaintingVariant>`): an entry of the
+/// `painting_variant` registry, or one the server spells out.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Painting {
+    Id(u32),
+    Direct {
+        /// In blocks.
+        width: u32,
+        height: u32,
+        asset_id: String,
+    },
 }
 
 /// What a `ResolvableProfile` says about a skin: the profile (a full one
@@ -198,13 +214,7 @@ macro_rules! serializers_26_2 {
     // OPTIONAL_GLOBAL_POS: GlobalPos.java:29, a dimension then a BlockPos.
     S::Skip(Optional(&Struct(&[Utf(MAX_STRING_LENGTH), Long]))),
     // PAINTING_VARIANT: PaintingVariant.java:30-32, a direct-capable holder.
-    S::Skip(Holder(&Struct(&[
-        VarInt,
-        VarInt,
-        Utf(MAX_STRING_LENGTH),
-        Optional(&TEXT),
-        Optional(&TEXT),
-    ]))),
+    S::Painting,
     // SNIFFER_STATE: an idMapper VarInt, read like INT.
     S::Int,
     // ARMADILLO_STATE: an idMapper VarInt, read like INT.
@@ -280,6 +290,23 @@ impl ItemCodec {
             S::Variant(variant) => Value::Variant(*variant, r.varint()?),
             S::Profile => Value::Profile(Box::new(read_profile(r)?)),
             S::Rotations => Value::Rotations([r.f32()?, r.f32()?, r.f32()?]),
+            // A holder: the registry id plus one, or zero and the variant
+            // itself (width, height, asset, then a title and an author).
+            S::Painting => Value::Painting(match r.varint()? {
+                0 => {
+                    let width = r.varint()?;
+                    let height = r.varint()?;
+                    let asset_id = r.utf(MAX_STRING_LENGTH)?.to_owned();
+                    self.skip(r, &Optional(&TEXT))?;
+                    self.skip(r, &Optional(&TEXT))?;
+                    Painting::Direct {
+                        width,
+                        height,
+                        asset_id,
+                    }
+                }
+                id => Painting::Id(id - 1),
+            }),
             S::Skip(shape) => {
                 self.skip(r, shape)?;
                 Value::Other
@@ -509,7 +536,20 @@ mod tests {
             (5, 1, &[9]),
         ]);
         let decoded = values(&bytes);
-        assert_eq!(decoded[..4], [const { Value::Other }; 4]);
+        assert_eq!(decoded[..3], [const { Value::Other }; 3]);
+        // A painting variant spelled out, its title skipped, and by id.
+        assert_eq!(
+            decoded[3],
+            Value::Painting(Painting::Direct {
+                width: 2,
+                height: 1,
+                asset_id: "a".into()
+            })
+        );
+        assert_eq!(
+            values(&frame(&[(8, 34, &[7])])),
+            [Value::Painting(Painting::Id(6))]
+        );
         // An empty partial profile with no skin patch.
         assert_eq!(decoded[4], Value::Profile(Box::default()));
         assert_eq!(decoded[5], Value::Int(9));

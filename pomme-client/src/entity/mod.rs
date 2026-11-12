@@ -15,6 +15,7 @@ pub mod light;
 pub mod lightning;
 pub mod model_entity;
 pub mod name_tags;
+pub mod painting;
 pub mod shadow;
 pub mod thrown_item;
 pub mod villager;

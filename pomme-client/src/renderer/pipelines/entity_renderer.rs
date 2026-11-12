@@ -1350,7 +1350,40 @@ struct MobDef {
 fn mob_definitions() -> Vec<MobDef> {
     let mut defs = mob_and_projectile_definitions();
     defs.extend(vehicle_definitions());
+    defs.push(painting_definition());
     defs
+}
+
+/// `PaintingRenderer`: a variant for each shipped painting's picture, then
+/// for each size a back and a blank front
+/// (`crate::entity::painting::Painting::model_variants`).
+fn painting_definition() -> MobDef {
+    use entity_model::{Board, bake_painting};
+
+    use crate::entity::painting::{BACK_TEXTURE, PAINTINGS, SIZES};
+    let board = |width, height, board, tex_variants| VariantDef {
+        model: bake_painting(width, height, board),
+        tex_variants,
+        tex_size: 16,
+        overlay_kind: OverlayKind::Opaque,
+        invisible_outline: false,
+    };
+    let mut adult: Vec<VariantDef> = PAINTINGS
+        .iter()
+        .map(|&(_, texture, width, height)| board(width, height, Board::Picture, texture))
+        .collect();
+    for &(width, height) in SIZES {
+        adult.push(board(width, height, Board::Back, BACK_TEXTURE));
+        adult.push(board(width, height, Board::Blank, BACK_TEXTURE));
+    }
+    MobDef {
+        kind: EntityKind::Painting,
+        anim: AnimationType::Static,
+        adult,
+        baby: None,
+        adult_overlays: vec![],
+        baby_overlays: vec![],
+    }
 }
 
 /// `MinecartRenderer` for every kind of cart, and `BoatRenderer` and

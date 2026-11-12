@@ -374,6 +374,7 @@ pub struct GameState {
     pub thrown_items: crate::entity::thrown_item::ThrownItemStore,
     pub arrows: crate::entity::arrow::ArrowStore,
     pub model_entities: crate::entity::model_entity::ModelEntityStore,
+    pub paintings: crate::entity::painting::PaintingStore,
     pub fishing_hooks: crate::entity::fishing_hook::FishingHookStore,
     pub particle_store: crate::particle::ParticleStore,
     /// `WeatherEffectRenderer.rainSoundTime`: ticks since the last rain sound.
@@ -564,6 +565,7 @@ impl GameState {
             thrown_items: Default::default(),
             arrows: Default::default(),
             model_entities: Default::default(),
+            paintings: Default::default(),
             fishing_hooks: Default::default(),
             rain_sound_time: 0,
             particle_store: {
@@ -4770,6 +4772,40 @@ pub fn update_game(
             let light = entity_light(&world_light, entity.kind, feet, false, 0);
             if let Some(info) = model_entity_render(entity, feet, partial_tick, light, &rails) {
                 entity_renders.push(info);
+            }
+        }
+    }
+
+    // Paintings (`PaintingRenderer`): the picture and the board's back,
+    // turned to face out of the wall.
+    // TODO: vanilla lights each block of a painting on its own.
+    if !benchmark_running {
+        let eye = gfx.renderer.camera_render_position();
+        let unliving = crate::renderer::pipelines::entity_renderer::unliving_model_frame();
+        for painting in game.paintings.paintings.values() {
+            let (Some(center), Some(variants)) = (painting.center(), painting.model_variants())
+            else {
+                continue;
+            };
+            if center.distance_squared(eye) > 128.0 * 128.0 {
+                continue;
+            }
+            let position = Position::new(center.x, center.y, center.z);
+            let turn = (180.0 - f32::from(painting.direction) * 90.0).to_radians();
+            let light = entity_light(&world_light, EntityKind::Painting, position, false, 0);
+            for variant_index in variants {
+                entity_renders.push(EntityRenderInfo {
+                    position,
+                    entity_kind: EntityKind::Painting,
+                    head_y_rot_deg: 180.0,
+                    body_y_rot_deg: 180.0,
+                    variant_index,
+                    body_transform: Some(glam::Mat4::from_rotation_y(turn) * unliving),
+                    light,
+                    // A board is far bigger than the entity's own box.
+                    skip_cull: true,
+                    ..Default::default()
+                });
             }
         }
     }
