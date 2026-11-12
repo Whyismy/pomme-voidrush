@@ -28,6 +28,9 @@ layout(location = 5) flat out vec4 v_world_light;
 // The white overlay (primed TNT's flash), from outline_color's top bit.
 layout(location = 6) flat out float v_white;
 
+// item_glint.vert draws over this at equal depth.
+invariant gl_Position;
+
 void main() {
     vec4 world_pos = model * vec4(position, 1.0);
     vec3 rel = world_pos.xyz - camera_pos.xyz;

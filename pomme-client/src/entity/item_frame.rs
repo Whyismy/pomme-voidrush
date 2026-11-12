@@ -80,6 +80,8 @@ pub struct FrameItemRender {
     pub tints: Arc<[u32]>,
     /// The model's `fixed` display transform.
     pub transform: Mat4,
+    /// The stack has the enchantment glint.
+    pub foil: bool,
 }
 
 pub struct ItemFrame {

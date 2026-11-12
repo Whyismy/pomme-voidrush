@@ -596,6 +596,7 @@ pub fn try_create_sampler(device: &Device, desc: &SamplerDesc) -> Result<Sampler
         compare_op: match desc.compare {
             Some(CompareFunction::Less) => vk::CompareOp::Less,
             Some(CompareFunction::LessEqual) | None => vk::CompareOp::LessOrEqual,
+            Some(CompareFunction::Equal) => vk::CompareOp::Equal,
         },
         ..Default::default()
     };
@@ -924,6 +925,7 @@ pub fn try_create_render_pipeline(
             depth_compare_op: match depth.compare {
                 CompareFunction::Less => vk::CompareOp::Less,
                 CompareFunction::LessEqual => vk::CompareOp::LessOrEqual,
+                CompareFunction::Equal => vk::CompareOp::Equal,
             },
             ..Default::default()
         },

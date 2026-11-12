@@ -149,6 +149,19 @@ pub fn can_fit_inside_container_items(kind: ItemKind) -> bool {
     !azalea_registry::tags::items::SHULKER_BOXES.contains(&kind)
 }
 
+/// Vanilla `ItemStack.hasFoil`: the stack's `enchantment_glint_override`
+/// where it has one (its item's own included, as an enchanted golden
+/// apple's), else whether it is enchanted.
+pub fn has_foil(stack: &ItemStackData) -> bool {
+    use azalea_inventory::components::{EnchantmentGlintOverride, Enchantments};
+    match stack.get_component::<EnchantmentGlintOverride>() {
+        Some(glint) => glint.show_glint,
+        None => stack
+            .get_component::<Enchantments>()
+            .is_some_and(|enchantments| !enchantments.levels.is_empty()),
+    }
+}
+
 pub fn item_resource_name(kind: ItemKind) -> String {
     kind.to_string()
         .strip_prefix("minecraft:")
@@ -159,6 +172,25 @@ pub fn item_resource_name(kind: ItemKind) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A stack glints by its own `enchantment_glint_override`, else by its
+    /// item's (an enchanted golden apple's), else not at all unenchanted.
+    #[test]
+    fn a_stack_glints_by_its_override_or_its_item() {
+        use azalea_inventory::components::EnchantmentGlintOverride;
+        let foil = |stack: ItemStack| has_foil(stack.as_present().unwrap());
+        assert!(!foil(ItemStack::new(ItemKind::DiamondSword, 1)));
+        assert!(foil(ItemStack::new(ItemKind::EnchantedGoldenApple, 1)));
+        assert!(foil(ItemStack::new(ItemKind::ExperienceBottle, 1)));
+        assert!(foil(
+            ItemStack::new(ItemKind::DiamondSword, 1)
+                .with_component(EnchantmentGlintOverride { show_glint: true })
+        ));
+        assert!(!foil(
+            ItemStack::new(ItemKind::EnchantedGoldenApple, 1)
+                .with_component(EnchantmentGlintOverride { show_glint: false })
+        ));
+    }
 
     #[test]
     fn inventory_indices_map_to_inventory_menu_slots() {

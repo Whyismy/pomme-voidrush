@@ -211,6 +211,8 @@ pub struct ItemDisplayRender {
     pub tints: Arc<[u32]>,
     pub transform: Mat4,
     pub bounds: (Vec3, Vec3),
+    /// The stack has the enchantment glint.
+    pub foil: bool,
 }
 
 /// The entity's own position and rotation lerp, `InterpolationHandler`.

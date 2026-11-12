@@ -637,6 +637,48 @@ pub struct CameraUniform {
     /// lanes above. Appended last so shaders that don't fog can keep their
     /// shorter prefix declarations.
     fog_env: [f32; 4],
+    /// The enchantment glint's texture transform ([`glint_transform`]).
+    glint: [f32; 4],
+}
+
+/// The enchantment glint's texture transform `millis` after the clock
+/// started (vanilla `TextureTransform.setupGlintTexturing`, at the default
+/// Glint Speed of a half): xy, how far the texture has slid, and zw, the
+/// scale from a UV in an atlas `atlas_px` across.
+///
+/// Vanilla scales an item's own atlas UV by 8, so how big the glint looks
+/// follows the atlas's size; the scale here is what a vanilla atlas 1024
+/// by 512 texels gives (the items atlas with no packs).
+pub fn glint_transform(millis: u64, atlas_px: u32) -> [f32; 4] {
+    // `(long) (Util.getMillis() * glintSpeed * 8.0)`.
+    let l = millis * 4;
+    let atlas = atlas_px as f32;
+    [
+        (l % 110_000) as f32 / 110_000.0,
+        (l % 30_000) as f32 / 30_000.0,
+        8.0 * atlas / 1024.0,
+        8.0 * atlas / 512.0,
+    ]
+}
+
+static GLINT_HELD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Stops the glint's slide for the rest of the session, as the test
+/// harness's `deterministic` step asks of everything animated.
+pub fn hold_glint() {
+    GLINT_HELD.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The glint's clock: milliseconds since it was first asked.
+pub fn glint_millis() -> u64 {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    if GLINT_HELD.load(std::sync::atomic::Ordering::Relaxed) {
+        return 0;
+    }
+    START
+        .get_or_init(std::time::Instant::now)
+        .elapsed()
+        .as_millis() as u64
 }
 
 // Vanilla FogType.WATER defaults (EnvironmentAttributes): color 0xFF050533,
@@ -702,8 +744,15 @@ impl CameraUniform {
             fog_color: [fog_rgb[0], fog_rgb[1], fog_rgb[2], fog_end],
             camera_block: anchor.as_ivec3().extend(0).to_array(),
             fog_env: [env_start, env_end, 0.0, 0.0],
+            glint: [0.0; 4],
         }
         .with_cardinal_light(sky.cardinal_light)
+    }
+
+    /// Sets the enchantment glint's texture transform ([`glint_transform`]).
+    pub fn with_glint(mut self, glint: [f32; 4]) -> Self {
+        self.glint = glint;
+        self
     }
 
     /// Lights directional shading (`light.glsl`) as `cardinal_light` does.
@@ -721,6 +770,7 @@ impl CameraUniform {
             fog_color: [0.0, 0.0, 0.0, f32::MAX],
             camera_block: [0; 4],
             fog_env: [f32::MAX, f32::MAX, 0.0, 0.0],
+            glint: [0.0; 4],
         }
     }
 }
@@ -728,6 +778,22 @@ impl CameraUniform {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The glint slides across in 27.5 seconds and down in 7.5 (vanilla's
+    /// 110000 and 30000 over eight times half speed), and repeats.
+    #[test]
+    fn the_glint_slides_and_repeats() {
+        let [x, y, sx, sy] = glint_transform(0, 1024);
+        assert_eq!([x, y], [0.0, 0.0]);
+        assert_eq!([sx, sy], [8.0, 16.0]);
+        let [x, y, ..] = glint_transform(13_750, 1024);
+        assert!((x - 0.5).abs() < 1e-6);
+        assert!((y - 25_000.0 / 30_000.0).abs() < 1e-6);
+        let [x, y, ..] = glint_transform(27_500 * 3, 2048);
+        assert_eq!(x, 0.0);
+        assert_eq!(y, 0.0);
+        assert_eq!(glint_transform(0, 2048)[2], 16.0);
+    }
 
     fn assert_mat4_close(actual: Mat4, expected: Mat4, context: &str) {
         let actual = actual.to_cols_array();

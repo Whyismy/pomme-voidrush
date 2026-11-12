@@ -6186,6 +6186,7 @@ fn emit_item_copies(
         .item_tint_palette(item_name, item_stack, None)
         .into();
     let name: std::sync::Arc<str> = item_name.into();
+    let foil = item_stack.is_some_and(crate::player::inventory::has_foil);
     let mut push = |copy_offset: glam::Mat4| {
         infos.push(ItemRenderInfo {
             item_name: name.clone(),
@@ -6194,6 +6195,7 @@ fn emit_item_copies(
             model_matrix: base * copy_offset * ground_transform,
             light,
             white_flash: false,
+            foil,
         });
     };
 
@@ -6454,6 +6456,7 @@ fn build_item_frame_renders(
                 model_matrix: base,
                 light: lit(world.sky(), world.block().max(5)),
                 white_flash: false,
+                foil: false,
             });
         }
         if let Some(id) = map {
@@ -6528,6 +6531,7 @@ fn build_item_frame_renders(
                 model: model.into(),
                 tints,
                 transform,
+                foil: crate::player::inventory::has_foil(stack),
             });
         }
         let Some(cached) = &frame.item_render else {
@@ -6540,6 +6544,7 @@ fn build_item_frame_renders(
             model_matrix: base * frame.item_matrix() * cached.transform,
             light: lit(15, 15),
             white_flash: false,
+            foil: cached.foil,
         });
     }
     maps
@@ -6648,6 +6653,7 @@ fn build_display_renders(
                     model_matrix,
                     light,
                     white_flash: false,
+                    foil: false,
                 });
             }
             DisplayKind::Item => {
@@ -6728,6 +6734,7 @@ fn build_display_renders(
                         tints,
                         transform,
                         bounds: (info.bounds_min, info.bounds_max),
+                        foil: crate::player::inventory::has_foil(stack),
                     });
                 }
                 let Some(cached) = &display.item_render else {
@@ -6749,6 +6756,7 @@ fn build_display_renders(
                     model_matrix,
                     light,
                     white_flash: false,
+                    foil: cached.foil,
                 });
             }
             DisplayKind::Text => {
@@ -6888,6 +6896,7 @@ fn build_banners(
             model_matrix: placement,
             light,
             white_flash: false,
+            foil: false,
         });
         // `BannerRenderer`: the flag swings from its top edge, a little
         // out from the pole and back, over a hundred ticks, each banner
@@ -6915,6 +6924,7 @@ fn build_banners(
                 * Mat4::from_translation(-pivot),
             light,
             white_flash: false,
+            foil: false,
         });
     }
 }
@@ -7003,6 +7013,7 @@ fn build_dragon_heads(
                         * Mat4::from_translation(-hinge),
                     light,
                     white_flash: false,
+                    foil: false,
                 });
                 (DRAGON_SKULL_KEY.into(), placement)
             }
@@ -7081,6 +7092,7 @@ fn build_dragon_heads(
             model_matrix: Mat4::from_translation((corner - anchor).as_vec3()) * placement,
             light: block_lighter::light_coords(world_light, [pos.x, pos.y, pos.z]),
             white_flash: false,
+            foil: false,
         });
     }
 }
@@ -7140,6 +7152,7 @@ fn build_carried_blocks(
             model_matrix: Mat4::from_translation((*feet - anchor).as_vec3()) * model * held,
             light: entity_light(world_light, EntityKind::Enderman, feet, false, 0),
             white_flash: false,
+            foil: false,
         });
     }
 }
@@ -7210,6 +7223,7 @@ fn build_campfire_items(
                     * renderer.item_display_transform(&model, FIXED),
                 light,
                 white_flash: false,
+                foil: false,
             });
         }
     }
@@ -7841,6 +7855,7 @@ fn build_conduits(
                 model_matrix: Mat4::from_translation((corner - anchor).as_vec3()) * pose,
                 light,
                 white_flash: false,
+                foil: false,
             });
         }
     }
@@ -8171,6 +8186,7 @@ fn build_minecart_contents(
                 * block,
             light: entity_light(world_light, cart.kind, feet, false, 0),
             white_flash: false,
+            foil: false,
         });
     }
 }
@@ -8219,6 +8235,7 @@ fn build_falling_blocks(
                 0,
             ),
             white_flash,
+            foil: false,
         });
     }
 }
@@ -8319,6 +8336,7 @@ fn build_held_items(
                 model_matrix,
                 light: info.light,
                 white_flash: false,
+                foil: crate::player::inventory::has_foil(stack),
             });
         }
         // Vanilla `CustomHeadLayer`: a worn item that isn't armour (with an
@@ -8368,6 +8386,7 @@ fn build_held_items(
                 * transform,
             light: info.light,
             white_flash: false,
+            foil: crate::player::inventory::has_foil(stack),
         });
     }
 }
@@ -8426,6 +8445,10 @@ fn build_thrown_items(
                 * ground,
             light: entity_light(world_light, item.kind, position, false, 0),
             white_flash: false,
+            foil: item.stack.as_ref().map_or(
+                item.kind == EntityKind::ExperienceBottle,
+                crate::player::inventory::has_foil,
+            ),
         });
     }
 }
@@ -8535,6 +8558,7 @@ fn build_mob_blocks(
                 model_matrix,
                 light: info.light,
                 white_flash: false,
+                foil: false,
             });
         }
     }
@@ -8710,6 +8734,7 @@ fn build_carried_items(
             model_matrix: pose * renderer.item_display_transform(&model, context),
             light: info.light,
             white_flash: false,
+            foil: crate::player::inventory::has_foil(stack),
         });
     }
 }

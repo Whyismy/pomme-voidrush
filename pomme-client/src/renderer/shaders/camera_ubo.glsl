@@ -8,4 +8,5 @@ layout(set = 0, binding = 0) uniform CameraUniform {
     vec4 fog_color;
     ivec4 camera_block;
     vec4 fog_env;
+    vec4 glint;
 };

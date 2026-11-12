@@ -255,6 +255,11 @@ type BlockDisplayMesh = (Arc<str>, Arc<[u32]>);
 /// draws that skin (`player_head~skin:<uuid>`).
 const HEAD_SKIN_MARK: &str = "~skin:";
 
+/// Ends an icon's tint list when its stack has the enchantment glint, so
+/// the icon is baked apart from the plain item's, with the glint, afresh
+/// each frame. Never a tint itself: it is taken off before the bake.
+const FOIL_TINT: u32 = 0x01F0_11ED;
+
 /// The mesh a player-head model `base` draws its skins with.
 fn head_skin_mesh(base: &str) -> String {
     format!("{base}~skin")
@@ -573,6 +578,8 @@ impl Renderer {
             swapchain_state.targets(),
             &atlas,
             &lightmap,
+            jar_assets_dir,
+            asset_index,
         );
 
         let held_item_pipeline = pipelines::held_item::HeldItemPipeline::new(
@@ -580,6 +587,7 @@ impl Renderer {
             swapchain_state.targets(),
             &atlas,
             jar_assets_dir,
+            asset_index,
             &lightmap,
         );
         let map_pipeline =
@@ -597,6 +605,8 @@ impl Renderer {
             gui_item_atlas.atlas_px(),
             &atlas,
             &lightmap,
+            jar_assets_dir,
+            asset_index,
         );
 
         warm_item_meshes(
@@ -1240,6 +1250,7 @@ impl Renderer {
 
     pub fn hold_texture_animations(&mut self) {
         self.atlas.hold_animations();
+        camera::hold_glint();
     }
 
     /// Redraws the lightmap with `info` on the next frame, as vanilla does
@@ -1658,6 +1669,7 @@ impl Renderer {
                     has_3d_model,
                     charged_crossbow: crate::player::interaction::is_charged_crossbow(&stack),
                     stabs: crate::player::interaction::swing_animation(Some(&stack)).0,
+                    foil: crate::player::inventory::has_foil(&stack),
                     // FIRST_PERSON_RIGHT_HAND / FIRST_PERSON_LEFT_HAND.
                     first_person,
                     arm_models,
@@ -2565,7 +2577,10 @@ impl Renderer {
             ..
         } = mode
         {
-            let uniform = CameraUniform::new(&self.camera, sky, render_distance, eyes_in_water);
+            let uniform =
+                CameraUniform::new(&self.camera, sky, render_distance, eyes_in_water).with_glint(
+                    camera::glint_transform(camera::glint_millis(), self.atlas.size),
+                );
             self.chunk_pipeline.update_camera(frame, &uniform);
             self.block_overlay_pipeline.update_camera(frame, &uniform);
             self.entity_renderer.update_camera(frame, &uniform);
@@ -2645,6 +2660,12 @@ impl Renderer {
                         item_stack.as_ref(),
                         owner_team_color,
                     );
+                    if item_stack
+                        .as_ref()
+                        .is_some_and(crate::player::inventory::has_foil)
+                    {
+                        item_tints.push(FOIL_TINT);
+                    }
                     // `PlayerHeadSpecialRenderer`: a head with a profile
                     // draws its skin once it's here.
                     if self.render_assets.is_player_head_model(item_name)
@@ -2673,11 +2694,14 @@ impl Renderer {
                                 return Vec::new();
                             };
                             let name = crate::player::inventory::item_resource_name(data.kind);
-                            let tints = self.render_assets.item_tint_palette(
+                            let mut tints = self.render_assets.item_tint_palette(
                                 &name,
                                 Some(data),
                                 player_team_color,
                             );
+                            if crate::player::inventory::has_foil(data) {
+                                tints.push(FOIL_TINT);
+                            }
                             add_item(&name, &tints);
                             tints
                         })
@@ -2747,10 +2771,18 @@ impl Renderer {
             item_tints: Vec<u32>,
             display: crate::world::block::model::DisplayTransform,
             needs_clear: bool,
+            /// Drawn again with the enchantment glint.
+            foil: bool,
         }
         let mut bake_list: Vec<BakeJob> = Vec::new();
         for (key, (name, item_tints)) in &unique_items {
-            let discard = pipelines::gui_item_atlas::is_animated_item(name);
+            let (item_tints, foil) = match item_tints.split_last() {
+                Some((&FOIL_TINT, tints)) => (tints, true),
+                _ => (item_tints.as_slice(), false),
+            };
+            // The glint slides, so its icons are drawn afresh each frame, as
+            // vanilla's are (`ItemStackRenderState.isAnimated`).
+            let discard = pipelines::gui_item_atlas::is_animated_item(name) || foil;
             if let Some((slot, state)) = self.gui_item_atlas.get_or_allocate(key, discard) {
                 item_atlas_uvs.insert(key.clone(), self.gui_item_atlas.slot_uv(&slot));
                 if !matches!(state, pipelines::gui_item_atlas::SlotState::Ready) {
@@ -2760,9 +2792,10 @@ impl Renderer {
                         slot,
                         name: name.clone(),
                         mesh,
-                        item_tints: item_tints.clone(),
+                        item_tints: item_tints.to_vec(),
                         display: self.render_assets.get_item_gui_transform(name),
                         needs_clear: matches!(state, pipelines::gui_item_atlas::SlotState::Stale),
+                        foil,
                     });
                 }
             }
@@ -2783,6 +2816,7 @@ impl Renderer {
                 frame,
                 bake_list.len(),
                 required_tint_colors,
+                camera::glint_transform(camera::glint_millis(), self.atlas.size),
             );
             for job in &bake_list {
                 if job.needs_clear {
@@ -2797,7 +2831,7 @@ impl Renderer {
                         .and_then(|key| self.entity_renderer.player_skin_set(&key));
                     if let Some(skin) = skin {
                         self.gui_item_pipeline.bake_to_slot_with_texture(
-                            &bake,
+                            &mut bake,
                             frame,
                             &self.item_entity_pipeline,
                             sx,
@@ -2811,7 +2845,7 @@ impl Renderer {
                     continue;
                 }
                 self.gui_item_pipeline.bake_to_slot(
-                    &bake,
+                    &mut bake,
                     frame,
                     &self.item_entity_pipeline,
                     sx,
@@ -2820,6 +2854,7 @@ impl Renderer {
                     &job.mesh,
                     job.display,
                     &job.item_tints,
+                    job.foil,
                 );
             }
             self.gui_item_atlas.end_bake_pass(&encoder, bake);
@@ -3142,6 +3177,7 @@ impl Renderer {
                             *hand_light,
                             sky.cardinal_light,
                             self.screen_fire,
+                            camera::glint_transform(camera::glint_millis(), self.atlas.size),
                         );
                     }
                     // A held map's marker labels (`MapRenderer`), over the

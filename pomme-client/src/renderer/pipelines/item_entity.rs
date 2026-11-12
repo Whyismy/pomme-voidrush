@@ -1,8 +1,10 @@
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 
 use glam::{Mat3, Mat4};
 
+use crate::assets::AssetIndex;
 use crate::renderer::camera::CameraUniform;
 use crate::renderer::chunk::atlas::{AtlasRegion, AtlasUVMap, SpriteAlphaMask, TextureAtlas};
 use crate::renderer::chunk::block_lighter::LightLevels;
@@ -47,7 +49,13 @@ pub struct ItemRenderInfo {
     pub light: LightLevels,
     /// Vanilla's white overlay (`OverlayTexture.u(1)`): primed TNT's flash.
     pub white_flash: bool,
+    /// Vanilla `ItemStack.hasFoil`: the enchantment glint is drawn over it.
+    pub foil: bool,
 }
+
+/// Vanilla `ItemRenderer.ENCHANTED_GLINT_ITEM`.
+// TODO: a resource pack's own glint texture; this is the game's.
+const GLINT_TEXTURE: &str = "minecraft/textures/misc/enchanted_glint_item.png";
 
 /// The instance's outline-colour bit that asks for the white flash (the
 /// outline reads only the low 24).
@@ -283,6 +291,11 @@ pub(super) struct ItemPipelineShared {
     /// Each frame's tint palette group, re-pointed when `tints` grows.
     tint_sets: Vec<rhi::backend::BindGroup>,
     instances: FrameArena<ItemInstance>,
+    /// The enchantment glint's texture, bound in the atlas's place for the
+    /// glint's draws; it repeats, smoothed.
+    glint_texture: rhi::backend::Texture,
+    glint_sampler: rhi::backend::Sampler,
+    glint_set: rhi::backend::BindGroup,
 }
 
 impl ItemPipelineShared {
@@ -290,6 +303,8 @@ impl ItemPipelineShared {
         device: &rhi::backend::Device,
         atlas: &TextureAtlas,
         lightmap: &Lightmap,
+        jar_assets_dir: &Path,
+        asset_index: &Option<AssetIndex>,
         label: &str,
     ) -> Self {
         let [camera_layout, atlas_layout, tint_layout] =
@@ -318,7 +333,15 @@ impl ItemPipelineShared {
             rhi::BufferUsages::VERTEX,
             format!("{label}_instances"),
         );
+        let glint_texture =
+            util::load_asset_texture(device, jar_assets_dir, asset_index, GLINT_TEXTURE);
+        let glint_sampler = rhi::backend::create_sampler(device, &rhi::SamplerDesc::LINEAR_REPEAT);
+        let glint_set =
+            util::create_texture_group(device, atlas_layout, glint_texture.handle(), glint_sampler);
         let mut this = Self {
+            glint_texture,
+            glint_sampler,
+            glint_set,
             pipeline_layout,
             camera_layout,
             atlas_layout,
@@ -391,6 +414,27 @@ impl ItemPipelineShared {
         pass.set_vertex_buffer(1, self.instances.buffer(frame).handle());
     }
 
+    /// Binds the glint `pipeline` as [`Self::bind`] does, with the glint's
+    /// texture where the atlas goes.
+    pub(super) fn bind_glint(
+        &self,
+        pass: &mut rhi::backend::RenderPassEncoder,
+        frame: usize,
+        pipeline: rhi::backend::RenderPipeline,
+    ) {
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_groups(
+            0,
+            &[
+                self.camera_sets[frame],
+                self.glint_set,
+                self.tint_sets[frame],
+                self.lightmap_set,
+            ],
+        );
+        pass.set_vertex_buffer(1, self.instances.buffer(frame).handle());
+    }
+
     /// Restarts the frame's tint and instance buffers, sized for `items`
     /// copies with `colors` tints between them.
     pub(super) fn begin_frame(
@@ -433,6 +477,9 @@ impl ItemPipelineShared {
         self.tints.destroy(device);
         self.instances.destroy(device);
         util::destroy_bind_groups(device, self.tint_sets.drain(..));
+        self.glint_set.destroy(device);
+        self.glint_sampler.destroy(device);
+        std::mem::take(&mut self.glint_texture).destroy(device);
         self.atlas_sampler.destroy(device);
         self.pipeline_layout.destroy(device);
         util::destroy_bind_groups(device, self.camera_sets.drain(..));
@@ -450,6 +497,8 @@ pub struct ItemEntityPipeline {
     translucent: rhi::backend::RenderPipeline,
     /// Vanilla `OUTLINE_CULL`, which both item sheets resubmit as.
     outline: rhi::backend::RenderPipeline,
+    /// Vanilla `GLINT`, which foil items are drawn again with.
+    glint: rhi::backend::RenderPipeline,
     shared: ItemPipelineShared,
     meshes: HashMap<String, MeshEntry>,
     /// The last `draw`'s glowing copies.
@@ -462,13 +511,23 @@ impl ItemEntityPipeline {
         targets: rhi::backend::PipelineTargets,
         atlas: &TextureAtlas,
         lightmap: &Lightmap,
+        jar_assets_dir: &Path,
+        asset_index: &Option<AssetIndex>,
     ) -> Self {
-        let shared = ItemPipelineShared::new(device, atlas, lightmap, "item_entity");
+        let shared = ItemPipelineShared::new(
+            device,
+            atlas,
+            lightmap,
+            jar_assets_dir,
+            asset_index,
+            "item_entity",
+        );
         let (cutout, translucent) = create_world_pipelines(device, targets, shared.pipeline_layout);
 
         Self {
             cutout,
             translucent,
+            glint: create_glint_pipeline(device, targets, shared.pipeline_layout),
             outline: create_outline_pipeline(device, shared.pipeline_layout),
             shared,
             meshes: HashMap::new(),
@@ -704,6 +763,15 @@ impl ItemEntityPipeline {
             });
             self.draw_runs(pass, frame, pipeline, &runs);
         }
+        // The enchantment glint: the foil items again, over themselves.
+        let foil = runs(items, &self.meshes, |item, _| item.foil);
+        if !foil.is_empty() {
+            self.shared.bind_glint(pass, frame, self.glint);
+            for run in &foil {
+                pass.set_vertex_buffer(0, run.buffer);
+                pass.draw(run.vertex_count, run.count, 0, run.first);
+            }
+        }
         if map_quads > 0 {
             self.shared.bind(pass, frame, self.translucent);
             pass.set_vertex_buffer(0, map_vertices);
@@ -759,11 +827,13 @@ impl ItemEntityPipeline {
         self.destroy_pipelines(device);
         (self.cutout, self.translucent) =
             create_world_pipelines(device, targets, self.shared.pipeline_layout);
+        self.glint = create_glint_pipeline(device, targets, self.shared.pipeline_layout);
     }
 
     fn destroy_pipelines(&self, device: &rhi::backend::Device) {
         self.cutout.destroy(device);
         self.translucent.destroy(device);
+        self.glint.destroy(device);
     }
 
     pub fn rebind_atlas(&mut self, device: &rhi::backend::Device, atlas: &TextureAtlas) {
@@ -1159,6 +1229,35 @@ fn create_outline_pipeline(
                 "item outline",
                 shader::include_shader!("item_outline.vert"),
                 shader::include_shader!("entity_outline.frag"),
+                &[ItemVertex::BUFFER, ItemInstance::BUFFER],
+            )
+        },
+    )
+}
+
+/// Vanilla's `GLINT` pipeline: a mesh again where it is already drawn (at
+/// equal depth, unwritten), both its faces, added to what is there.
+pub(super) fn create_glint_pipeline(
+    device: &rhi::backend::Device,
+    targets: rhi::backend::PipelineTargets,
+    layout: rhi::backend::PipelineLayout,
+) -> rhi::backend::RenderPipeline {
+    rhi::backend::create_render_pipeline(
+        device,
+        targets,
+        layout,
+        &rhi::RenderPipelineDesc {
+            cull_mode: rhi::CullMode::None,
+            depth: Some(rhi::DepthState {
+                write: false,
+                compare: rhi::CompareFunction::Equal,
+                bias: None,
+            }),
+            blend: Some(rhi::BlendState::GLINT),
+            ..rhi::RenderPipelineDesc::new(
+                "item glint",
+                shader::include_shader!("item_glint.vert"),
+                shader::include_shader!("item_glint.frag"),
                 &[ItemVertex::BUFFER, ItemInstance::BUFFER],
             )
         },

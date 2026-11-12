@@ -2,6 +2,7 @@ use std::path::Path;
 
 use glam::{Mat3, Mat4, Vec3};
 
+use crate::assets::AssetIndex;
 use crate::renderer::camera::CameraUniform;
 use crate::renderer::chunk::atlas::TextureAtlas;
 use crate::renderer::chunk::block_lighter::LightLevels;
@@ -21,6 +22,8 @@ pub struct HeldItemInfo {
     pub charged_crossbow: bool,
     /// The item's swing is a stab (a spear's `swing_animation`).
     pub stabs: bool,
+    /// Vanilla `ItemStack.hasFoil`: the enchantment glint is drawn over it.
+    pub foil: bool,
     /// The baked model's own first-person transforms, right hand then left
     /// (packs and the stack's model included); `None` falls back to the
     /// item definition's.
@@ -157,6 +160,8 @@ impl HandRenderSelection {
 
 pub struct HeldItemPipeline {
     pipeline: rhi::backend::RenderPipeline,
+    /// Vanilla `GLINT`, which a foil item is drawn again with.
+    glint: rhi::backend::RenderPipeline,
     shared: ItemPipelineShared,
     right_display: DisplayResolver,
     left_display: DisplayResolver,
@@ -168,11 +173,20 @@ impl HeldItemPipeline {
         targets: rhi::backend::PipelineTargets,
         atlas: &TextureAtlas,
         jar_assets_dir: &Path,
+        asset_index: &Option<AssetIndex>,
         lightmap: &Lightmap,
     ) -> Self {
-        let shared = ItemPipelineShared::new(device, atlas, lightmap, "held_item");
+        let shared = ItemPipelineShared::new(
+            device,
+            atlas,
+            lightmap,
+            jar_assets_dir,
+            asset_index,
+            "held_item",
+        );
         let pipeline = item_entity::create_pipeline(device, targets, shared.pipeline_layout);
         Self {
+            glint: item_entity::create_glint_pipeline(device, targets, shared.pipeline_layout),
             pipeline,
             shared,
             right_display: DisplayResolver::new(jar_assets_dir, &["firstperson_righthand"]),
@@ -204,9 +218,11 @@ impl HeldItemPipeline {
         light: LightLevels,
         cardinal_light: CardinalLightType,
         fire_overlay: bool,
+        glint: [f32; 4],
     ) {
         let uniform = CameraUniform::with_view_proj(hand::projection(aspect, hud_fov) * bob)
-            .with_cardinal_light(cardinal_light);
+            .with_cardinal_light(cardinal_light)
+            .with_glint(glint);
         self.shared.update_camera(frame, &uniform);
 
         let tint_count = hands.iter().map(|hand| hand.item.item_tints.len()).sum();
@@ -214,6 +230,8 @@ impl HeldItemPipeline {
         self.shared
             .begin_frame(device, frame, hands.len() + 1 + map_quads, tint_count);
         self.shared.bind(pass, frame, self.pipeline);
+        // The foil items' draws, to repeat with the glint.
+        let mut foils = Vec::new();
         for hand in hands {
             let item = hand.item;
             let mesh = &item.arm_models[usize::from(!hand.right_arm)];
@@ -255,6 +273,18 @@ impl HeldItemPipeline {
             );
             pass.set_vertex_buffer(0, buffer);
             pass.draw(vertex_count, 1, 0, instance);
+            if item.foil {
+                foils.push((buffer, vertex_count, instance));
+            }
+        }
+        // The enchantment glint, over the items it is on.
+        if !foils.is_empty() {
+            self.shared.bind_glint(pass, frame, self.glint);
+            for (buffer, vertex_count, instance) in foils {
+                pass.set_vertex_buffer(0, buffer);
+                pass.draw(vertex_count, 1, 0, instance);
+            }
+            self.shared.bind(pass, frame, self.pipeline);
         }
         // A map's paper, picture and markers, each from a texture of its
         // own in place of the atlas, lit as the hand is.
@@ -301,10 +331,14 @@ impl HeldItemPipeline {
     ) {
         self.pipeline.destroy(device);
         self.pipeline = item_entity::create_pipeline(device, targets, self.shared.pipeline_layout);
+        self.glint.destroy(device);
+        self.glint =
+            item_entity::create_glint_pipeline(device, targets, self.shared.pipeline_layout);
     }
 
     pub fn destroy(&mut self, device: &rhi::backend::Device) {
         self.pipeline.destroy(device);
+        self.glint.destroy(device);
         self.shared.destroy(device);
     }
 }

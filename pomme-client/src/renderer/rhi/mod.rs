@@ -670,6 +670,7 @@ pub enum FrontFace {
 pub enum CompareFunction {
     Less,
     LessEqual,
+    Equal,
 }
 
 #[derive(Clone, Copy)]
@@ -761,6 +762,18 @@ impl BlendState {
             dst: BlendFactor::OneMinusSrcColor,
         },
         alpha: BlendComponent::REPLACE,
+    };
+    /// Vanilla's `GLINT`: the source colour, squared, added to what is
+    /// there; the alpha left alone.
+    pub const GLINT: Self = Self {
+        color: BlendComponent {
+            src: BlendFactor::SrcColor,
+            dst: BlendFactor::One,
+        },
+        alpha: BlendComponent {
+            src: BlendFactor::Zero,
+            dst: BlendFactor::One,
+        },
     };
     /// Not one of vanilla's: the color blends over, the source alpha is
     /// written as is.
