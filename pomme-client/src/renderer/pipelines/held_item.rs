@@ -53,6 +53,12 @@ pub struct UseAnim {
 
 /// A map held in first person: its quads, and where the map's own space
 /// (128 units a side) sits in view.
+/// Where a held map's own space (see [`HeldMap::pose`]) lands on the
+/// screen: the hands' projection, the view's bob, then the map's pose.
+pub fn map_clip(aspect: f32, hud_fov: f32, bob: Mat4, pose: Mat4) -> Mat4 {
+    hand::projection(aspect, hud_fov) * bob * pose
+}
+
 pub struct HeldMap<'a> {
     pub quads: &'a [MapQuad],
     pub pose: Mat4,

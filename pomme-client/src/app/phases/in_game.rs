@@ -5407,27 +5407,19 @@ pub fn update_game(
             }
         }
     }
-    // A named marker's label under it on a framed map (vanilla
-    // `MapRenderer`): white on a dark band, shrunk to fit 25 map pixels,
-    // at most two thirds of the font's size.
-    // TODO: the same labels on a map held in the hand.
-    for &(id, pose, light) in &framed_maps {
-        let Some(map) = game.maps.get(id) else {
-            continue;
-        };
-        let eye = gfx.renderer.camera_render_position() - gfx.renderer.camera_anchor();
-        let distance = f64::from(pose.w_axis.truncate().distance_squared(eye.as_vec3()));
-        for marker in map.decorations.iter().filter(|d| d.shows_on_item_frame()) {
-            let Some(name) = &marker.name else {
-                continue;
-            };
+    // A named marker's label under it on a map (vanilla `MapRenderer`):
+    // white on a dark band, shrunk to fit 25 map pixels, at most two
+    // thirds of the font's size. In the map's own 128-unit space.
+    let mut map_label =
+        |renderer: &Renderer, marker: &crate::world::map::MapDecoration, light: LightLevels| {
+            let name = marker.name.as_ref()?;
             let layout = game
                 .map_labels
                 .entry(format!("{name:?}"))
-                .or_insert_with(|| Arc::new(gfx.renderer.layout_display_text(name, i32::MAX)))
+                .or_insert_with(|| Arc::new(renderer.layout_display_text(name, i32::MAX)))
                 .clone();
             if layout.width <= 0.0 {
-                continue;
+                return None;
             }
             let scale = (25.0 / layout.width).clamp(0.0, 6.0 / 9.0);
             // From a text display's space (y up, facing +z, 40 text pixels a
@@ -5439,21 +5431,50 @@ pub fn update_game(
                 f32::from(marker.y) / 2.0 + 68.0 + 16.0 * scale,
                 -0.1,
             )) * glam::Mat4::from_scale(glam::Vec3::new(40.0, -40.0, -40.0) * scale);
-            world_texts.push((
-                distance,
-                crate::renderer::pipelines::menu_overlay::WorldTextRender {
-                    layout,
-                    pose: pose * label,
-                    align: crate::entity::display::TextAlign::Center,
-                    color: 0xFFFF_FFFF,
-                    background: 0x8000_0000,
-                    shadow: false,
-                    see_through: false,
-                    light: light.lane(),
-                },
-            ));
+            Some(crate::renderer::pipelines::menu_overlay::WorldTextRender {
+                layout,
+                pose: label,
+                align: crate::entity::display::TextAlign::Center,
+                color: 0xFFFF_FFFF,
+                background: 0x8000_0000,
+                shadow: false,
+                see_through: false,
+                light: light.lane(),
+            })
+        };
+    for &(id, pose, light) in &framed_maps {
+        let Some(map) = game.maps.get(id) else {
+            continue;
+        };
+        let eye = gfx.renderer.camera_render_position() - gfx.renderer.camera_anchor();
+        let distance = f64::from(pose.w_axis.truncate().distance_squared(eye.as_vec3()));
+        for marker in map.decorations.iter().filter(|d| d.shows_on_item_frame()) {
+            if let Some(label) = map_label(&gfx.renderer, marker, light) {
+                world_texts.push((
+                    distance,
+                    crate::renderer::pipelines::menu_overlay::WorldTextRender {
+                        pose: pose * label.pose,
+                        ..label
+                    },
+                ));
+            }
         }
     }
+    // And on a map held in the hand, every marker's, lit as the hand is.
+    let held_labels = if benchmark_running {
+        Default::default()
+    } else {
+        game.hand_equip.visible().map(|stack| {
+            let map = stack
+                .get_component::<azalea_inventory::components::MapId>()
+                .and_then(|map| game.maps.get(map.id));
+            map.into_iter()
+                .flat_map(|map| &map.decorations)
+                .filter_map(|marker| map_label(&gfx.renderer, marker, player_light))
+                .collect::<Vec<_>>()
+        })
+    };
+    gfx.renderer.set_held_map_labels(held_labels);
     // Nothing writes depth, so overlapping texts layer back to front.
     world_texts.sort_by(|a, b| b.0.total_cmp(&a.0));
     gfx.renderer

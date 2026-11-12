@@ -2063,6 +2063,7 @@ const WORLD_TEXT_BUFFERS: [rhi::VertexBufferLayout<'static>; 1] = [rhi::vertex_b
 )];
 
 /// One text display to draw.
+#[derive(Clone)]
 pub struct WorldTextRender {
     pub layout: std::sync::Arc<crate::entity::display::TextLayout>,
     /// The entity's pose: anchor-relative position, orientation and
@@ -2350,6 +2351,49 @@ impl WorldTextPipeline {
             pass.set_vertex_buffer(0, buffer.handle());
             pass.draw(count, 1, first, 0);
         }
+    }
+
+    /// Draws more texts after this frame's [`Self::draw`], over what has
+    /// been drawn since (a held map's labels, over the map): their
+    /// vertices go after the frame's own.
+    pub fn draw_late(
+        &mut self,
+        device: &rhi::backend::Device,
+        pass: &mut rhi::backend::RenderPassEncoder,
+        frame: usize,
+        menu: &MenuOverlayPipeline,
+        texts: &[WorldTextRender],
+    ) {
+        let start = self.vertices.len();
+        for text in texts {
+            self.push_text(&menu.geometry, text);
+        }
+        let count = self.vertices.len() - start;
+        if count == 0 {
+            return;
+        }
+        let (buffer, capacity, retired) = &mut self.slots[frame];
+        if self.vertices.len() > *capacity {
+            // The frame's own draw still reads the old buffer.
+            let grown = (*capacity * 2).max(self.vertices.len());
+            retired.push(std::mem::replace(buffer, Self::buffer(device, grown)));
+            *capacity = grown;
+            buffer.write_at(0, bytemuck::cast_slice(&self.vertices));
+        } else {
+            buffer.write_at(
+                start * size_of::<WorldTextVertex>(),
+                bytemuck::cast_slice(&self.vertices[start..]),
+            );
+        }
+        let (_, tex_set) = menu.texture_group();
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_groups(0, &[self.camera_sets[frame], tex_set, self.lightmap_set]);
+        pass.set_vertex_buffer(0, buffer.handle());
+        pass.draw(count as u32, 1, start as u32, 0);
+        // The list is the frame's own again, whether or not its draw
+        // runs next frame. (One late draw a frame: a second would write
+        // over this one's vertices.)
+        self.vertices.truncate(start);
     }
 
     pub fn recreate_pipeline(

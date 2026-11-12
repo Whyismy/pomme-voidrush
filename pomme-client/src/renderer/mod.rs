@@ -282,6 +282,9 @@ pub struct Renderer {
     world_text_pipeline: pipelines::menu_overlay::WorldTextPipeline,
     /// This frame's text displays, set before `render_world`.
     world_texts: Vec<pipelines::menu_overlay::WorldTextRender>,
+    /// The labels of the maps held in the main and the off hand, each
+    /// posed in its map's own 128-unit space.
+    held_map_labels: [Vec<pipelines::menu_overlay::WorldTextRender>; 2],
     /// The Menu Background Blur option: vanilla's `MenuBlurRadius`.
     menu_blur_radius: u8,
     entity_outline: EntityOutline,
@@ -618,6 +621,7 @@ impl Renderer {
             menu_pipeline,
             world_text_pipeline,
             world_texts: Vec::new(),
+            held_map_labels: Default::default(),
             menu_blur_radius: crate::ui::menu::DEFAULT_MENU_BACKGROUND_BLURRINESS,
             entity_outline,
             post_effects,
@@ -2439,6 +2443,15 @@ impl Renderer {
     }
 
     /// This frame's text displays, back to front.
+    /// The labels of the maps in the main and the off hand, each posed in
+    /// its map's own 128-unit space.
+    pub fn set_held_map_labels(
+        &mut self,
+        labels: [Vec<pipelines::menu_overlay::WorldTextRender>; 2],
+    ) {
+        self.held_map_labels = labels;
+    }
+
     pub fn set_world_texts(&mut self, texts: Vec<pipelines::menu_overlay::WorldTextRender>) {
         self.world_texts = texts;
     }
@@ -2992,6 +3005,7 @@ impl Renderer {
                     // TODO: an invisible player's arms are hidden.
                     let mut arms = Vec::new();
                     let mut maps = Vec::new();
+                    let mut map_hands = Vec::new();
                     for hand in 0..2 {
                         let Some(quads) = held_maps[hand].as_ref().filter(|_| shown[hand]) else {
                             continue;
@@ -3016,6 +3030,7 @@ impl Renderer {
                             map
                         };
                         maps.push(pipelines::held_item::HeldMap { quads, pose });
+                        map_hands.push(hand);
                     }
                     if shown_hands.main && held_items[0].is_none() {
                         arms.truncate(1);
@@ -3081,6 +3096,44 @@ impl Renderer {
                             self.screen_fire,
                         );
                     }
+                    // A held map's marker labels (`MapRenderer`), over the
+                    // map: the text pipeline draws in the world's view, so
+                    // each label is put where, in that view, the hands'
+                    // projection has it. That is no straight change of
+                    // frame, but across one small label it is all but one.
+                    // The text shader takes positions about the render
+                    // anchor and sets the eye's off them itself.
+                    let from_clip = self.camera.view_projection().inverse();
+                    let eye = (self.camera_render_position() - self.camera_anchor()).as_vec3();
+                    let mut labels = Vec::new();
+                    for (map, &hand) in maps.iter().zip(&map_hands) {
+                        let onto_screen =
+                            pipelines::held_item::map_clip(aspect, hud_fov, view_effect, map.pose);
+                        for label in &self.held_map_labels[hand] {
+                            let through = from_clip * onto_screen * label.pose;
+                            let at = |p: glam::Vec3| through.project_point3(p) + eye;
+                            let step = 0.25;
+                            let axis = |axis: glam::Vec3| {
+                                ((at(axis * step) - at(-axis * step)) / (2.0 * step)).extend(0.0)
+                            };
+                            labels.push(pipelines::menu_overlay::WorldTextRender {
+                                pose: glam::Mat4::from_cols(
+                                    axis(glam::Vec3::X),
+                                    axis(glam::Vec3::Y),
+                                    axis(glam::Vec3::Z),
+                                    at(glam::Vec3::ZERO).extend(1.0),
+                                ),
+                                ..label.clone()
+                            });
+                        }
+                    }
+                    self.world_text_pipeline.draw_late(
+                        &self.ctx.device,
+                        &mut pass,
+                        frame,
+                        &self.menu_pipeline,
+                        &labels,
+                    );
                 }
 
                 // Vanilla blits the outline after the hand, before the GUI.

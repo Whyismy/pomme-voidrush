@@ -1,6 +1,6 @@
 # A named map marker's label (vanilla MapRenderer): a banner named "Home",
 # thirty blocks off, is marked on a map, and the map hung in a frame shows the banner's marker
-# with its name under it.
+# with its name under it. So does the map held in the hands.
 
 [[step]]
 wait_ms = 15000
@@ -63,12 +63,13 @@ look_at = [30.5, -59.5, -19.5]
 [[step]]
 wait_ms = 500
 
-
+# One use: held longer, the map is used again every four ticks, and a
+# second use takes the marker off.
 [[step]]
 mouse_down = "right"
 
 [[step]]
-wait_ms = 400
+wait_ms = 100
 
 [[step]]
 mouse_up = "right"
@@ -90,6 +91,22 @@ wait_ms = 3000
 
 [[step]]
 screenshot = "label"
+
+# The same map in the hands shows the name too.
+[[step]]
+chat = "/item replace entity @s weapon.mainhand from entity @e[type=minecraft:item_frame,limit=1] container.0"
+
+[[step]]
+chat = "/tp @s 0.5 -60 0.5 180 50"
+
+[[step]]
+wait_ms = 2500
+
+[[step]]
+screenshot = "held"
+
+[[step]]
+chat = "/clear"
 
 [[step]]
 chat = "/setblock 30 -60 -20 minecraft:air"
