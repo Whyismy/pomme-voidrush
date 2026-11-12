@@ -7776,6 +7776,15 @@ fn entity_extras(
             overlay_tints: SLOT0_TINTS,
             ..Default::default()
         },
+        // The wind and the eyes, both always shown.
+        EntityKind::Breeze => {
+            let mut overlay_tints = SLOT0_TINTS;
+            overlay_tints[1] = Some(WHITE_TINT);
+            EntityExtras {
+                overlay_tints,
+                ..Default::default()
+            }
+        }
         // `CaveSpiderRenderer.SCALE`.
         EntityKind::CaveSpider => EntityExtras {
             overlay_tints: SLOT0_TINTS,

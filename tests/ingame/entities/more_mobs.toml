@@ -1,6 +1,7 @@
 # Mobs drawn from vanilla's own layers that had no model before: silverfish,
 # endermite, tadpole, nautilus (adult, baby, zombie), parched and camel
-# husk, then the wither, happy ghasts (adult and baby) and a giant, then
+# husk, then the wither, happy ghasts (adult and baby), a giant and a breeze in
+# its wind, then
 # hoglin, zoglin, strider, camel, piglin and zombified piglin with their
 # babies in front.
 
@@ -69,6 +70,9 @@ chat = "/summon minecraft:happy_ghast 700.5 -59 603.5 {NoAI:1b,Silent:1b,Persist
 
 [[step]]
 chat = "/summon minecraft:giant 700.5 -60 628.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:breeze 703.5 -60 602.0 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f]}"
 
 [[step]]
 wait_ms = 3000

@@ -2946,11 +2946,35 @@ fn mob_and_projectile_definitions() -> Vec<MobDef> {
             exported_data::WARDEN,
             tex_table!("warden" => "warden"),
         ),
-        exported(
-            EntityKind::Breeze,
-            exported_data::BREEZE,
-            tex_table!("breeze" => "breeze"),
-        ),
+        // `BreezeRenderer`: the body and rods, then `BreezeWindLayer`'s
+        // whirl, its texture sliding sideways, and `BreezeEyesLayer`'s
+        // glowing eyes.
+        // TODO: the breeze's keyframed animations (idle, shoot, jump).
+        MobDef {
+            adult_overlays: vec![
+                VariantDef {
+                    overlay_kind: OverlayKind::Wind,
+                    ..opaque(
+                        entity_model::bake_exported(exported_data::BREEZE_WIND),
+                        tex_table!("breeze" => "breeze_wind"),
+                        128,
+                    )
+                },
+                VariantDef {
+                    overlay_kind: OverlayKind::EyesTranslucent,
+                    ..opaque(
+                        entity_model::bake_exported(exported_data::BREEZE_EYES),
+                        tex_table!("breeze" => "breeze_eyes"),
+                        32,
+                    )
+                },
+            ],
+            ..exported(
+                EntityKind::Breeze,
+                exported_data::BREEZE,
+                tex_table!("breeze" => "breeze"),
+            )
+        },
         exported(
             EntityKind::Creaking,
             exported_data::CREAKING,
@@ -4307,6 +4331,14 @@ impl EntityRenderer {
             for (base, texture_set, member) in translucent_bodies {
                 body.add(base, texture_set, member);
             }
+            // A wind layer (the breeze's whirl) draws with the translucent
+            // bodies, as the wind charge's does.
+            let wind = collect_overlays(&vis, OverlayKind::Wind, &mut outline_only);
+            for (layer, texture_set, members) in wind.groups {
+                for member in members {
+                    body.add(layer, texture_set, member);
+                }
+            }
             let eyes = collect_overlays(&vis, OverlayKind::EyesTranslucent, &mut outline_only);
             let swirl = collect_overlays(&vis, OverlayKind::SwirlAdditive, &mut outline_only);
 
@@ -4816,12 +4848,15 @@ fn collect_overlays<'a>(
 ) -> VariantGroups<'a> {
     let mut groups = VariantGroups::default();
     for (vi, v) in vis.iter().enumerate() {
-        // Energy swirl scrolls its UVs over time (vanilla `EnergySwirlLayer`).
-        let uv = if kind == OverlayKind::SwirlAdditive {
-            let o = (v.info.age_in_ticks * 0.01).rem_euclid(1.0);
-            [o, o]
-        } else {
-            [0.0, 0.0]
+        // Energy swirl scrolls its UVs over time (vanilla `EnergySwirlLayer`),
+        // and a breeze's wind slides sideways (`BreezeWindLayer.xOffset`).
+        let uv = match kind {
+            OverlayKind::SwirlAdditive => {
+                let o = (v.info.age_in_ticks * 0.01).rem_euclid(1.0);
+                [o, o]
+            }
+            OverlayKind::Wind => [(v.info.age_in_ticks * 0.02).rem_euclid(1.0), 0.0],
+            _ => [0.0, 0.0],
         };
         // The body layer flashes red with the entity (vanilla passes the hurt
         // overlay coords); the emissive eyes/swirl layers never do.
