@@ -597,6 +597,9 @@ struct ArmorMeshes {
     /// `LLAMA_DECOR` chestless and chested; the baby never shows a chest.
     llama_decor: [ArmorMesh; 2],
     baby_llama_decor: ArmorMesh,
+    /// `ArmorStandArmorModel`'s layers (`armor_stand#helmet`...), whose
+    /// head and legs sit where the stand's do; then a small stand's.
+    armor_stand: [[ArmorMesh; 4]; 2],
 }
 
 impl MobEntry {
@@ -1175,6 +1178,26 @@ fn build_armor_meshes(device: &rhi::backend::Device) -> ArmorMeshes {
         llama_decor: [false, true]
             .map(|chest| build_armor_mesh(device, entity_model::bake_llama_decor_model(chest))),
         baby_llama_decor: build_armor_mesh(device, entity_model::bake_baby_llama_decor_model()),
+        armor_stand: {
+            use entity_model::exported_data as layers;
+            [
+                [
+                    layers::ARMOR_STAND_HELMET,
+                    layers::ARMOR_STAND_CHESTPLATE,
+                    layers::ARMOR_STAND_LEGGINGS,
+                    layers::ARMOR_STAND_BOOTS,
+                ],
+                [
+                    layers::ARMOR_STAND_SMALL_HELMET,
+                    layers::ARMOR_STAND_SMALL_CHESTPLATE,
+                    layers::ARMOR_STAND_SMALL_LEGGINGS,
+                    layers::ARMOR_STAND_SMALL_BOOTS,
+                ],
+            ]
+            .map(|set| {
+                set.map(|layer| build_armor_mesh(device, entity_model::bake_exported(layer)))
+            })
+        },
     }
 }
 
@@ -1195,10 +1218,14 @@ fn destroy_armor_assets(device: &rhi::backend::Device, assets: &mut HashMap<Stri
 impl ArmorMeshes {
     // TODO: the other vanilla `HumanoidArmorLayer` wearers once pomme renders
     // them: wither skeleton (1.2 scale), parched, piglin / piglin brute /
-    // zombified piglin (`PiglinModel.createArmorMeshSet`), giant, armor stand.
+    // zombified piglin (`PiglinModel.createArmorMeshSet`), giant.
     fn for_entity(&self, kind: EntityKind, baby: bool, slot: usize) -> Option<&ArmorMesh> {
         if slot >= 4 {
             return None;
+        }
+        // A small stand is the stand's "baby" (`ArmorStand.isBaby`).
+        if kind == EntityKind::ArmorStand {
+            return Some(&self.armor_stand[usize::from(baby)][slot]);
         }
         if baby {
             let set = match kind {
@@ -4095,8 +4122,11 @@ impl EntityRenderer {
                     continue;
                 };
                 // Their armor sheet is the `humanoid_baby` layer, laid out
-                // for the baby armor model (assets before 26.1 have none).
+                // for the baby armor model (assets before 26.1 have none);
+                // a small armor stand's is the grown one's
+                // (`HumanoidArmorLayer.renderArmorPiece`).
                 let baby_sheet = v.info.is_baby
+                    && v.info.entity_kind != EntityKind::ArmorStand
                     && self
                         .armor_assets
                         .get(&*armor.asset_id)
@@ -5032,6 +5062,7 @@ impl EntityRenderer {
             .chain(self.armor_meshes.baby.iter_mut().flatten())
             .chain(self.armor_meshes.llama_decor.iter_mut())
             .chain([&mut self.armor_meshes.baby_llama_decor])
+            .chain(self.armor_meshes.armor_stand.iter_mut().flatten())
         {
             std::mem::take(&mut mesh.vertex_buffer).destroy(device);
         }
