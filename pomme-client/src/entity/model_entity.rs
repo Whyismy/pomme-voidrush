@@ -3,9 +3,10 @@
 //! minecarts and boats. The projectiles fly on the client between the
 //! server's position updates, as vanilla's do, and leave their trails; the
 //! vehicles glide to where the server last put them.
-// TODO: driving a boat or a minecart (their client-side physics and the
-// paddle and vehicle-move packets), their hurt wobble, a boat's bubble
-// column rocking, and a custom minecart display block.
+// A boat the local player rows is the exception: this client moves it
+// (`crate::physics::boat`) and the server's moves for it are only noted.
+// TODO: a vehicle's hurt wobble, a boat's bubble column rocking, and a
+// custom minecart display block.
 
 use std::collections::HashMap;
 
@@ -170,12 +171,60 @@ pub fn is_model_entity(kind: EntityKind) -> bool {
 
 impl ModelEntity {
     /// The server moved it: a vehicle glides there, anything else is there.
-    fn moved_by_server(&mut self) {
-        if is_vehicle(self.kind) {
+    /// A boat this client rows stays where its rower put it.
+    fn moved_by_server(&mut self, driven: bool) {
+        if driven {
+        } else if is_vehicle(self.kind) {
             self.lerp_steps = VEHICLE_LERP_STEPS;
         } else {
             self.position = self.server_position;
         }
+    }
+
+    /// The box the crosshair picks a vehicle by (its `EntityType`'s size),
+    /// and whether using it swings the arm: getting into a boat or an empty
+    /// minecart does, as does opening a cart's chest or hopper.
+    pub fn pick_box(&self) -> Option<(crate::physics::aabb::Aabb, bool)> {
+        use crate::physics::aabb::Aabb;
+        use crate::physics::boat::{HEIGHT, WIDTH};
+        if boat(self.kind).is_some() {
+            return Some((
+                Aabb::from_center(*self.position, WIDTH * 0.5, HEIGHT * 0.5),
+                true,
+            ));
+        }
+        minecart(self.kind)?;
+        let swing = matches!(
+            self.kind,
+            EntityKind::Minecart | EntityKind::ChestMinecart | EntityKind::HopperMinecart
+        );
+        Some((Aabb::from_center(*self.position, 0.49, 0.35), swing))
+    }
+
+    /// The local player rowed this boat a tick on (`AbstractBoat.tick` with
+    /// the client in charge): where it now is and which paddles row.
+    pub fn rowed(&mut self, boat: crate::physics::boat::Boat, paddling: [bool; 2]) {
+        self.prev_position = self.position;
+        self.prev_y_rot = self.y_rot;
+        self.prev_x_rot = self.x_rot;
+        self.position = boat.position.into();
+        self.velocity = boat.velocity;
+        self.y_rot = boat.y_rot;
+        self.paddling = paddling;
+        self.lerp_steps = 0;
+    }
+
+    /// The server put the boat this client rows somewhere else
+    /// (`ClientboundMoveVehiclePacket`): it is there, at rest.
+    pub fn put(&mut self, position: Position, y_rot: f32, x_rot: f32) {
+        self.position = position;
+        self.prev_position = position;
+        self.y_rot = y_rot;
+        self.prev_y_rot = y_rot;
+        self.x_rot = x_rot;
+        self.prev_x_rot = x_rot;
+        self.velocity = DVec3::ZERO;
+        self.lerp_steps = 0;
     }
 }
 
@@ -300,6 +349,10 @@ pub enum Trail {
 #[derive(Default)]
 pub struct ModelEntityStore {
     pub entities: HashMap<i32, ModelEntity>,
+    /// The boat the local player rows, which this client moves: the
+    /// server's moves for it are noted and no more (vanilla
+    /// `isLocalInstanceAuthoritative`).
+    pub driven: Option<i32>,
 }
 
 impl ModelEntityStore {
@@ -338,24 +391,28 @@ impl ModelEntityStore {
     }
 
     pub fn move_delta(&mut self, id: i32, delta: DVec3) {
+        let driven = self.driven == Some(id);
         if let Some(entity) = self.entities.get_mut(&id) {
             entity.server_position = (*entity.server_position + delta).into();
-            entity.moved_by_server();
+            entity.moved_by_server(driven);
         }
     }
 
     pub fn teleport(&mut self, id: i32, position: Position) {
+        let driven = self.driven == Some(id);
         if let Some(entity) = self.entities.get_mut(&id) {
             entity.server_position = settled(entity.kind, position);
-            entity.moved_by_server();
+            entity.moved_by_server(driven);
         }
     }
 
     pub fn rotate(&mut self, id: i32, y_rot: f32, x_rot: f32) {
+        let driven = self.driven == Some(id);
         if let Some(entity) = self.entities.get_mut(&id) {
             entity.server_y_rot = y_rot;
             entity.server_x_rot = x_rot;
-            if is_vehicle(entity.kind) {
+            if driven {
+            } else if is_vehicle(entity.kind) {
                 entity.lerp_steps = VEHICLE_LERP_STEPS;
             } else {
                 entity.y_rot = y_rot;
@@ -390,6 +447,10 @@ impl ModelEntityStore {
         let super::MetaValue::Bool(flag) = value else {
             return;
         };
+        // The paddles of the boat this client rows are its own to set.
+        if self.driven == Some(id) {
+            return;
+        }
         if entity.kind == EntityKind::WitherSkull && index == 8 {
             entity.dangerous = flag;
         }
@@ -420,10 +481,14 @@ impl ModelEntityStore {
     /// Each kind's client `tick`; the particles they leave this tick.
     pub fn tick(&mut self) -> Vec<Trail> {
         let mut trails = Vec::new();
-        for entity in self.entities.values_mut() {
-            entity.prev_position = entity.position;
-            entity.prev_y_rot = entity.y_rot;
-            entity.prev_x_rot = entity.x_rot;
+        let driven = self.driven;
+        for (&id, entity) in &mut self.entities {
+            // A rowed boat's last place is its rower's tick's to keep.
+            if driven != Some(id) {
+                entity.prev_position = entity.position;
+                entity.prev_y_rot = entity.y_rot;
+                entity.prev_x_rot = entity.x_rot;
+            }
             entity.age = entity.age.saturating_add(1);
             match entity.kind {
                 // `ShulkerBullet.tick`: straight on, sparkling behind.
@@ -520,6 +585,7 @@ impl ModelEntityStore {
 
     pub fn clear(&mut self) {
         self.entities.clear();
+        self.driven = None;
     }
 }
 

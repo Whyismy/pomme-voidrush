@@ -3209,6 +3209,11 @@ impl AppCore {
                             crate::entity::components::LookDirection::new(y_rot, x_rot);
                         horse.velocity = glam::DVec3::ZERO;
                     }
+                    if let Some(id) = game.rowed_boat()
+                        && let Some(boat) = game.model_entities.entities.get_mut(&id)
+                    {
+                        boat.put(position.into(), y_rot, x_rot);
+                    }
                 }
                 NetworkEvent::SetCamera { id } => {
                     if id == game.player.entity_id {
@@ -4073,6 +4078,11 @@ impl AppCore {
             game.player.jump_riding_scale = 0.0;
         }
 
+        // What was left of the turn a rowed boat gave its rower last tick.
+        let (turn, turned) = std::mem::take(&mut game.rider_turn);
+        if turn != turned {
+            renderer.turn_camera(turn - turned);
+        }
         let camera_look = renderer.camera_look_dir();
         game.player.look_dir = if game.player.is_sleeping() {
             // `LivingEntity.tick` forces xRot to 0 while sleeping.
@@ -4212,6 +4222,63 @@ impl AppCore {
                     horse.on_ground,
                 ));
         }
+        // A boat the local player rows moves by this client's physics too
+        // (`AbstractBoat.tick`), and the server hears where and which
+        // paddles are in the water.
+        let rowed = game.rowed_boat();
+        game.model_entities.driven = rowed;
+        if game.boat_drive.vehicle != rowed {
+            game.boat_drive = rowed
+                .map(crate::physics::boat::Drive::of)
+                .unwrap_or_default();
+        }
+        if let Some(id) = rowed
+            && let Some(entity) = game.model_entities.entities.get_mut(&id)
+        {
+            use crate::physics::boat;
+            let mut body = boat::Boat {
+                position: *entity.position,
+                velocity: entity.velocity,
+                y_rot: entity.y_rot,
+            };
+            // `LocalPlayer.rideTick`: the keys held, for the boat's next tick.
+            let keys = boat::Keys {
+                left: game.player.move_strafe > 0.0,
+                right: game.player.move_strafe < 0.0,
+                up: game.player.move_forward > 0.0,
+                down: game.player.move_forward < 0.0,
+            };
+            let paddles = boat::tick(
+                &mut body,
+                &mut game.boat_drive,
+                keys,
+                crate::physics::collision::CollisionWorld::new(
+                    &game.chunk_store,
+                    game.block_registry.block_state_table(),
+                ),
+            );
+            entity.rowed(body, paddles);
+            // `AbstractBoat.positionRider`: the rower turns with the boat,
+            // and looks no further than 105 degrees off its bow. The view
+            // makes the turn over the frames to the next tick, and the
+            // server hears of it then, as vanilla's does after `sendPosition`.
+            let turned = game.player.look_dir.y_rot_deg() + game.boat_drive.delta_rotation;
+            let back = boat::rider_turn(body.y_rot, turned);
+            game.rider_turn = (game.boat_drive.delta_rotation + back, 0.0);
+            connection
+                .packet_tx
+                .send_raw(pomme_protocol::wire::encode_paddle_boat(
+                    paddles[0], paddles[1],
+                ));
+            connection
+                .packet_tx
+                .send_raw(pomme_protocol::wire::encode_move_vehicle(
+                    body.position,
+                    body.y_rot,
+                    entity.x_rot,
+                    game.boat_drive.on_ground,
+                ));
+        }
         // `Entity.rideTick`: a passenger moves with its vehicle, not itself.
         if let Some(seat) = game.riding_seat() {
             game.player.position = seat.into();
@@ -4220,7 +4287,14 @@ impl AppCore {
         let dx = game.player.position.x - game.player.prev_position.x;
         let dz = game.player.position.z - game.player.prev_position.z;
         game.player_prev_body_y_rot = game.player_body_y_rot;
-        game.player_body_y_rot = match game.riding_vehicle().map(|v| v.body_y_rot_deg) {
+        let rowed_y_rot = rowed
+            .and_then(|id| game.model_entities.entities.get(&id))
+            .map(|boat| boat.y_rot);
+        game.player_body_y_rot = match game
+            .riding_vehicle()
+            .map(|v| v.body_y_rot_deg)
+            .or(rowed_y_rot)
+        {
             // `AbstractHorse.positionRider` (and other living vehicles):
             // the rider's body faces the way its mount does.
             Some(vehicle_body) => vehicle_body,
@@ -4728,7 +4802,28 @@ fn pickables(game: &GameState, hand_holds: bool) -> Vec<crate::player::interacti
             position: frame.position(),
             swing_on_use: frame.item.is_some() || hand_holds,
         });
-    interactions.chain(crystals).chain(frames).collect()
+    // Boats and minecarts, but for the one the player is in
+    // (`ProjectileUtil.getEntityHitResult` passes over its own vehicle).
+    let riding = game.riding_vehicle_id;
+    let vehicles = game
+        .model_entities
+        .entities
+        .iter()
+        .filter(move |(id, _)| Some(**id) != riding)
+        .filter_map(|(&id, vehicle)| {
+            let (aabb, swing_on_use) = vehicle.pick_box()?;
+            Some(Pickable {
+                id,
+                aabb,
+                position: *vehicle.position,
+                swing_on_use,
+            })
+        });
+    interactions
+        .chain(crystals)
+        .chain(frames)
+        .chain(vehicles)
+        .collect()
 }
 
 #[cfg(test)]

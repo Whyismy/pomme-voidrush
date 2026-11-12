@@ -63,6 +63,16 @@ pub fn encode_move_vehicle(position: DVec3, y_rot: f32, x_rot: f32, on_ground: b
     buf
 }
 
+/// Vanilla `ServerboundPaddleBoatPacket`: which of the rowed boat's paddles
+/// are in the water.
+pub fn encode_paddle_boat(left: bool, right: bool) -> Vec<u8> {
+    let mut buf = Vec::new();
+    write_varint(&mut buf, game_serverbound_id("paddle_boat"));
+    buf.push(left as u8);
+    buf.push(right as u8);
+    buf
+}
+
 /// Vanilla 26.2 `ServerboundPickItemFromBlockPacket`: packed BlockPos then
 /// whether Ctrl requested block-entity/component data.
 pub fn encode_pick_item_from_block(x: i32, y: i32, z: i32, include_data: bool) -> Vec<u8> {

@@ -1404,6 +1404,12 @@ impl Renderer {
         self.camera.look_dir
     }
 
+    /// Turns the player's view `degrees` round, as a boat turns its rower.
+    pub fn turn_camera(&mut self, degrees: f32) {
+        let look = self.camera.look_dir;
+        self.camera.look_dir = LookDirection::new(look.y_rot_deg() + degrees, look.x_rot_deg());
+    }
+
     /// Rotation-only view-projection for the locator bar's waypoint pitch test.
     pub fn locator_projection(&self) -> glam::Mat4 {
         self.camera.view_rotation_projection()

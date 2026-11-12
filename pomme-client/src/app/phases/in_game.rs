@@ -380,6 +380,12 @@ pub struct GameState {
     /// Each nearby spawner's spin, last tick's and this one's, in the
     /// tenths of a degree vanilla counts it in (`BaseSpawner.spin`).
     pub spawner_spins: HashMap<BlockPos, (f32, f32)>,
+    /// The boat the local player rows: what it keeps between ticks.
+    pub boat_drive: crate::physics::boat::Drive,
+    /// The degrees a rowed boat turns its rower over this tick
+    /// (`AbstractBoat.positionRider`), and how many of them the view has
+    /// turned so far: the frames between ticks share the turn out.
+    pub rider_turn: (f32, f32),
     /// Each loaded end gateway's age and teleport cooldown, in ticks
     /// (`TheEndGatewayBlockEntity`), which its beam shows by.
     pub gateways: HashMap<BlockPos, (i64, i32)>,
@@ -586,6 +592,8 @@ impl GameState {
             beacon_beams: HashMap::new(),
             enchanting_books: HashMap::new(),
             gateways: HashMap::new(),
+            boat_drive: Default::default(),
+            rider_turn: (0.0, 0.0),
             spawner_spins: HashMap::new(),
             map_labels: HashMap::new(),
             fishing_hooks: Default::default(),
@@ -732,7 +740,19 @@ impl GameState {
     /// `isLocalInstanceAuthoritative` for a vehicle): a saddled equine the
     /// local player controls. The server's moves for it are ignored.
     pub fn drives_vehicle(&self, id: i32) -> bool {
-        self.controlled_vehicle_id == Some(id) && self.riding_jumpable_vehicle()
+        self.controlled_vehicle_id == Some(id)
+            && (self.riding_jumpable_vehicle() || self.rowed_boat() == Some(id))
+    }
+
+    /// The boat the local player is at the oars of, which this client
+    /// moves.
+    pub fn rowed_boat(&self) -> Option<i32> {
+        self.controlled_vehicle_id.filter(|id| {
+            self.model_entities
+                .entities
+                .get(id)
+                .is_some_and(|e| crate::entity::model_entity::boat(e.kind).is_some())
+        })
     }
 
     /// Vanilla `LocalPlayer.jumpableVehicle() != null`: controlling a saddled
@@ -3099,6 +3119,12 @@ pub fn update_game(
     };
     // Vanilla `Camera.setup` follows the camera entity: a spectated mob's
     // eye and view rotation, else the local player's.
+    // A rowed boat's turn of its rower, as far as this frame is into it.
+    let turned = game.rider_turn.0 * partial_tick;
+    if turned != game.rider_turn.1 {
+        gfx.renderer.turn_camera(turned - game.rider_turn.1);
+        game.rider_turn.1 = turned;
+    }
     let spectated = game.spectated();
     let camera_pivot = match spectated {
         Some(e) => e.eye_position(partial_tick),

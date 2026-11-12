@@ -1,0 +1,150 @@
+# Getting into a boat with a right click and rowing it: this client moves
+# a boat its player rows (vanilla `AbstractBoat.tick`) and tells the server
+# where. Seen from behind as it rows down a channel, then turning, then
+# out again with sneak. After it, a right click seats the player in a
+# minecart on a rail.
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/gamemode survival"
+
+[[step]]
+chat = "/effect give @s minecraft:resistance infinite 4 true"
+
+[[step]]
+chat = "/tp @s 1100.5 -60 602.5 0 35"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+chat = "/fill 1096 -61 603 1104 -61 650 minecraft:water"
+
+[[step]]
+chat = "/summon minecraft:oak_boat 1100.5 -60 604.5 {Rotation:[0f,0f]}"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+mouse_down = "right"
+
+[[step]]
+wait_ms = 150
+
+[[step]]
+mouse_up = "right"
+
+[[step]]
+expect = { riding = true }
+
+[[step]]
+wait_ms = 500
+
+[[step]]
+screenshot = "aboard"
+
+[[step]]
+press = { action = "key.togglePerspective" }
+
+[[step]]
+press = { action = "key.forward", hold = true }
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "rowing_1"
+
+[[step]]
+wait_ms = 70
+
+[[step]]
+screenshot = "rowing_2"
+
+[[step]]
+wait_ms = 500
+
+[[step]]
+press = { action = "key.forward", hold = false }
+
+[[step]]
+wait_ms = 1500
+
+# The server has the boat where the client rowed it to.
+[[step]]
+chat = "/execute if entity @e[type=minecraft:oak_boat,x=1096,y=-62,z=611,dx=8,dy=3,dz=38] run say the boat is down the channel"
+
+[[step]]
+expect = { chat = "the boat is down the channel" }
+
+[[step]]
+press = { action = "key.right", hold = true }
+
+[[step]]
+wait_ms = 700
+
+[[step]]
+screenshot = "turning"
+
+[[step]]
+press = { action = "key.right", hold = false }
+
+[[step]]
+wait_ms = 1000
+
+[[step]]
+screenshot = "turned"
+
+[[step]]
+press = { action = "key.sneak", hold = true }
+
+[[step]]
+expect = { riding = false }
+
+[[step]]
+press = { action = "key.sneak", hold = false }
+
+[[step]]
+press = { action = "key.togglePerspective" }
+
+[[step]]
+press = { action = "key.togglePerspective" }
+
+[[step]]
+chat = "/tp @s 1120.5 -60 602.5 0 35"
+
+[[step]]
+chat = "/fill 1120 -60 604 1120 -60 610 minecraft:rail"
+
+[[step]]
+chat = "/summon minecraft:minecart 1120.5 -60 604.5"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+mouse_down = "right"
+
+[[step]]
+wait_ms = 150
+
+[[step]]
+mouse_up = "right"
+
+[[step]]
+expect = { riding = true }
+
+[[step]]
+wait_ms = 500
+
+[[step]]
+screenshot = "in_cart"
