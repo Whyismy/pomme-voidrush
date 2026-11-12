@@ -62,7 +62,13 @@ pub struct ArmorRenderInfo {
     pub asset_id: Arc<str>,
     pub dyed_color: Option<u32>,
     pub trim: Option<ArmorTrimInfo>,
+    /// Vanilla `ItemStack.hasFoil`: the enchantment glint is drawn over it.
+    pub foil: bool,
 }
+
+/// Vanilla `ItemFeatureRenderer.ENCHANTED_GLINT_ARMOR`.
+// TODO: a resource pack's own glint texture; this is the game's.
+const ARMOR_GLINT_TEXTURE: &str = "minecraft/textures/misc/enchanted_glint_armor.png";
 
 /// A worn piece's trim, as its sprite names it: the pattern's asset id and
 /// the palette its material uses on this armour ([`crate::trim`]).
@@ -141,6 +147,9 @@ pub fn equipment_render_info(item: &ItemStack) -> Option<ArmorRenderInfo> {
         asset_id,
         dyed_color,
         trim,
+        foil: item
+            .as_present()
+            .is_some_and(crate::player::inventory::has_foil),
     })
 }
 
@@ -1226,6 +1235,12 @@ pub struct EntityRenderer {
     eyes_pipeline: rhi::backend::RenderPipeline,
     /// Additive, depth-writing — charged-creeper energy swirl.
     swirl_pipeline: rhi::backend::RenderPipeline,
+    /// Vanilla `GLINT` for worn armor: an enchanted piece drawn again with
+    /// the armor glint texture, which repeats, smoothed.
+    glint_pipeline: rhi::backend::RenderPipeline,
+    glint_texture: rhi::backend::Texture,
+    glint_sampler: rhi::backend::Sampler,
+    glint_set: rhi::backend::BindGroup,
     /// Glowing outlines into the outline target, unculled then culled.
     outline_pipelines: [rhi::backend::RenderPipeline; 2],
     /// This frame's outline draws, paired with `outline_pipelines`.
@@ -3692,6 +3707,16 @@ impl EntityRenderer {
         ] = create_pipelines(device, targets, pipeline_layout);
         let outline_pipelines = [rhi::CullMode::None, rhi::CullMode::Back]
             .map(|cull_mode| create_outline_pipeline(device, pipeline_layout, cull_mode));
+        let glint_pipeline = create_glint_pipeline(device, targets, pipeline_layout);
+        let glint_texture =
+            util::load_asset_texture(device, jar_assets_dir, asset_index, ARMOR_GLINT_TEXTURE);
+        let glint_sampler = rhi::backend::create_sampler(device, &rhi::SamplerDesc::LINEAR_REPEAT);
+        let glint_set = util::create_texture_group(
+            device,
+            texture_layout,
+            glint_texture.handle(),
+            glint_sampler,
+        );
 
         let defs = mob_definitions();
 
@@ -3780,6 +3805,10 @@ impl EntityRenderer {
         }
 
         Self {
+            glint_pipeline,
+            glint_texture,
+            glint_sampler,
+            glint_set,
             pipeline,
             culled_pipeline,
             translucent_culled_pipeline,
@@ -4040,8 +4069,9 @@ impl EntityRenderer {
         &self,
         vis: &[VisEntity<'_>],
         instances: &mut Instances,
-    ) -> Vec<DrawRecord> {
+    ) -> (Vec<DrawRecord>, Vec<DrawRecord>) {
         let mut records = Vec::new();
+        let mut glint = Vec::new();
         for (vi, v) in vis.iter().enumerate() {
             if let Some(decor) = &v.info.llama_decor {
                 let mesh = if v.info.is_baby {
@@ -4050,7 +4080,7 @@ impl EntityRenderer {
                     &self.armor_meshes.llama_decor[decor.has_chest as usize]
                 };
                 let layers = self.equipment_layers(&decor.equipment, |asset| &asset.llama_body);
-                self.push_equipment_draws(vi, v, mesh, layers, instances, &mut records);
+                self.push_equipment_draws(vi, v, mesh, layers, instances, &mut records, None);
             }
             // Babies wear their model's own armor layers (exported, with the
             // anisotropic `CubeDeformation` pomme's hand models lack).
@@ -4073,10 +4103,12 @@ impl EntityRenderer {
                         .is_some_and(|asset| !asset.humanoid_baby.is_empty());
                 if baby_sheet {
                     let layers = self.equipment_layers(armor, |asset| &asset.humanoid_baby);
-                    self.push_equipment_draws(vi, v, mesh, layers, instances, &mut records);
+                    let foil = armor.foil.then_some(&mut glint);
+                    self.push_equipment_draws(vi, v, mesh, layers, instances, &mut records, foil);
                 } else {
                     let layers = self.armor_layers(armor, slot);
-                    self.push_equipment_draws(vi, v, mesh, layers, instances, &mut records);
+                    let foil = armor.foil.then_some(&mut glint);
+                    self.push_equipment_draws(vi, v, mesh, layers, instances, &mut records, foil);
                     // Vanilla `EquipmentLayerRenderer`: the trim over the
                     // layers, on the same model.
                     if let Some(Some(trim)) = armor
@@ -4086,17 +4118,27 @@ impl EntityRenderer {
                         && let Some(trim) = trim
                     {
                         let layers = std::iter::once((trim.set, [1.0; 4]));
-                        self.push_equipment_draws(vi, v, mesh, layers, instances, &mut records);
+                        self.push_equipment_draws(
+                            vi,
+                            v,
+                            mesh,
+                            layers,
+                            instances,
+                            &mut records,
+                            None,
+                        );
                     }
                 }
             }
         }
-        records
+        (records, glint)
     }
 
     /// One draw per part per equipment layer, posed by the mob's animation.
-    // TODO: armor trims and foil (`EquipmentLayerRenderer`) need a trim atlas
-    // and an entity glint pass.
+    /// With `glint`, the piece has foil: its first layer's draws are
+    /// repeated there with the armor glint texture, which vanilla
+    /// (`EquipmentLayerRenderer.renderLayers`) draws once, after that layer.
+    #[allow(clippy::too_many_arguments)]
     fn push_equipment_draws(
         &self,
         vi: usize,
@@ -4105,6 +4147,7 @@ impl EntityRenderer {
         layers: impl Iterator<Item = (rhi::backend::BindGroup, [f32; 4])>,
         instances: &mut Instances,
         records: &mut Vec<DrawRecord>,
+        mut glint: Option<&mut Vec<DrawRecord>>,
     ) {
         let mut layers = layers.peekable();
         if layers.peek().is_none() {
@@ -4112,7 +4155,8 @@ impl EntityRenderer {
         }
         let anim = self.compute_anim(v.entry.anim, &mesh.model, v.info);
         let part_transforms = mesh.model.compute_part_transforms(&anim);
-        for (texture_set, tint) in layers {
+        for (layer, (texture_set, tint)) in layers.enumerate() {
+            let first = records.len();
             for (part, (start, part_count)) in mesh.model.part_ranges.iter().enumerate() {
                 if *part_count == 0 {
                     continue;
@@ -4137,6 +4181,14 @@ impl EntityRenderer {
                     first_instance,
                     instance_count: 1,
                 });
+            }
+            if layer == 0
+                && let Some(glint) = glint.as_deref_mut()
+            {
+                glint.extend(records[first..].iter().map(|record| DrawRecord {
+                    texture_set: self.glint_set,
+                    ..*record
+                }));
             }
         }
     }
@@ -4622,7 +4674,7 @@ impl EntityRenderer {
         // part) becomes a single instanced draw. `vis`/`groups` borrow self.mobs
         // and are dropped at the end of this block, before the buffer write below.
         let mut instances = Instances::default();
-        let (opaque, armor, culled, translucent, body, eyes, swirl, outline) = {
+        let (opaque, armor, armor_glint, culled, translucent, body, eyes, swirl, outline) = {
             let mut vis: Vec<VisEntity> = Vec::new();
             for info in entities {
                 let Some(entry) = self.mobs.get(&info.entity_kind) else {
@@ -4749,7 +4801,7 @@ impl EntityRenderer {
             // Vanilla's EMISSIVE eyes and swirl skip the lightmap; Iris lights
             // the swirl through `gbuffers_entities`.
             let opaque = opaque.emit(&vis, &mut instances, false);
-            let armor = self.collect_armor_draws(&vis, &mut instances);
+            let (armor, armor_glint) = self.collect_armor_draws(&vis, &mut instances);
             let culled = culled.emit(&vis, &mut instances, false);
             let translucent = translucent.emit(&vis, &mut instances, false);
             let body = body.emit(&vis, &mut instances, false);
@@ -4769,6 +4821,7 @@ impl EntityRenderer {
             (
                 opaque,
                 armor,
+                armor_glint,
                 culled,
                 translucent,
                 body,
@@ -4826,6 +4879,18 @@ impl EntityRenderer {
                     self.record_pass(pass, frame, buffer, pipeline, &records, count);
                 }
             }
+        }
+        // The enchantment glint, over the armor it is on.
+        // TODO: through a shader pack's own program.
+        if pack_pipeline.is_none() && shadow.is_none() {
+            self.record_pass(
+                pass,
+                frame,
+                buffer,
+                self.glint_pipeline,
+                &armor_glint,
+                count,
+            );
         }
     }
 
@@ -4931,6 +4996,7 @@ impl EntityRenderer {
             self.eyes_pipeline,
             self.swirl_pipeline,
         ] = create_pipelines(device, targets, self.pipeline_layout);
+        self.glint_pipeline = create_glint_pipeline(device, targets, self.pipeline_layout);
     }
 
     fn destroy_pipelines(&self, device: &rhi::backend::Device) {
@@ -4944,6 +5010,7 @@ impl EntityRenderer {
         ] {
             pipeline.destroy(device);
         }
+        self.glint_pipeline.destroy(device);
     }
 
     pub fn destroy(&mut self, device: &rhi::backend::Device) {
@@ -4994,6 +5061,9 @@ impl EntityRenderer {
         for pipeline in self.outline_pipelines {
             pipeline.destroy(device);
         }
+        self.glint_set.destroy(device);
+        self.glint_sampler.destroy(device);
+        std::mem::take(&mut self.glint_texture).destroy(device);
         self.pipeline_layout.destroy(device);
         util::destroy_bind_groups(device, self.camera_sets.drain(..));
         self.camera_layout.destroy(device);
@@ -5690,6 +5760,35 @@ fn create_outline_pipeline(
                 "entity outline",
                 shader::include_shader!("entity.vert"),
                 shader::include_shader!("entity_outline.frag"),
+                &INSTANCED_BUFFERS,
+            )
+        },
+    )
+}
+
+/// Vanilla's `GLINT` pipeline for a worn piece: its mesh again where it is
+/// already drawn (at equal depth, unwritten), added to what is there.
+fn create_glint_pipeline(
+    device: &rhi::backend::Device,
+    targets: rhi::backend::PipelineTargets,
+    layout: rhi::backend::PipelineLayout,
+) -> rhi::backend::RenderPipeline {
+    rhi::backend::create_render_pipeline(
+        device,
+        targets,
+        layout,
+        &rhi::RenderPipelineDesc {
+            cull_mode: rhi::CullMode::None,
+            depth: Some(rhi::DepthState {
+                write: false,
+                compare: rhi::CompareFunction::Equal,
+                bias: None,
+            }),
+            blend: Some(rhi::BlendState::GLINT),
+            ..rhi::RenderPipelineDesc::new(
+                "entity glint",
+                shader::include_shader!("entity_glint.vert"),
+                shader::include_shader!("item_glint.frag"),
                 &INSTANCED_BUFFERS,
             )
         },

@@ -10281,6 +10281,7 @@ fn llama_extras(e: &crate::entity::LivingEntity) -> EntityExtras {
             },
             dyed_color: None,
             trim: None,
+            foil: false,
         }),
         _ => None,
     };

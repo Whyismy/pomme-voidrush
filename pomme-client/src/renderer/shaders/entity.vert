@@ -32,6 +32,9 @@ layout(location = 5) out float v_alpha_cutoff;
 layout(location = 6) out vec4 v_light;
 layout(location = 7) out float v_diffuse;
 
+// entity_glint.vert draws over this at equal depth.
+invariant gl_Position;
+
 void main() {
     mat4 model = mat4(i_model_0, i_model_1, i_model_2, i_model_3);
     vec4 world_pos = model * vec4(position, 1.0);
