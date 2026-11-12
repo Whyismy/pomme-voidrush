@@ -762,6 +762,19 @@ impl DisplayMode {
         }
     }
 
+    /// The fullscreen key (vanilla `Window.toggleFullScreen`): out of a
+    /// window into `fullscreen`, the kind of fullscreen last used, and out
+    /// of either kind of fullscreen back into a window. One press always
+    /// changes what is on screen; the options screen's own button is what
+    /// steps through all three.
+    pub fn toggled(self, fullscreen: Self) -> Self {
+        match self {
+            Self::Windowed if fullscreen == Self::Windowed => Self::Borderless,
+            Self::Windowed => fullscreen,
+            Self::Borderless | Self::Fullscreen => Self::Windowed,
+        }
+    }
+
     pub fn to_u8(self) -> u8 {
         match self {
             Self::Windowed => 0,
@@ -962,6 +975,9 @@ pub struct AppCore {
     pub presence: Option<DiscordPresence>,
     pub display_mode: DisplayMode,
     display_mode_override: Option<DisplayMode>,
+    /// The kind of fullscreen the fullscreen key goes into: the one last
+    /// left, borderless until there is one.
+    fullscreen_kind: DisplayMode,
     /// The windowed size the window opens at (`--width`/`--height`).
     pub window_size: winit::dpi::LogicalSize<u32>,
     pub input: InputState,
@@ -1137,6 +1153,10 @@ impl AppCore {
             presence,
             display_mode,
             display_mode_override: None,
+            fullscreen_kind: match display_mode {
+                DisplayMode::Windowed => DisplayMode::Borderless,
+                fullscreen => fullscreen,
+            },
             window_size,
             input,
             menu,
@@ -1216,13 +1236,17 @@ impl AppCore {
         self.display_mode_override = Some(mode);
     }
 
-    /// The fullscreen key: cycles and saves the display mode, unless an
-    /// override holds it.
+    /// The fullscreen key: in or out of fullscreen, saved, unless an
+    /// override holds the display mode.
     pub fn toggle_display_mode(&mut self, window: &Window) {
         if self.display_mode_override.is_some() {
             return;
         }
-        let display_mode = self.display_mode.cycle();
+        // The options screen may have picked a kind of fullscreen since.
+        if self.menu.display_mode != DisplayMode::Windowed {
+            self.fullscreen_kind = self.menu.display_mode;
+        }
+        let display_mode = self.menu.display_mode.toggled(self.fullscreen_kind);
         self.menu
             .set_display_mode(display_mode, &self.input.key_bindings);
         self.sync_display_mode(window);
@@ -4929,6 +4953,21 @@ fn pickables(game: &GameState, hand_holds: bool) -> Vec<crate::player::interacti
 
 #[cfg(test)]
 mod tests {
+    /// The fullscreen key never needs a second press to change the screen:
+    /// a window goes fullscreen, in the kind last used, and either kind of
+    /// fullscreen goes back to a window.
+    #[test]
+    fn the_fullscreen_key_toggles() {
+        use super::DisplayMode::{Borderless, Fullscreen, Windowed};
+        assert_eq!(Windowed.toggled(Borderless), Borderless);
+        assert_eq!(Windowed.toggled(Fullscreen), Fullscreen);
+        assert_eq!(Windowed.toggled(Windowed), Borderless);
+        for kind in [Borderless, Fullscreen] {
+            assert_eq!(Borderless.toggled(kind), Windowed);
+            assert_eq!(Fullscreen.toggled(kind), Windowed);
+        }
+    }
+
     use super::{
         CursorOp, DeathRoute, HeadProfile, MENU_REPEAT_DELAY, MENU_REPEAT_INTERVAL, RepeatStepper,
         accepted_player_chat_tag, cursor_step, death_route, player_input_state,
