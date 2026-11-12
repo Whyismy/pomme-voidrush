@@ -24,12 +24,17 @@ pub(crate) enum Board {
 
 /// A board `width` by `height` blocks, centred on the origin with its front
 /// facing -z, in a non-living renderer's frame (the model drawn as built,
-/// in blocks).
+/// in blocks). Each block of it is a part of its own, column by column
+/// and from the bottom up, so each can be drawn in its own light.
 pub(crate) fn bake_painting(width: u32, height: u32, board: Board) -> BakedEntityModel {
     let (w, h) = (width as f32, height as f32);
     let (left, bottom) = (-w / 2.0, -h / 2.0);
     let mut vertices = Vec::new();
-    let mut quad = |corners: [(f32, f32, f32, f32, f32); 4], normal: Vec3| {
+    let mut parts = Vec::new();
+    let mut ranges = Vec::new();
+    let quad = |vertices: &mut Vec<EntityVertex>,
+                corners: [(f32, f32, f32, f32, f32); 4],
+                normal: Vec3| {
         // Pomme's entity convention flips y, as `bake_exported` does.
         let normal = Vec3::new(normal.x, -normal.y, normal.z);
         let mut corners = corners.map(|(x, y, z, u, v)| (Vec3::new(x, -y, z), [u, v]));
@@ -50,6 +55,8 @@ pub(crate) fn bake_painting(width: u32, height: u32, board: Board) -> BakedEntit
     let texel = 1.0 / 16.0;
     for column in 0..width {
         for row in 0..height {
+            let start = vertices.len() as u32;
+            let mut quad = |corners, normal| quad(&mut vertices, corners, normal);
             let (x0, x1) = (left + column as f32, left + column as f32 + 1.0);
             let (y0, y1) = (bottom + row as f32, bottom + row as f32 + 1.0);
             match board {
@@ -111,17 +118,17 @@ pub(crate) fn bake_painting(width: u32, height: u32, board: Board) -> BakedEntit
                     }
                 }
             }
+            parts.push(EntityPart {
+                name: format!("block_{column}_{row}"),
+                offset: Vec3::ZERO,
+                default_rotation: Vec3::ZERO,
+                cubes: Vec::new(),
+                parent: None,
+            });
+            ranges.push((start, vertices.len() as u32 - start));
         }
     }
-    let count = vertices.len() as u32;
-    let part = EntityPart {
-        name: "board".into(),
-        offset: Vec3::ZERO,
-        default_rotation: Vec3::ZERO,
-        cubes: Vec::new(),
-        parent: None,
-    };
-    BakedEntityModel::new(vec![part], vertices, vec![(0, count)])
+    BakedEntityModel::new(parts, vertices, ranges)
 }
 
 #[cfg(test)]
@@ -135,6 +142,11 @@ mod tests {
         assert_eq!(bake_painting(4, 2, Board::Picture).vertices.len(), 8 * 6);
         assert_eq!(bake_painting(4, 2, Board::Blank).vertices.len(), 8 * 6);
         assert_eq!(bake_painting(4, 2, Board::Back).vertices.len(), 8 * 5 * 6);
+        // Each block is a part of its own, column by column.
+        let back = bake_painting(4, 2, Board::Back);
+        assert_eq!(back.parts.len(), 8);
+        assert_eq!(back.parts[3].name, "block_1_1");
+        assert_eq!(back.part_ranges[3], (3 * 30, 30));
         // The picture's top left corner (u 0, v 0) is at the top of +x.
         let picture = bake_painting(2, 1, Board::Picture);
         let corner = picture

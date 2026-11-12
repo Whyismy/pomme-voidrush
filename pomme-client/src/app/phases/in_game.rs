@@ -386,6 +386,8 @@ pub struct GameState {
     /// ticks until the crackle that ends them
     /// (`FireworkParticles.Starter`'s lifetime).
     pub firework_twinkles: Vec<(glam::DVec3, u32)>,
+    /// Each loaded conduit, as `ConduitBlockEntity` keeps it on the client.
+    pub conduits: HashMap<BlockPos, Conduit>,
     /// The boat the local player rows: what it keeps between ticks.
     pub boat_drive: crate::physics::boat::Drive,
     /// The degrees a rowed boat turns its rower over this tick
@@ -599,6 +601,7 @@ impl GameState {
             enchanting_books: HashMap::new(),
             gateways: HashMap::new(),
             boat_drive: Default::default(),
+            conduits: HashMap::new(),
             firework_twinkles: Vec::new(),
             rider_turn: (0.0, 0.0),
             spawner_spins: HashMap::new(),
@@ -2892,6 +2895,7 @@ pub fn update_game(
         tick_model_entities(game, gfx.renderer.camera_render_position());
         update_beacon_beams(game);
         tick_gateways(game);
+        tick_conduits(game);
         tick_enchanting_books(game);
         tick_spawners(game, gfx.renderer.camera_render_position());
         // `AreaEffectCloud.clientTick`: its particles, shown from any
@@ -4883,8 +4887,8 @@ pub fn update_game(
     }
 
     // Paintings (`PaintingRenderer`): the picture and the board's back,
-    // turned to face out of the wall.
-    // TODO: vanilla lights each block of a painting on its own.
+    // turned to face out of the wall, each block of it in the light of
+    // the block it covers.
     if !benchmark_running {
         let eye = gfx.renderer.camera_render_position();
         let unliving = crate::renderer::pipelines::entity_renderer::unliving_model_frame();
@@ -4898,20 +4902,45 @@ pub fn update_game(
             }
             let position = Position::new(center.x, center.y, center.z);
             let turn = (180.0 - f32::from(painting.direction) * 90.0).to_radians();
-            let light = entity_light(&world_light, EntityKind::Painting, position, false, 0);
-            for variant_index in variants {
-                entity_renders.push(EntityRenderInfo {
-                    position,
-                    entity_kind: EntityKind::Painting,
-                    head_y_rot_deg: 180.0,
-                    body_y_rot_deg: 180.0,
-                    variant_index,
-                    body_transform: Some(glam::Mat4::from_rotation_y(turn) * unliving),
-                    light,
-                    // A board is far bigger than the entity's own box.
-                    skip_cull: true,
-                    ..Default::default()
-                });
+            let (width, height) = painting
+                .variant
+                .as_ref()
+                .map_or((1, 1), |variant| (variant.width, variant.height));
+            for column in 0..width {
+                for row in 0..height {
+                    // Where this block of the board is, across and up
+                    // from its middle.
+                    let across = f64::from(column) - f64::from(width) / 2.0 + 0.5;
+                    let up = f64::from(row) - f64::from(height) / 2.0 + 0.5;
+                    let mut at = [
+                        center.x.floor() as i32,
+                        (center.y + up).floor() as i32,
+                        center.z.floor() as i32,
+                    ];
+                    match painting.direction % 4 {
+                        0 => at[0] = (center.x - across).floor() as i32,
+                        1 => at[2] = (center.z - across).floor() as i32,
+                        2 => at[0] = (center.x + across).floor() as i32,
+                        _ => at[2] = (center.z + across).floor() as i32,
+                    }
+                    let light = block_lighter::light_coords(&world_light, at);
+                    for variant_index in variants {
+                        entity_renders.push(EntityRenderInfo {
+                            position,
+                            entity_kind: EntityKind::Painting,
+                            head_y_rot_deg: 180.0,
+                            body_y_rot_deg: 180.0,
+                            variant_index,
+                            // Which block of the board this one is.
+                            flap: (column * height + row) as f32,
+                            body_transform: Some(glam::Mat4::from_rotation_y(turn) * unliving),
+                            light,
+                            // A board is far bigger than the entity's own box.
+                            skip_cull: true,
+                            ..Default::default()
+                        });
+                    }
+                }
             }
         }
     }
@@ -5257,6 +5286,13 @@ pub fn update_game(
         );
         build_dragon_heads(game, &world_light, &mut gfx.renderer, &mut item_renders);
         build_campfire_items(game, &world_light, &mut gfx.renderer, &mut item_renders);
+        build_conduits(
+            game,
+            &world_light,
+            partial_tick,
+            &mut gfx.renderer,
+            &mut item_renders,
+        );
     }
     // What signs within 64 blocks say (vanilla `SignRenderer`): each line
     // of each side as its own one-line text, on the board.
@@ -6817,8 +6853,7 @@ fn build_banners(
 /// `DragonHeadModel`): the head item's own model, on the floor at its
 /// sixteenth or on its wall. Decorated pots (`DecoratedPotRenderer`) and
 /// conduits (`ConduitRenderer`) likewise, as their items' models.
-// TODO: the head's jaw working while it is powered, a pot's wobble, and
-// an active conduit's cage, wind and eye.
+// TODO: the head's jaw working while it is powered, and a pot's wobble.
 fn build_dragon_heads(
     game: &GameState,
     world_light: &WorldLight,
@@ -6885,7 +6920,19 @@ fn build_dragon_heads(
                     centre * Mat4::from_rotation_y(degrees.to_radians()),
                 )
             }
-            "conduit" => ("conduit".into(), centre),
+            // An active one is `build_conduits`'.
+            "conduit" if game.conduits.get(pos).is_some_and(|c| c.active) => continue,
+            // At rest it stays turned as far as it had spun.
+            "conduit" => (
+                "conduit".into(),
+                centre
+                    * Mat4::from_rotation_y(
+                        game.conduits
+                            .get(pos)
+                            .map_or(0.0, |c| c.rotation * -0.0375)
+                            .to_radians(),
+                    ),
+            ),
             _ => continue,
         };
         renderer.ensure_item_mesh(&item);
@@ -7293,6 +7340,164 @@ fn build_statues(game: &GameState, world_light: &WorldLight, out: &mut Vec<Entit
             light: block_lighter::light_coords(world_light, [pos.x, pos.y, pos.z]),
             ..Default::default()
         });
+    }
+}
+
+/// A conduit as the client keeps it (`ConduitBlockEntity`).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Conduit {
+    /// Ticks since it loaded.
+    pub ticks: u32,
+    /// Whether its frame is built, and well enough to hunt.
+    pub active: bool,
+    pub hunting: bool,
+    /// Ticks it has been active for, which its cage has spun by.
+    pub rotation: f32,
+}
+
+/// `ConduitBlockEntity.updateShape`: how many blocks of a frame stand
+/// round the conduit at `pos`, or none unless water fills the three blocks
+/// each way about it. Sixteen wake it; forty-two set it hunting.
+fn conduit_frame(game: &GameState, pos: BlockPos) -> usize {
+    let data_at = |dx: i32, dy: i32, dz: i32| {
+        let state = game
+            .chunk_store
+            .get_block_state(pos.x + dx, pos.y + dy, pos.z + dz);
+        game.block_registry.block_state_data(state)
+    };
+    let range = |reach: i32| {
+        (-reach..=reach).flat_map(move |x| {
+            (-reach..=reach).flat_map(move |y| (-reach..=reach).map(move |z| (x, y, z)))
+        })
+    };
+    let watery = range(1)
+        .all(|(x, y, z)| data_at(x, y, z).fluid().kind == crate::world::block::FluidKind::Water);
+    if !watery {
+        return 0;
+    }
+    range(2)
+        .filter(|&(x, y, z)| {
+            let (ax, ay, az) = (x.abs(), y.abs(), z.abs());
+            (ax > 1 || ay > 1 || az > 1)
+                && (x == 0 && (ay == 2 || az == 2)
+                    || y == 0 && (ax == 2 || az == 2)
+                    || z == 0 && (ax == 2 || ay == 2))
+        })
+        .filter(|&(x, y, z)| {
+            matches!(
+                data_at(x, y, z).id(),
+                "prismarine" | "prismarine_bricks" | "sea_lantern" | "dark_prismarine"
+            )
+        })
+        .count()
+}
+
+/// `ConduitBlockEntity.clientTick`: every loaded conduit ages, looks at its
+/// frame every two seconds, and spins while it is active.
+// TODO: the nautilus particles drawn in from its frame.
+fn tick_conduits(game: &mut GameState) {
+    use azalea_registry::builtin::BlockEntityKind;
+    let loaded: Vec<BlockPos> = game
+        .chunk_store
+        .block_entities
+        .iter()
+        .filter(|(_, be)| be.kind == BlockEntityKind::Conduit)
+        .map(|(pos, _)| *pos)
+        .collect();
+    let look = game.sky_state.game_time.is_multiple_of(40);
+    for pos in &loaded {
+        let frame = look.then(|| conduit_frame(game, *pos));
+        let conduit = game.conduits.entry(*pos).or_default();
+        conduit.ticks += 1;
+        if let Some(frame) = frame {
+            conduit.active = frame >= 16;
+            conduit.hunting = frame >= 42;
+        }
+        if conduit.active {
+            conduit.rotation += 1.0;
+        }
+    }
+    game.conduits.retain(|pos, _| loaded.contains(pos));
+}
+
+/// An active conduit within 64 blocks (`ConduitRenderer`): its cage
+/// bobbing and spinning, the wind round it twice over, and its eye, open
+/// when it hunts, turned to the viewer.
+fn build_conduits(
+    game: &GameState,
+    world_light: &WorldLight,
+    partial_tick: f32,
+    renderer: &mut Renderer,
+    out: &mut Vec<crate::renderer::pipelines::item_entity::ItemRenderInfo>,
+) {
+    use std::f32::consts::{FRAC_PI_2, PI};
+
+    use glam::{EulerRot, Mat4, Vec3};
+
+    use crate::renderer::pipelines::item_entity::ItemRenderInfo;
+    let eye = renderer.camera_render_position();
+    let anchor = renderer.camera_anchor();
+    let (camera_yaw, camera_pitch) = renderer.camera_effective_look_deg();
+    for (pos, conduit) in &game.conduits {
+        if !conduit.active {
+            continue;
+        }
+        let corner = glam::DVec3::new(f64::from(pos.x), f64::from(pos.y), f64::from(pos.z));
+        if (corner + glam::DVec3::splat(0.5)).distance_squared(eye) > 64.0 * 64.0 {
+            continue;
+        }
+        let time = conduit.ticks as f32 + partial_tick;
+        let spin = (conduit.rotation + partial_tick) * -0.0375;
+        let bob = (time * 0.1).sin() / 2.0 + 0.5;
+        let bob = 0.3 + (bob * bob + bob) * 0.2;
+        let middle = Mat4::from_translation(Vec3::splat(0.5));
+        let wind = match conduit.ticks / 66 % 3 {
+            1 => ("conduit~wind_vertical", Mat4::from_rotation_x(FRAC_PI_2)),
+            2 => ("conduit~wind", Mat4::from_rotation_z(FRAC_PI_2)),
+            _ => ("conduit~wind", Mat4::IDENTITY),
+        };
+        let pieces = [
+            (
+                "conduit~cage",
+                Mat4::from_translation(Vec3::new(0.5, bob, 0.5))
+                    * Mat4::from_axis_angle(Vec3::new(0.5, 1.0, 0.5).normalize(), spin),
+            ),
+            (wind.0, middle * wind.1),
+            (
+                wind.0,
+                middle
+                    * Mat4::from_scale(Vec3::splat(0.875))
+                    * Mat4::from_euler(EulerRot::XYZ, PI, 0.0, PI),
+            ),
+            (
+                if conduit.hunting {
+                    "conduit~open_eye"
+                } else {
+                    "conduit~closed_eye"
+                },
+                Mat4::from_translation(Vec3::new(0.5, bob, 0.5))
+                    * Mat4::from_scale(Vec3::splat(0.5))
+                    * Mat4::from_euler(
+                        EulerRot::YXZ,
+                        (-camera_yaw).to_radians(),
+                        camera_pitch.to_radians(),
+                        PI,
+                    )
+                    * Mat4::from_scale(Vec3::splat(1.333_333_4)),
+            ),
+        ];
+        let light = block_lighter::light_coords(world_light, [pos.x, pos.y, pos.z]);
+        for (key, pose) in pieces {
+            renderer.ensure_item_mesh(key);
+            out.push(ItemRenderInfo {
+                item_name: Arc::from(key),
+                outline_color: None,
+                tints: Arc::from([]),
+                model_matrix: Mat4::from_translation((corner - anchor).as_vec3()) * pose,
+                light,
+                white_flash: false,
+            });
+        }
     }
 }
 
@@ -8154,6 +8359,7 @@ fn add_experience_orbs(
             0,
         );
         out.push(ParticleQuad {
+            roll: 0.0,
             // The quad spans y -0.25 to 0.75 at 0.3 scale, 0.1 up.
             pos: (pos + glam::DVec3::new(0.0, 0.175, 0.0) - anchor)
                 .as_vec3()
@@ -8196,6 +8402,7 @@ fn add_dragon_fireballs(
             .lerp(fireball.position, f64::from(partial_tick));
         let centre = feet + glam::DVec3::new(0.0, 0.5, 0.0);
         out.push(ParticleQuad {
+            roll: 0.0,
             pos: (centre - anchor).as_vec3().into(),
             size: 1.0,
             u0: region.u_min,
@@ -8218,9 +8425,26 @@ fn build_leashes(
     game: &GameState,
     renderer: &Renderer,
     partial_tick: f32,
-) -> Vec<(glam::DVec3, glam::DVec3, bool)> {
+) -> Vec<crate::renderer::pipelines::hit_outline::Rope> {
     use crate::entity::dimensions::EntityDimensions;
     use crate::entity::leash;
+    use crate::renderer::pipelines::hit_outline::Rope;
+    let world_light = WorldLight {
+        chunks: &game.chunk_store,
+        table: game.block_registry.block_state_table(),
+    };
+    let light_at = |at: glam::DVec3| {
+        let block = at.floor().as_ivec3();
+        block_lighter::light_coords(&world_light, [block.x, block.y, block.z])
+    };
+    let eye = renderer.camera_render_position();
+    // A rope a twentieth of a block thick (`EntityRenderer.renderLeash`),
+    // as a share of the screen's height a block away.
+    let thick = 0.05
+        / (2.0
+            * (renderer.camera_fov_degrees().to_radians() * 0.5)
+                .tan()
+                .max(1.0e-3));
     let mut ropes = Vec::new();
     let partial = f64::from(partial_tick);
     for (&id, &holder) in &game.leashes.holders {
@@ -8279,9 +8503,30 @@ fn build_leashes(
         } else {
             continue;
         };
+        // `addVertexPair`: brown, every other piece seven tenths as
+        // bright, lit by the light at the mob's end shading into the light
+        // at the holder's.
+        let (lit_start, lit_end) = (light_at(start), light_at(end));
         let points = leash::rope_points(start, end);
+        let pieces = (points.len() - 1) as f32;
         for (i, pair) in points.windows(2).enumerate() {
-            ropes.push((pair[0], pair[1], i % 2 == 1));
+            let along = i as f32 / pieces;
+            let level = |from: u8, to: u8| {
+                (f32::from(from) + (f32::from(to) - f32::from(from)) * along) as u8
+            };
+            let lit = renderer.lightmap_color(
+                level(lit_start.block(), lit_end.block()),
+                level(lit_start.sky(), lit_end.sky()),
+            );
+            let shade = if i % 2 == 1 { 0.7 } else { 1.0 };
+            let brown = [0.5_f32, 0.4, 0.3];
+            let middle = (pair[0] + pair[1]) * 0.5;
+            ropes.push(Rope {
+                from: pair[0],
+                to: pair[1],
+                color: std::array::from_fn(|c| brown[c] * shade * lit[c]),
+                thickness: thick / (middle.distance(eye) as f32).max(0.05),
+            });
         }
     }
     ropes
@@ -8311,6 +8556,7 @@ fn add_fishing_hooks(
         let pos = hook.lerped(partial_tick);
         if let Some(region) = region {
             out.push(ParticleQuad {
+                roll: 0.0,
                 pos: (pos - anchor).as_vec3().into(),
                 size: 0.25,
                 u0: region.u_min,
@@ -8502,6 +8748,7 @@ fn add_entity_flames(
                 + glam::DVec3::Y * f64::from((bottom + 0.7) * scale)
                 + toward * f64::from(depth * scale);
             out.push(ParticleQuad {
+                roll: 0.0,
                 pos: (centre - anchor).as_vec3().into(),
                 size: 0.7 * scale * (half_width / 0.5).sqrt(),
                 u0,

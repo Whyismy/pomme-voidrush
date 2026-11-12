@@ -386,6 +386,18 @@ pub fn book(model: &BakedEntityModel, time: f32, flips: [f32; 2], open: f32) -> 
     anim
 }
 
+/// One block of a painting (`PaintingRenderer` lights each on its own):
+/// every part but `block`'s shrunk to nothing.
+pub fn painting_block(model: &BakedEntityModel, block: usize) -> PartAnim {
+    PartAnim {
+        scale: (0..model.parts.len())
+            .filter(|&part| part != block)
+            .map(|part| (part, Vec3::ZERO))
+            .collect(),
+        ..PartAnim::default()
+    }
+}
+
 /// `BoatModel.setupAnim` (`animatePaddle`): each paddle at its place in
 /// the stroke, `rowing` being the left and right paddles' rowing times (0
 /// at rest, which holds them out of the water).

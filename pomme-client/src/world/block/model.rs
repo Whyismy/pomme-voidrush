@@ -1465,6 +1465,37 @@ impl HeadKind {
 /// a stack's pattern layers copy its quads.
 pub const BANNER_BASE_PATTERN: &str = "entity/banner/base";
 
+/// What starts the model key of one piece of an active conduit: after it,
+/// `cage`, `wind`, `wind_vertical`, `open_eye` or `closed_eye`.
+pub const CONDUIT_PART_KEY: &str = "conduit~";
+
+/// One piece of an active conduit (`ConduitRenderer`), as its model is
+/// built round the middle of the block, in its texture and seen from both
+/// sides.
+pub(crate) fn conduit_part(key: &str) -> Option<BakedModel> {
+    use crate::renderer::entity_model::exported_data;
+    let part = key.strip_prefix(CONDUIT_PART_KEY)?;
+    let layer = match part {
+        "cage" => exported_data::CONDUIT_CAGE,
+        "wind" | "wind_vertical" => exported_data::CONDUIT_WIND,
+        "open_eye" | "closed_eye" => exported_data::CONDUIT_EYE,
+        _ => return None,
+    };
+    let mut model = bake_exported_item(layer, &format!("entity/conduit/{part}"));
+    let mut backs = model.quads.clone();
+    for quad in &mut backs {
+        quad.positions.reverse();
+        quad.uvs.reverse();
+    }
+    model.quads.extend(backs);
+    for quad in &mut model.quads {
+        for p in &mut quad.positions {
+            *p = [p[0] + 0.5, p[1] + 0.5, p[2] + 0.5];
+        }
+    }
+    Some(model)
+}
+
 /// A decorated pot's plain side.
 pub const POT_SIDE: &str = "entity/decorated_pot/decorated_pot_side";
 /// What starts the sides of a decorated pot's model key: after it, the

@@ -30,6 +30,9 @@ pub struct ParticleQuad {
     /// Vanilla `SingleQuadParticle.Layer`: false = opaque/cutout terrain
     /// layer, true = alpha-blended translucent layer.
     pub translucent: bool,
+    /// Vanilla `Particle.roll`: the quad turned this far, in radians,
+    /// about the line of sight.
+    pub roll: f32,
 }
 
 #[repr(C)]
@@ -153,6 +156,12 @@ impl ParticlePipeline {
                 }
                 let center = Vec3::from(quad.pos);
                 let (r, u) = (right * quad.size, up * quad.size);
+                let (r, u) = if quad.roll == 0.0 {
+                    (r, u)
+                } else {
+                    let (sin, cos) = quad.roll.sin_cos();
+                    (r * cos + u * sin, u * cos - r * sin)
+                };
                 let corner = |position: Vec3, u: f32, v: f32| ParticleVertex {
                     position: position.into(),
                     uv: [u, v],

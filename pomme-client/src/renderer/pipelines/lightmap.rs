@@ -28,6 +28,41 @@ pub struct LightmapInfo {
     pub _pad: [f32; 2],
 }
 
+impl LightmapInfo {
+    /// `lightmap.frag` for one texel: the colour of block light `block`
+    /// under sky light `sky` (each 0 to 15).
+    pub fn color(&self, block: u8, sky: u8) -> [f32; 3] {
+        use glam::Vec3;
+        let rgb = |v: [f32; 4]| Vec3::new(v[0], v[1], v[2]);
+        let brightness = |level: f32| level / (4.0 - 3.0 * level);
+        let block_level = f32::from(block.min(15)) / 15.0;
+        let sky_level = f32::from(sky.min(15)) / 15.0;
+        let block_brightness = brightness(block_level) * self.block_light_tint[3];
+        let sky_brightness = brightness(sky_level) * self.sky_light_color[3];
+
+        let night_vision = rgb(self.night_vision_color) * self.night_vision_color[3];
+        let mut color = rgb(self.ambient_color).max(night_vision);
+        color += rgb(self.sky_light_color) * sky_brightness;
+        let parabola = (2.0 * block_level - 1.0) * (2.0 * block_level - 1.0);
+        let block_color = rgb(self.block_light_tint).lerp(Vec3::ONE, 0.9 * parabola);
+        color += block_color * block_brightness;
+        color = color.lerp(
+            color * Vec3::new(0.7, 0.6, 0.6),
+            self.boss_overlay_world_darkening_factor,
+        );
+        color = (color - Vec3::splat(self.darkness_scale)).clamp(Vec3::ZERO, Vec3::ONE);
+        // `notGamma`.
+        let max = color.max_element();
+        let lifted = if max > 0.0 {
+            let inverted = 1.0 - max;
+            color * ((1.0 - inverted * inverted * inverted * inverted) / max)
+        } else {
+            color
+        };
+        color.lerp(lifted, self.ambient_color[3]).to_array()
+    }
+}
+
 /// The lightmap's texture and sampler, for the stages that sample it.
 pub const SAMPLED_LAYOUT: &[rhi::BindGroupLayoutEntry] = &[
     rhi::BindGroupLayoutEntry::texture(rhi::ShaderStages::VERTEX),
@@ -98,6 +133,12 @@ impl Lightmap {
     /// The Brightness option, as the last tick passed it.
     pub fn brightness(&self) -> f32 {
         self.info.ambient_color[3]
+    }
+
+    /// The colour the lightmap holds for a block and a sky light level,
+    /// for what is lit without sampling it.
+    pub fn color(&self, block: u8, sky: u8) -> [f32; 3] {
+        self.info.color(block, sky)
     }
 
     /// Vanilla `LightmapRenderStateExtractor.extract` after a tick: the next

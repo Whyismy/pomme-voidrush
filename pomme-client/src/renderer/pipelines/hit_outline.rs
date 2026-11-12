@@ -29,10 +29,15 @@ struct Push {
 const OUTLINE_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 0.4];
 /// A fishing line's colour (`FishingHookRenderer.stringVertex`'s -16777216).
 const LINE_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
-/// A lead's colours (`EntityRenderer.addVertexPair`): brown, and every
-/// other piece seven tenths as bright.
-const ROPE_COLOR: [f32; 4] = [0.5, 0.4, 0.3, 1.0];
-const ROPE_DARK_COLOR: [f32; 4] = [0.35, 0.28, 0.21, 1.0];
+/// One piece of a lead, in world space: its colour as lit, and how thick
+/// it is drawn, as a share of the screen's height.
+#[derive(Clone, Copy, Debug)]
+pub struct Rope {
+    pub from: DVec3,
+    pub to: DVec3,
+    pub color: [f32; 3],
+    pub thickness: f32,
+}
 /// Far more than any outline shape's edges, a few fishing lines and a
 /// couple of dozen leads need.
 const MAX_VERTICES: usize = 6 * 2048;
@@ -48,8 +53,8 @@ pub struct HitOutlinePipeline {
     target: Option<(DVec3, Vec<(DVec3, DVec3)>)>,
     /// Fishing lines' segments, in world space.
     lines: Vec<(DVec3, DVec3)>,
-    /// Leads' pieces, in world space, and whether each is a darker one.
-    ropes: Vec<(DVec3, DVec3, bool)>,
+    /// Leads' pieces.
+    ropes: Vec<Rope>,
     vertices: Vec<LineVertex>,
 }
 
@@ -116,14 +121,14 @@ impl HitOutlinePipeline {
     }
 
     /// This frame's leads, as world-space pieces.
-    pub fn set_ropes(&mut self, ropes: Vec<(DVec3, DVec3, bool)>) {
+    pub fn set_ropes(&mut self, ropes: Vec<Rope>) {
         self.ropes = ropes;
     }
 
     /// This frame's quads, relative to the render anchor: the outline's,
-    /// then the fishing lines', then the leads' lighter pieces and their
-    /// darker ones. Returns where each of the first three groups ends.
-    fn build(&mut self, anchor: DVec3) -> [usize; 3] {
+    /// then the fishing lines', then the leads' pieces, one after another.
+    /// Returns where each of the first two groups ends.
+    fn build(&mut self, anchor: DVec3) -> [usize; 2] {
         self.vertices.clear();
         if let Some((origin, edges)) = &self.target {
             let base = *origin - anchor;
@@ -136,17 +141,11 @@ impl HitOutlinePipeline {
             push_segment(&mut self.vertices, from - anchor, to - anchor);
         }
         let lines = self.vertices.len();
-        let mut light = lines;
-        for dark in [false, true] {
-            for &(from, to, _) in self.ropes.iter().filter(|rope| rope.2 == dark) {
-                push_segment(&mut self.vertices, from - anchor, to - anchor);
-            }
-            if !dark {
-                light = self.vertices.len();
-            }
+        for rope in &self.ropes {
+            push_segment(&mut self.vertices, rope.from - anchor, rope.to - anchor);
         }
         self.vertices.truncate(MAX_VERTICES);
-        [outline, lines, light].map(|end| end.min(self.vertices.len()))
+        [outline, lines].map(|end| end.min(self.vertices.len()))
     }
 
     /// `screen` is the framebuffer size in pixels.
@@ -157,7 +156,7 @@ impl HitOutlinePipeline {
         anchor: DVec3,
         screen: [f32; 2],
     ) {
-        let [outline, lines, light] = self.build(anchor);
+        let [outline, lines] = self.build(anchor);
         if self.vertices.is_empty() {
             return;
         }
@@ -167,13 +166,23 @@ impl HitOutlinePipeline {
         pass.set_vertex_buffer(0, self.vertex_buffers[frame].handle());
         // Both at `Window.getAppropriateLineWidth`.
         let line_width = (screen[0] / 1920.0 * 2.5).max(2.5);
-        for (color, range) in [
-            (OUTLINE_COLOR, 0..outline),
-            (LINE_COLOR, outline..lines),
-            (ROPE_COLOR, lines..light),
-            (ROPE_DARK_COLOR, light..self.vertices.len()),
-        ] {
-            if range.is_empty() {
+        // Each piece of a lead is its own colour and, a rope of its own
+        // thickness in the world, its own width on the screen.
+        let ropes = self.ropes.iter().enumerate().map(|(i, rope)| {
+            let [r, g, b] = rope.color;
+            let start = lines + i * 6;
+            (
+                [r, g, b, 1.0],
+                (rope.thickness * screen[1]).max(1.0),
+                start..start + 6,
+            )
+        });
+        let plain = [
+            (OUTLINE_COLOR, line_width, 0..outline),
+            (LINE_COLOR, line_width, outline..lines),
+        ];
+        for (color, line_width, range) in plain.into_iter().chain(ropes) {
+            if range.is_empty() || range.end > self.vertices.len() {
                 continue;
             }
             let push = Push {

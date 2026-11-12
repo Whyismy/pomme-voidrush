@@ -1284,7 +1284,7 @@ impl Renderer {
 
     /// This frame's leads, as world-space pieces, each one of the rope's
     /// lighter or darker ones.
-    pub fn set_ropes(&mut self, ropes: Vec<(glam::DVec3, glam::DVec3, bool)>) {
+    pub fn set_ropes(&mut self, ropes: Vec<pipelines::hit_outline::Rope>) {
         self.hit_outline_pipeline.set_ropes(ropes);
     }
 
@@ -1402,6 +1402,11 @@ impl Renderer {
 
     pub fn camera_look_dir(&self) -> LookDirection {
         self.camera.look_dir
+    }
+
+    /// The lightmap's colour for a block and a sky light level.
+    pub fn lightmap_color(&self, block: u8, sky: u8) -> [f32; 3] {
+        self.lightmap.color(block, sky)
     }
 
     /// Turns the player's view `degrees` round, as a boat turns its rower.
@@ -2102,6 +2107,15 @@ impl Renderer {
                 &self.atlas.uv_map,
             );
         }
+        // A piece of an active conduit.
+        if let Some(model) = crate::world::block::model::conduit_part(name) {
+            self.item_entity_pipeline.ensure_mesh(
+                &self.ctx.device,
+                name,
+                &model,
+                &self.atlas.uv_map,
+            );
+        }
         // A decorated pot's sherds (`DecoratedPotRenderer`): each side in
         // its sherd's pattern. The model's sides come left, back, right,
         // front; the key's back, left, right, front.
@@ -2138,6 +2152,7 @@ impl Renderer {
         // (`BannerRenderer.renderPatterns`).
         if name.contains('~')
             && !name.starts_with(crate::world::block::model::POT_SIDES_KEY)
+            && !name.starts_with(crate::world::block::model::CONDUIT_PART_KEY)
             && !crate::banner::is_shield_key(name)
             && let Some(base) = self
                 .render_assets

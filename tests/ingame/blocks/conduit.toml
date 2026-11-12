@@ -1,0 +1,60 @@
+# An active conduit (vanilla ConduitRenderer): in water, inside a ring of
+# sixteen prismarine blocks, it wakes within two seconds: the shell gives
+# way to the cage, bobbing and spinning, with the wind round it and its
+# eye, closed while its frame is too small to hunt, turned to the viewer.
+# Beside it a conduit with no frame keeps its shell.
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/gamemode spectator"
+
+[[step]]
+chat = "/tp @s 1600.5 -55.5 596.5 0 25"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+chat = "/fill 1598 -60 600 1602 -56 604 minecraft:water"
+
+[[step]]
+chat = "/fill 1598 -58 600 1602 -58 604 minecraft:prismarine"
+
+[[step]]
+chat = "/fill 1599 -58 601 1601 -58 603 minecraft:water"
+
+[[step]]
+chat = "/setblock 1600 -58 602 minecraft:conduit[waterlogged=true]"
+
+[[step]]
+chat = "/setblock 1605 -60 602 minecraft:conduit[waterlogged=false]"
+
+[[step]]
+expect = { block = "conduit", at = [1600, -58, 602], block_entity = "conduit" }
+
+[[step]]
+wait_ms = 4500
+
+[[step]]
+screenshot = "active"
+
+# From in the water beside it, the chat out of the way.
+[[step]]
+chat = "/tp @s 1600.5 -59.0 601.0 0 5"
+
+[[step]]
+press = { action = "key.toggleGui" }
+
+[[step]]
+wait_ms = 1200
+
+[[step]]
+screenshot = "close"

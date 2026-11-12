@@ -114,6 +114,11 @@ enum Extra {
         flow: Option<[f32; 2]>,
         swirl: Option<f32>,
         wind: f32,
+        /// How far round it has spun, last tick and this, in radians.
+        roll: [f32; 2],
+        /// Its spin, in radians a second, and how that grows a second.
+        spin: f32,
+        spin_up: f32,
     },
     /// `OverlayParticle`: dims each tick.
     Flash,
@@ -942,7 +947,6 @@ impl Particle {
     /// `FallingLeavesParticle`: `fall` and `wind` are its providers' fall
     /// and side accelerations, `scale` its size, `start_velocity` how fast
     /// it starts down.
-    // TODO: the leaf's spin (`roll`).
     fn leaves(
         pos: DVec3,
         (fall, wind, swirl, flow_away, scale, start_velocity): (f32, f32, bool, bool, f32, f32),
@@ -956,6 +960,10 @@ impl Particle {
                 flow: flow_away.then(|| [heading.cos() * wind, heading.sin() * wind]),
                 swirl: swirl.then_some(period),
                 wind,
+                roll: [0.0; 2],
+                // Thirty degrees a second either way, quickening by five.
+                spin: 30.0_f32.to_radians() * if fastrand::bool() { -1.0 } else { 1.0 },
+                spin_up: 5.0_f32.to_radians() * if fastrand::bool() { -1.0 } else { 1.0 },
             },
             vel: dvec3(0.0, -f64::from(start_velocity), 0.0),
             // Its own tick subtracts `gravity` itself.
@@ -1164,7 +1172,20 @@ impl Particle {
                 };
             }
             Motion::Physics | Motion::Free => {
-                if let Extra::Leaf { flow, swirl, wind } = self.extra {
+                if let Extra::Leaf {
+                    roll,
+                    spin,
+                    spin_up,
+                    ..
+                } = &mut self.extra
+                {
+                    *spin += *spin_up / 20.0;
+                    *roll = [roll[1], roll[1] + *spin / 20.0];
+                }
+                if let Extra::Leaf {
+                    flow, swirl, wind, ..
+                } = self.extra
+                {
                     let g = (self.age as f32 / 300.0).min(1.0);
                     let mut push = [0.0f32; 2];
                     if let Some(flow) = flow {
@@ -3297,6 +3318,10 @@ impl ParticleStore {
                     ]),
                     light: p.light_lane(world, partial_tick),
                     translucent: p.translucent,
+                    roll: match p.extra {
+                        Extra::Leaf { roll, .. } => roll[0] + (roll[1] - roll[0]) * partial_tick,
+                        _ => 0.0,
+                    },
                 }
             })
             .collect()

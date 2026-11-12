@@ -650,7 +650,7 @@ fn banner_pattern_textures(
             }
             // Banners' pattern textures, shields' own, and a decorated
             // pot's sides.
-            for folder in ["banner", "shield", "decorated_pot"] {
+            for folder in ["banner", "shield", "decorated_pot", "conduit"] {
                 let dir = namespace.path().join("textures/entity").join(folder);
                 let Ok(files) = std::fs::read_dir(dir) else {
                     continue;

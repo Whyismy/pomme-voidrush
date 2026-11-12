@@ -1331,6 +1331,9 @@ enum AnimationType {
     /// [`EntityRenderInfo::attack_time`], its loose pages in `flap` (right)
     /// and `flap_speed` (left).
     Book,
+    /// A painting: one block of it, [`EntityRenderInfo::flap`] saying
+    /// which.
+    Painting,
     /// `BoatModel.setupAnim`: the paddles, their rowing times riding in
     /// [`EntityRenderInfo::flap`] (left) and `flap_speed` (right).
     Boat,
@@ -1482,7 +1485,7 @@ fn painting_definition() -> MobDef {
     }
     MobDef {
         kind: EntityKind::Painting,
-        anim: AnimationType::Static,
+        anim: AnimationType::Painting,
         adult,
         baby: None,
         adult_overlays: vec![],
@@ -4217,6 +4220,9 @@ impl EntityRenderer {
             }
             AnimationType::Boat => {
                 entity_model::mob_anims::boat(model, [info.flap, info.flap_speed])
+            }
+            AnimationType::Painting => {
+                entity_model::mob_anims::painting_block(model, info.flap as usize)
             }
             AnimationType::Book => entity_model::mob_anims::book(
                 model,
