@@ -1465,6 +1465,20 @@ impl HeadKind {
 /// a stack's pattern layers copy its quads.
 pub const BANNER_BASE_PATTERN: &str = "entity/banner/base";
 
+/// The model keys of a placed dragon head's two halves: its jaw, which
+/// works while the head is powered, and the rest.
+pub const DRAGON_JAW_KEY: &str = "dragon_head~jaw";
+pub const DRAGON_SKULL_KEY: &str = "dragon_head~skull";
+
+/// How many of the dragon head model's quads, its last, are its jaw's.
+pub(crate) fn dragon_jaw_quads() -> usize {
+    crate::renderer::entity_model::exported_data::DRAGON_SKULL
+        .iter()
+        .filter(|part| part.name == "jaw")
+        .map(|part| part.quads.len())
+        .sum()
+}
+
 /// What starts the model key of one piece of an active conduit: after it,
 /// `cage`, `wind`, `wind_vertical`, `open_eye` or `closed_eye`.
 pub const CONDUIT_PART_KEY: &str = "conduit~";

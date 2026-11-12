@@ -389,6 +389,10 @@ pub struct GameState {
     /// Decorated pots that have wobbled: the game time it began at and
     /// which wobble (`DecoratedPotBlockEntity.WobbleStyle`'s ordinal).
     pub pot_wobbles: HashMap<BlockPos, (u64, u8)>,
+    /// The ticks each dragon or piglin head has been powered for
+    /// (`SkullBlockEntity.animationTickCount`), which its jaw or ears move
+    /// by.
+    pub skull_anims: HashMap<BlockPos, u32>,
     /// Each loaded conduit, as `ConduitBlockEntity` keeps it on the client.
     pub conduits: HashMap<BlockPos, Conduit>,
     /// The boat the local player rows: what it keeps between ticks.
@@ -605,6 +609,7 @@ impl GameState {
             gateways: HashMap::new(),
             boat_drive: Default::default(),
             conduits: HashMap::new(),
+            skull_anims: HashMap::new(),
             pot_wobbles: HashMap::new(),
             firework_twinkles: Vec::new(),
             rider_turn: (0.0, 0.0),
@@ -2900,6 +2905,7 @@ pub fn update_game(
         update_beacon_beams(game);
         tick_gateways(game);
         tick_conduits(game, gfx.renderer.camera_render_position());
+        tick_skulls(game);
         tick_enchanting_books(game);
         tick_spawners(game, gfx.renderer.camera_render_position());
         // `AreaEffectCloud.clientTick`: its particles, shown from any
@@ -4756,6 +4762,8 @@ pub fn update_game(
                 variant_index: crate::renderer::pipelines::entity_renderer::WIDE_STEVE_SKIN,
                 player_uuid: skin,
                 head_only: true,
+                // A piglin head's ears flap by its clock.
+                age_in_ticks: skull_animation(game, *pos, partial_tick),
                 body_transform: Some(glam::Mat4::from_scale(glam::Vec3::splat(scale))),
                 light: block_lighter::light_coords(&world_light, [pos.x, pos.y, pos.z]),
                 ..Default::default()
@@ -5256,6 +5264,7 @@ pub fn update_game(
             &mut item_renders,
             core.input.selected_slot() as usize,
         );
+        build_carried_items(game, &mut gfx.renderer, &entity_renders, &mut item_renders);
         build_thrown_items(
             game,
             &mut gfx.renderer,
@@ -6892,7 +6901,8 @@ fn build_banners(
 /// `DragonHeadModel`): the head item's own model, on the floor at its
 /// sixteenth or on its wall. Decorated pots (`DecoratedPotRenderer`) and
 /// conduits (`ConduitRenderer`) likewise, as their items' models.
-// TODO: the head's jaw working while it is powered.
+// TODO: the head as an item keeps its jaw shut; vanilla's hangs a little
+// open there too.
 fn build_dragon_heads(
     game: &GameState,
     world_light: &WorldLight,
@@ -6934,7 +6944,36 @@ fn build_dragon_heads(
                 let placement = Mat4::from_translation(offset.as_vec3())
                     * Mat4::from_rotation_y((-yaw).to_radians())
                     * Mat4::from_translation(Vec3::new(0.0, 0.5, 0.0));
-                ("dragon_head".into(), placement)
+                // `DragonHeadModel.setupAnim`: the jaw hangs a little open
+                // and works by the head's clock. It swings from the top of
+                // its back end, the end nearer the skull's middle.
+                use crate::world::block::model::{DRAGON_JAW_KEY, DRAGON_SKULL_KEY};
+                let skull = renderer.ensure_item_mesh(DRAGON_SKULL_KEY);
+                let jaw = renderer.ensure_item_mesh(DRAGON_JAW_KEY);
+                let middle = (skull.bounds_min.z + skull.bounds_max.z) * 0.5;
+                let (back, front) =
+                    if (jaw.bounds_min.z - middle).abs() < (jaw.bounds_max.z - middle).abs() {
+                        (jaw.bounds_min.z, jaw.bounds_max.z)
+                    } else {
+                        (jaw.bounds_max.z, jaw.bounds_min.z)
+                    };
+                let hinge = Vec3::new(0.0, jaw.bounds_max.y, back);
+                let time = skull_animation(game, *pos, partial_tick);
+                let open = ((time * std::f32::consts::PI * 0.2).sin() + 1.0) * 0.2;
+                let light = block_lighter::light_coords(world_light, [pos.x, pos.y, pos.z]);
+                out.push(ItemRenderInfo {
+                    item_name: Arc::from(DRAGON_JAW_KEY),
+                    outline_color: None,
+                    tints: Arc::from([]),
+                    model_matrix: Mat4::from_translation((corner - anchor).as_vec3())
+                        * placement
+                        * Mat4::from_translation(hinge)
+                        * Mat4::from_rotation_x((front - back).signum() * open)
+                        * Mat4::from_translation(-hinge),
+                    light,
+                    white_flash: false,
+                });
+                (DRAGON_SKULL_KEY.into(), placement)
             }
             // Turned to its facing; the item's faces north.
             "decorated_pot" => {
@@ -7470,6 +7509,47 @@ fn build_statues(game: &GameState, world_light: &WorldLight, out: &mut Vec<Entit
     }
 }
 
+/// Whether the head at `pos` is powered, and so working its jaw or ears.
+fn skull_powered(game: &GameState, pos: BlockPos) -> bool {
+    let state = game.chunk_store.get_block_state(pos.x, pos.y, pos.z);
+    game.block_registry
+        .block_state_data(state)
+        .properties()
+        .get("powered")
+        == Some("true")
+}
+
+/// `SkullBlockEntity.animation`: a powered head's clock runs; unpowered,
+/// it stops where it was.
+fn tick_skulls(game: &mut GameState) {
+    use azalea_registry::builtin::BlockEntityKind;
+    let skulls: Vec<(BlockPos, bool)> = game
+        .chunk_store
+        .block_entities
+        .iter()
+        .filter(|(_, be)| be.kind == BlockEntityKind::Skull)
+        .map(|(pos, _)| (*pos, skull_powered(game, *pos)))
+        .collect();
+    for (pos, powered) in &skulls {
+        if *powered {
+            *game.skull_anims.entry(*pos).or_insert(0) += 1;
+        }
+    }
+    game.skull_anims
+        .retain(|pos, _| skulls.iter().any(|(skull, _)| skull == pos));
+}
+
+/// `SkullBlockEntity.getAnimation`: the head's clock, running on between
+/// ticks only while it is powered.
+fn skull_animation(game: &GameState, pos: BlockPos, partial_tick: f32) -> f32 {
+    let ticks = game.skull_anims.get(&pos).copied().unwrap_or(0) as f32;
+    if skull_powered(game, pos) {
+        ticks + partial_tick
+    } else {
+        ticks
+    }
+}
+
 /// A conduit as the client keeps it (`ConduitBlockEntity`).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Conduit {
@@ -7712,8 +7792,10 @@ fn tick_gateways(game: &mut GameState) {
 
 /// A gateway's beam (`TheEndGatewayRenderer`): magenta and growing to the
 /// sky and back over the ten seconds after it appears, purple and fifty
-/// blocks each way for two seconds after something goes through.
-// TODO: vanilla also thins the beam's texture as it grows and shrinks.
+/// blocks each way for two seconds after something goes through. Its
+/// texture is stretched by how far through its swell it is
+/// (`renderBeaconBeam`'s `textureScale`): the baked pieces, which repeat it
+/// two and a half times a block, are drawn taller or shorter to match.
 fn build_gateway_beams(game: &GameState, partial_tick: f32, out: &mut Vec<EntityRenderInfo>) {
     use glam::{Mat4, Vec3};
 
@@ -7744,23 +7826,31 @@ fn build_gateway_beams(game: &GameState, partial_tick: f32, out: &mut Vec<Entity
                 0x89_32B8,
             )
         };
-        let half = ((progress.clamp(0.0, 1.0) * std::f32::consts::PI).sin() * reach).floor() as u32;
+        let swell = (progress.clamp(0.0, 1.0) * std::f32::consts::PI).sin();
+        let half = (swell * reach).floor() as u32;
+        if half == 0 {
+            continue;
+        }
+        let height = (half * 2) as f32;
         let [r, g, b] = [16, 8, 0].map(|shift| ((color >> shift) & 0xFF) as f32 / 255.0);
-        let slide = (half as f32 * 2.0 * 2.5 + run).rem_euclid(1.0);
-        // The gateway's beam is three quarters as thick as a beacon's.
-        let thin = |scale: f32| Mat4::from_scale(Vec3::new(scale, 1.0, scale));
-        for (offset, length) in beam_pieces(half * 2) {
-            let position = Position::new(
-                f64::from(pos.x) + 0.5,
-                f64::from(pos.y) - f64::from(half) + f64::from(offset),
-                f64::from(pos.z) + 0.5,
-            );
-            for (glow, tint, pose) in [
-                (0, [r, g, b, 1.0], turn * thin(0.75) * unliving),
-                (1, [r, g, b, 32.0 / 255.0], thin(0.7) * unliving),
-            ] {
+        // The beam, three quarters as thick as a beacon's (0.15 to its
+        // corners), repeats its texture `swell / 0.3` times a block; the
+        // glow round it `swell` times.
+        for (glow, tint, turn, thin, repeats) in [
+            (0, [r, g, b, 1.0], turn, 0.75, swell * 0.5 / 0.15),
+            (1, [r, g, b, 32.0 / 255.0], Mat4::IDENTITY, 0.7, swell),
+        ] {
+            let pieces = (height * repeats / 2.5).round().max(1.0) as u32;
+            let stretch = height / pieces as f32;
+            let slide = (pieces as f32 * 2.5 + run).rem_euclid(1.0);
+            let pose = turn * Mat4::from_scale(Vec3::new(thin, stretch, thin)) * unliving;
+            for (offset, length) in beam_pieces(pieces) {
                 out.push(EntityRenderInfo {
-                    position,
+                    position: Position::new(
+                        f64::from(pos.x) + 0.5,
+                        f64::from(pos.y) - f64::from(half) + f64::from(offset as f32 * stretch),
+                        f64::from(pos.z) + 0.5,
+                    ),
                     entity_kind: BEAM_KIND,
                     head_y_rot_deg: 180.0,
                     body_y_rot_deg: 180.0,
@@ -8060,9 +8150,8 @@ fn build_falling_blocks(
 /// Vanilla `ItemInHandLayer`: what a mob or another player holds, in the
 /// hand of its arm part: the arm's pose, turned and pushed out to the fist
 /// (`renderArmWithItem`), then the item's third-person display transform.
-// TODO: left-handed mobs and players, the illagers' crossed-arm hiding, the
-// witch, fox, panda and dolphin's own placements, and the local player in
-// third person.
+// TODO: left-handed mobs and players, the illagers' crossed-arm hiding,
+// and the local player in third person.
 fn build_held_items(
     game: &GameState,
     renderer: &mut Renderer,
@@ -8265,6 +8354,142 @@ fn build_thrown_items(
     }
 }
 
+/// What the mobs without hands carry, each its own way, the item lying as
+/// one on the ground does (`ItemDisplayContext.GROUND`): a dolphin and a
+/// fox in the mouth (`DolphinCarryingItemLayer`, `FoxHeldItemLayer`), a
+/// sitting panda in its paws (`PandaHoldsItemLayer`), a villager or a
+/// wandering trader in its crossed arms (`CrossedArmsItemLayer`), and a
+/// witch its potion at its nose (`WitchItemLayer`).
+fn build_carried_items(
+    game: &GameState,
+    renderer: &mut Renderer,
+    entities: &[EntityRenderInfo],
+    out: &mut Vec<crate::renderer::pipelines::item_entity::ItemRenderInfo>,
+) {
+    use azalea_inventory::components::EquipmentSlot;
+    use glam::{Mat4, Vec3};
+
+    use crate::renderer::pipelines::item_entity::ItemRenderInfo;
+    /// `ItemDisplayContext.GROUND`.
+    const GROUND: u8 = 7;
+    for info in entities {
+        if !matches!(
+            info.entity_kind,
+            EntityKind::Dolphin
+                | EntityKind::Fox
+                | EntityKind::Panda
+                | EntityKind::Villager
+                | EntityKind::WanderingTrader
+                | EntityKind::Witch
+        ) {
+            continue;
+        }
+        let Some(stack) = info
+            .entity_id
+            .and_then(|id| game.entity_store.living.get(&id))
+            .and_then(|entity| entity.equipment(EquipmentSlot::Mainhand))
+            .and_then(|stack| stack.as_present())
+        else {
+            continue;
+        };
+        let root = renderer.entity_root_pose(info);
+        let x_rot = info.head_x_rot_deg;
+        let pose = match info.entity_kind {
+            // Out in front of its snout, nearer as it tips up or down.
+            EntityKind::Dolphin => {
+                let tip = x_rot.abs() / 60.0;
+                let at = if x_rot < 0.0 {
+                    Vec3::new(0.0, 1.0 - tip * 0.5, -1.0 + tip * 0.5)
+                } else {
+                    Vec3::new(0.0, 1.0 + tip * 0.8, -1.0 + tip * 0.2)
+                };
+                root * Mat4::from_translation(at)
+            }
+            // At its head, turned as the head is, lying across its jaws.
+            EntityKind::Fox => {
+                let Some(head) = renderer.entity_part_pose(info, "head") else {
+                    continue;
+                };
+                let mut frame = root;
+                frame.w_axis = head.w_axis;
+                let sleeping = info.fox.is_sleeping;
+                let at = match (info.is_baby, sleeping) {
+                    (true, true) => Vec3::new(0.4, 0.26, 0.15),
+                    (true, false) => Vec3::new(0.06, 0.26, -0.5),
+                    (false, true) => Vec3::new(0.46, 0.26, 0.22),
+                    (false, false) => Vec3::new(0.06, 0.27, -0.5),
+                };
+                let y_rot = crate::entity::wrap_degrees(info.head_y_rot_deg - info.body_y_rot_deg);
+                frame
+                    * Mat4::from_scale(Vec3::splat(if info.is_baby { 0.75 } else { 1.0 }))
+                    * Mat4::from_rotation_z(info.fox.head_roll_angle)
+                    * Mat4::from_rotation_y(y_rot.to_radians())
+                    * Mat4::from_rotation_x(x_rot.to_radians())
+                    * Mat4::from_translation(at)
+                    * Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2)
+                    * Mat4::from_rotation_z(if sleeping {
+                        std::f32::consts::FRAC_PI_2
+                    } else {
+                        0.0
+                    })
+            }
+            // Only sitting up and unafraid; chewing bobs it at the mouth.
+            EntityKind::Panda => {
+                if info.panda.sit_amount <= 0.0 || info.panda.is_scared {
+                    continue;
+                }
+                let (mut forward, mut down) = (-0.6_f32, 1.4_f32);
+                if info.panda.is_eating {
+                    let chew = (info.age_in_ticks * 0.6).sin();
+                    forward -= 0.2 * chew + 0.2;
+                    down -= 0.09 * chew;
+                }
+                root * Mat4::from_translation(Vec3::new(0.1, down, forward))
+            }
+            // A witch's potion, held up to its nose.
+            EntityKind::Witch
+                if crate::player::inventory::item_resource_name(stack.kind) == "potion" =>
+            {
+                let Some(nose) = renderer
+                    .entity_part_pose(info, "nose")
+                    .or_else(|| renderer.entity_part_pose(info, "head"))
+                else {
+                    continue;
+                };
+                nose * ARM_FRAME
+                    * Mat4::from_translation(Vec3::new(0.0625, 0.25, 0.0))
+                    * Mat4::from_rotation_z(180.0_f32.to_radians())
+                    * Mat4::from_rotation_x(140.0_f32.to_radians())
+                    * Mat4::from_rotation_z(10.0_f32.to_radians())
+                    * Mat4::from_rotation_x(180.0_f32.to_radians())
+            }
+            // In the crook of the crossed arms.
+            _ => {
+                root * Mat4::from_rotation_x(0.75)
+                    * Mat4::from_scale(Vec3::splat(1.07))
+                    * Mat4::from_translation(Vec3::new(0.0, 0.13, -0.34))
+                    * Mat4::from_rotation_x(std::f32::consts::PI)
+            }
+        };
+        let name = crate::player::inventory::item_resource_name(stack.kind);
+        let model = renderer.render_assets().stack_model_key(&name, stack);
+        let model = renderer.render_assets().context_model_key(&model, GROUND);
+        renderer.ensure_item_mesh(&model);
+        let tints: Arc<[u32]> = renderer
+            .render_assets()
+            .item_tint_palette(&model, Some(stack), None)
+            .into();
+        out.push(ItemRenderInfo {
+            item_name: model.clone().into(),
+            outline_color: info.outline_color,
+            tints,
+            model_matrix: pose * renderer.item_display_transform(&model, GROUND),
+            light: info.light,
+            white_flash: false,
+        });
+    }
+}
+
 /// Vanilla `ItemInHandLayer.submitArmWithItem`'s spear turns for the item
 /// `stack` in the `right` (or left) hand: thrust through a stab
 /// (`thirdPersonAttackItem`, the main hand's weapon) and levelled through a
@@ -8384,6 +8609,7 @@ fn model_entity_render(
                 Mat4::from_translation(Vec3::new(0.0, 0.375, 0.0))
                     * Mat4::from_rotation_y(std::f32::consts::PI - yaw)
                     * Mat4::from_rotation_x(entity.hurt_wobble_deg(partial_tick).to_radians())
+                    * bubble_rock(entity.bubble_angle(partial_tick))
                     * flipped
                     * Mat4::from_rotation_y(std::f32::consts::FRAC_PI_2)
                     * unliving,
@@ -8401,6 +8627,20 @@ fn model_entity_render(
         _ => return None,
     }
     Some(info)
+}
+
+/// A boat's rocking over a bubble column (`AbstractBoatRenderer`): about
+/// the line across its corners. Vanilla builds the turn from an axis it
+/// leaves unnormalised, (1, 0, 1), which makes the turn that much wider.
+fn bubble_rock(degrees: f32) -> glam::Mat4 {
+    if degrees == 0.0 {
+        return glam::Mat4::IDENTITY;
+    }
+    let half = (degrees.to_radians() * 0.5).tan() * std::f32::consts::SQRT_2;
+    glam::Mat4::from_axis_angle(
+        glam::Vec3::new(1.0, 0.0, 1.0).normalize(),
+        2.0 * half.atan(),
+    )
 }
 
 /// The kinds `ItemInHandLayer` draws held items for (humanoid arms).
@@ -9625,7 +9865,6 @@ fn llama_extras(e: &crate::entity::LivingEntity) -> EntityExtras {
 
 /// Vanilla `FoxRenderer.extractRenderState` and `setupRotations` (the
 /// pounce / faceplant pitch). `variant_index = variant * 2 + sleeping`.
-// TODO: `FoxHeldItemLayer` (the item in the fox's mouth).
 fn fox_extras(e: &crate::entity::LivingEntity, alpha: f32) -> EntityExtras {
     let f = &e.fox;
     let fox = crate::renderer::entity_model::FoxAnims {
@@ -9654,7 +9893,6 @@ fn fox_extras(e: &crate::entity::LivingEntity, alpha: f32) -> EntityExtras {
 
 /// Vanilla `PandaRenderer.extractRenderState` and `setupRotations`;
 /// `variant_index` is the shown gene.
-// TODO: `PandaHoldsItemLayer` (the held bamboo/cake while sitting).
 fn panda_extras(e: &crate::entity::LivingEntity, alpha: f32) -> EntityExtras {
     let p = &e.panda;
     let panda = crate::renderer::entity_model::PandaAnims {

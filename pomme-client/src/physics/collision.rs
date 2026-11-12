@@ -257,7 +257,7 @@ pub fn find_supporting_block(
     best.map(|(pos, _)| pos)
 }
 
-fn collide_along_axes(
+pub(crate) fn collide_along_axes(
     block_aabbs: &[Aabb],
     player_aabb: Aabb,
     mut velocity: Velocity,

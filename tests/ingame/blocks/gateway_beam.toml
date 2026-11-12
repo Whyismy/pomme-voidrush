@@ -1,0 +1,45 @@
+# A new end gateway's beam (vanilla TheEndGatewayRenderer): magenta,
+# swelling up and down from the block over its first ten seconds and gone
+# after them.
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/time set 18000"
+
+[[step]]
+chat = "/gamemode spectator"
+
+[[step]]
+chat = "/tp @s 2000.5 -56.0 590.5 0 -20"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+chat = "/setblock 2000 -55 602 minecraft:end_gateway"
+
+[[step]]
+expect = { block = "end_gateway", at = [2000, -55, 602], block_entity = "end_gateway" }
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "rising"
+
+[[step]]
+wait_ms = 3000
+
+[[step]]
+screenshot = "full"
+
+[[step]]
+wait_ms = 7000
+
+[[step]]
+screenshot = "gone"

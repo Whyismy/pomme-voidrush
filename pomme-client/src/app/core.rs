@@ -4300,6 +4300,38 @@ impl AppCore {
                 .map(crate::physics::boat::Drive::of)
                 .unwrap_or_default();
         }
+        // What a boat can't pass through (`AbstractBoat.canVehicleCollide`):
+        // other vehicles and whatever can be pushed, its own riders aside.
+        let obstacles: Vec<crate::physics::aabb::Aabb> =
+            match rowed.and_then(|id| Some((id, game.model_entities.entities.get(&id)?))) {
+                Some((id, boat)) => {
+                    let near = |aabb: &crate::physics::aabb::Aabb| {
+                        aabb.min.distance_squared(*boat.position) < 64.0
+                    };
+                    let riders = game.model_entities.passengers(id);
+                    let mobs = game
+                        .entity_store
+                        .living
+                        .iter()
+                        .filter(|(mob, entity)| {
+                            !riders.contains(mob)
+                                && !entity.is_armor_stand_marker()
+                                && entity.entity_type != azalea_registry::builtin::EntityKind::Bat
+                        })
+                        .map(|(_, entity)| {
+                            crate::entity::living_entity_dimensions(entity)
+                                .make_bounding_box(*entity.position)
+                        });
+                    let vehicles = game
+                        .model_entities
+                        .entities
+                        .iter()
+                        .filter(|(other, _)| **other != id)
+                        .filter_map(|(_, vehicle)| Some(vehicle.pick_box()?.0));
+                    mobs.chain(vehicles).filter(near).collect()
+                }
+                None => Vec::new(),
+            };
         if let Some(id) = rowed
             && let Some(entity) = game.model_entities.entities.get_mut(&id)
         {
@@ -4324,6 +4356,7 @@ impl AppCore {
                     &game.chunk_store,
                     game.block_registry.block_state_table(),
                 ),
+                &obstacles,
             );
             entity.rowed(body, paddles);
             // `AbstractBoat.positionRider`: the rower turns with the boat,

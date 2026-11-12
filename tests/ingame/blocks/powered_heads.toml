@@ -1,0 +1,51 @@
+# Dragon and piglin heads (vanilla SkullBlockRenderer): a dragon head's
+# jaw hangs a little open, and a piglin head's ears stand out. Powered (the
+# pair on redstone blocks), the jaw works and the ears flap.
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/gamemode spectator"
+
+[[step]]
+chat = "/tp @s 1903.0 -58.4 598.5 0 12"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+chat = "/setblock 1900 -60 602 minecraft:dragon_head[rotation=13]"
+
+[[step]]
+chat = "/setblock 1902 -60 602 minecraft:piglin_head[rotation=0]"
+
+[[step]]
+chat = "/fill 1904 -60 602 1906 -60 602 minecraft:redstone_block"
+
+[[step]]
+chat = "/setblock 1904 -59 602 minecraft:dragon_head[rotation=13]"
+
+[[step]]
+chat = "/setblock 1906 -59 602 minecraft:piglin_head[rotation=0]"
+
+[[step]]
+expect = { block = "piglin_head", at = [1906, -59, 602], block_entity = "skull" }
+
+[[step]]
+wait_ms = 1700
+
+[[step]]
+screenshot = "heads_1"
+
+[[step]]
+wait_ms = 150
+
+[[step]]
+screenshot = "heads_2"

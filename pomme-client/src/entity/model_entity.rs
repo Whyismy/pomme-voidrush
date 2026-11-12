@@ -5,8 +5,6 @@
 //! vehicles glide to where the server last put them.
 // A boat the local player rows is the exception: this client moves it
 // (`crate::physics::boat`) and the server's moves for it are only noted.
-// TODO: a boat's bubble column rocking, and a minecart's custom display
-// block before 1.21.5 (an id and a flag in place of an optional state).
 
 use std::collections::HashMap;
 
@@ -67,6 +65,15 @@ pub struct ModelEntity {
     /// in sixteenths (`AbstractMinecart.DATA_ID_DISPLAY_OFFSET`).
     pub display_block: Option<u32>,
     pub display_offset: Option<i32>,
+    /// Before 1.21.5 a minecart synced a block id, an offset and whether
+    /// to show them, each on its own.
+    legacy_display: (u32, i32, bool),
+    /// A boat over a bubble column: the ticks the server counts
+    /// (`DATA_ID_BUBBLE_TIME`), how far the rocking has built up, and the
+    /// angle it rocks to, last tick's and this one's, in degrees.
+    bubble_time: i32,
+    bubble_multiplier: f32,
+    bubble_angle: [f32; 2],
 }
 
 impl ModelEntity {
@@ -90,6 +97,12 @@ impl ModelEntity {
         }
         let damage = (self.damage - partial_tick).max(0.0);
         time.sin() * time * damage / 10.0 * self.hurt_dir as f32
+    }
+
+    /// How far a boat over a bubble column rocks, in degrees
+    /// (`AbstractBoat.getBubbleAngle`).
+    pub fn bubble_angle(&self, partial_tick: f32) -> f32 {
+        self.bubble_angle[0] + (self.bubble_angle[1] - self.bubble_angle[0]) * partial_tick
     }
 
     /// `AbstractBoat.getRowingTime` for the left and right paddles: 0 for
@@ -414,6 +427,10 @@ impl ModelEntityStore {
                 damage: 0.0,
                 display_block: None,
                 display_offset: None,
+                legacy_display: (0, 6, false),
+                bubble_time: 0,
+                bubble_multiplier: 0.0,
+                bubble_angle: [0.0; 2],
                 paddle: [0.0; 2],
             },
         );
@@ -457,6 +474,13 @@ impl ModelEntityStore {
         {
             entity.display_block = state;
         }
+    }
+
+    /// Who rides vehicle `vehicle`.
+    pub fn passengers(&self, vehicle: i32) -> &[i32] {
+        self.entities
+            .get(&vehicle)
+            .map_or(&[], |entity| &entity.passengers)
     }
 
     /// Who rides vehicle `vehicle`, in the server's order.
@@ -519,10 +543,38 @@ impl ModelEntityStore {
                 (8, super::MetaValue::Int(time)) => entity.hurt_time = time,
                 (9, super::MetaValue::Int(dir)) => entity.hurt_dir = dir,
                 (10, super::MetaValue::Float(damage)) => entity.damage = damage,
-                (12, super::MetaValue::Int(offset)) if minecart(entity.kind).is_some() => {
+                _ => {}
+            }
+        }
+        // A minecart's display: since 1.21.5 (protocol 770) an optional
+        // block state (`set_display_block`) and its offset; before, a
+        // block id, an offset and a flag to show them.
+        if minecart(entity.kind).is_some() {
+            if crate::version::session_protocol() >= 770 {
+                if let (12, super::MetaValue::Int(offset)) = (index, value) {
                     entity.display_offset = Some(offset);
                 }
-                _ => {}
+            } else {
+                match (index, value) {
+                    (11, super::MetaValue::Int(state)) => entity.legacy_display.0 = state as u32,
+                    (12, super::MetaValue::Int(offset)) => entity.legacy_display.1 = offset,
+                    (13, super::MetaValue::Bool(shown)) => entity.legacy_display.2 = shown,
+                    _ => {}
+                }
+                let (state, offset, shown) = entity.legacy_display;
+                entity.display_block = shown.then_some(state);
+                entity.display_offset = shown.then_some(offset);
+            }
+        }
+        // `AbstractBoat.DATA_ID_BUBBLE_TIME`, after the paddles.
+        if boat(entity.kind).is_some() {
+            let after_paddles = if crate::version::session_protocol() >= 768 {
+                13
+            } else {
+                14
+            };
+            if let (true, super::MetaValue::Int(time)) = (index == after_paddles, value) {
+                entity.bubble_time = time;
             }
         }
         let super::MetaValue::Bool(flag) = value else {
@@ -647,6 +699,17 @@ impl ModelEntityStore {
                         entity.x_rot += (entity.server_x_rot - entity.x_rot) / steps;
                         entity.lerp_steps -= 1;
                     }
+                    // `AbstractBoat.tickBubbleColumn`: over a column the
+                    // rocking builds, and off it dies away faster.
+                    if boat(kind).is_some() {
+                        let build = if entity.bubble_time > 0 { 0.05 } else { -0.1 };
+                        entity.bubble_multiplier =
+                            (entity.bubble_multiplier + build).clamp(0.0, 1.0);
+                        entity.bubble_angle = [
+                            entity.bubble_angle[1],
+                            10.0 * (0.5 * entity.age as f32).sin() * entity.bubble_multiplier,
+                        ];
+                    }
                     for side in 0..2 {
                         entity.paddle[side] = if entity.paddling[side] {
                             entity.paddle[side] + PADDLE_STEP
@@ -725,6 +788,18 @@ mod tests {
             store.tick();
         }
         assert_eq!(store.entities[&1].hurt_wobble_deg(0.0), 0.0);
+        // Over a bubble column it rocks, more with each tick, and settles
+        // once it is off it.
+        store.apply_entity_data(1, 13, crate::entity::MetaValue::Int(60));
+        for _ in 0..3 {
+            store.tick();
+        }
+        assert!(store.entities[&1].bubble_angle(1.0).abs() > 0.1);
+        store.apply_entity_data(1, 13, crate::entity::MetaValue::Int(0));
+        for _ in 0..3 {
+            store.tick();
+        }
+        assert_eq!(store.entities[&1].bubble_angle(1.0), 0.0);
         // Two aboard: the rower forward of the middle, the other aft (the
         // boat faces west here, so forward is along -x... east is +x).
         store.set_passengers(1, &[7, 8]);

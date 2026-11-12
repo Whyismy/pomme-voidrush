@@ -4720,6 +4720,20 @@ pub fn compute_villager_anim(
 /// stays put).
 // TODO: carried-block arm pose and the humanoid attack swing once carried
 // blocks / attack animation land.
+/// `PiglinHeadModel.setupAnim`: a placed piglin head's ears, which flap
+/// while the head is powered; `time` is the ticks it has been.
+pub fn pose_piglin_head_ears(model: &BakedEntityModel, anim: &mut PartAnim, time: f32) {
+    let swing = time * std::f32::consts::PI * 0.2;
+    for (i, part) in model.parts.iter().enumerate() {
+        let z = match part.name.as_str() {
+            "left_ear" => -((swing * 1.2).cos() + 2.5) * 0.2,
+            "right_ear" => (swing.cos() + 2.5) * 0.2,
+            _ => continue,
+        };
+        *anim.rotation_mut(model, i) = Vec3::new(0.0, 0.0, z);
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn compute_enderman_anim(
     model: &BakedEntityModel,

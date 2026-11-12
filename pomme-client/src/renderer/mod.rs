@@ -2111,6 +2111,30 @@ impl Renderer {
                 &self.atlas.uv_map,
             );
         }
+        // A placed dragon head's jaw, or the rest of it.
+        if matches!(
+            name,
+            crate::world::block::model::DRAGON_JAW_KEY
+                | crate::world::block::model::DRAGON_SKULL_KEY
+        ) && let Some(base) = self.render_assets.get_item_model("dragon_head")
+        {
+            let mut model = base.clone();
+            let jaw = model
+                .quads
+                .len()
+                .saturating_sub(crate::world::block::model::dragon_jaw_quads());
+            if name == crate::world::block::model::DRAGON_JAW_KEY {
+                model.quads.drain(..jaw);
+            } else {
+                model.quads.truncate(jaw);
+            }
+            self.item_entity_pipeline.ensure_mesh(
+                &self.ctx.device,
+                name,
+                &model,
+                &self.atlas.uv_map,
+            );
+        }
         // A piece of an active conduit.
         if let Some(model) = crate::world::block::model::conduit_part(name) {
             self.item_entity_pipeline.ensure_mesh(
@@ -2157,6 +2181,7 @@ impl Renderer {
         if name.contains('~')
             && !name.starts_with(crate::world::block::model::POT_SIDES_KEY)
             && !name.starts_with(crate::world::block::model::CONDUIT_PART_KEY)
+            && !name.starts_with("dragon_head~")
             && !crate::banner::is_shield_key(name)
             && let Some(base) = self
                 .render_assets
@@ -2425,6 +2450,15 @@ impl Renderer {
     ) -> Option<glam::Mat4> {
         self.entity_renderer
             .arm_pose(info, self.camera_anchor(), right)
+    }
+
+    /// The frame an entity's model is drawn in, as vanilla's layers have
+    /// it (see `EntityRenderer::root_pose`).
+    pub fn entity_root_pose(
+        &self,
+        info: &pipelines::entity_renderer::EntityRenderInfo,
+    ) -> glam::Mat4 {
+        self.entity_renderer.root_pose(info, self.camera_anchor())
     }
 
     /// [`Self::entity_arm_pose`] for any named part of the model.

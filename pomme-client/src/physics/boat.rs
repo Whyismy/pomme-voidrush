@@ -3,13 +3,15 @@
 //! stops moving it and waits for the client's `move_vehicle`.
 //! `AbstractBoat.tick`'s `getStatus`, `floatBoat` and `controlBoat`, then
 //! `Entity.move`.
-// TODO: bubble columns, and bumping into other boats and shulkers.
+// TODO: a bubble column's pull on the boat is the server's to give.
 
 use glam::DVec3;
 
 use crate::physics::aabb::Aabb;
 use crate::physics::block_shape::CollisionContext;
-use crate::physics::collision::{CollisionWorld, no_collision, resolve_collision, state_boxes};
+use crate::physics::collision::{
+    CollisionWorld, collect_block_aabbs, collide_along_axes, no_collision, state_boxes,
+};
 use crate::position::BlockPos;
 use crate::world::block::FluidKind;
 
@@ -394,13 +396,17 @@ impl Drive {
 }
 
 /// One tick of the boat under its rower: it floats, answers the keys set
-/// after its last tick, and moves. `keys` are the rider's now, for the
+/// after its last tick, and moves, stopped by blocks and by `obstacles`,
+/// the boxes of what a boat can't pass through
+/// (`AbstractBoat.canVehicleCollide`: other boats and whatever can be
+/// pushed, its own riders aside). `keys` are the rider's now, for the
 /// next. The paddles rowing, left then right.
 pub fn tick(
     boat: &mut Boat,
     drive: &mut Drive,
     keys: Keys,
     world: CollisionWorld<'_>,
+    obstacles: &[Aabb],
 ) -> [bool; 2] {
     let old = drive.status;
     let status = drive.status(world, &bounding_box(boat.position));
@@ -412,14 +418,13 @@ pub fn tick(
 
     // `Entity.move`: what the blocks let through; a blocked axis stops.
     let ctx = CollisionContext::entity(boat.position.y, false, false);
-    let (delta, on_ground) = resolve_collision(
-        world,
-        bounding_box(boat.position),
-        boat.velocity.into(),
-        0.0,
-        drive.on_ground,
-        &ctx,
-    );
+    let aabb = bounding_box(boat.position);
+    let reach = aabb.expand(boat.velocity);
+    let mut colliders = collect_block_aabbs(world, &reach, &ctx);
+    colliders.extend(obstacles.iter().filter(|o| o.intersects(&reach)));
+    // A boat doesn't step up, so `Entity.collide` is the one pass.
+    let (delta, _) = collide_along_axes(&colliders, aabb, boat.velocity.into());
+    let on_ground = boat.velocity.y < 0.0 && delta.y != boat.velocity.y;
     drive.last_yd = boat.velocity.y;
     if (delta.x - boat.velocity.x).abs() > 1.0e-7 {
         boat.velocity.x = 0.0;
@@ -525,6 +530,48 @@ mod tests {
         world_free(Status::UnderWater, &mut Drive::of(1), &mut boat);
         assert!((boat.velocity.x - f64::from(0.45_f32)).abs() < 1.0e-9);
         assert!(boat.velocity.y > -GRAVITY);
+    }
+
+    /// A boat rowed at another's box stops against it; one it is already
+    /// in doesn't hold it.
+    #[test]
+    fn another_boat_is_in_the_way() {
+        let chunks = crate::world::chunk::ChunkStore::new(2);
+        let world = || CollisionWorld::new(&chunks, crate::world::block::BlockStateTable::native());
+        let rowing = Boat {
+            position: DVec3::new(0.0, 100.0, 0.0),
+            velocity: DVec3::new(0.0, 0.0, 0.5),
+            y_rot: 0.0,
+        };
+        // In the air, so only its own drag and fall change its speed.
+        let free = {
+            let mut boat = rowing;
+            tick(&mut boat, &mut Drive::of(1), Keys::default(), world(), &[]);
+            boat
+        };
+        assert!(free.position.z > 0.4);
+
+        let ahead = bounding_box(DVec3::new(0.0, 100.0, WIDTH + 0.1));
+        let mut boat = rowing;
+        tick(
+            &mut boat,
+            &mut Drive::of(1),
+            Keys::default(),
+            world(),
+            &[ahead],
+        );
+        assert!((boat.position.z - 0.1).abs() < 1.0e-6 && boat.velocity.z == 0.0);
+
+        let around = bounding_box(DVec3::new(0.0, 100.0, 0.2));
+        let mut boat = rowing;
+        tick(
+            &mut boat,
+            &mut Drive::of(1),
+            Keys::default(),
+            world(),
+            &[around],
+        );
+        assert_eq!(boat.position.z, free.position.z);
     }
 
     /// A rider may look 105 degrees either side of the bow and no further.

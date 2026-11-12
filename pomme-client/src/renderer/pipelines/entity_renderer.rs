@@ -3701,6 +3701,15 @@ impl EntityRenderer {
         self.part_pose(info, anchor, if right { "right_arm" } else { "left_arm" })
     }
 
+    /// The frame `info`'s model is drawn in, as vanilla's layers have it
+    /// (`LivingEntityRenderer.submit`: turned over and dropped 1.501), in
+    /// the camera-anchored space items draw in.
+    pub fn root_pose(&self, info: &EntityRenderInfo, anchor: glam::DVec3) -> glam::Mat4 {
+        Self::entity_matrix(info, anchor)
+            * glam::Mat4::from_scale(glam::Vec3::new(-1.0, -1.0, 1.0))
+            * glam::Mat4::from_translation(glam::Vec3::new(0.0, -1.501, 0.0))
+    }
+
     /// Where model part `name` of `info`'s model is this frame, in the
     /// camera-anchored space items draw in.
     pub fn part_pose(
@@ -3905,6 +3914,9 @@ impl EntityRenderer {
             info.head_x_rot_deg.to_radians(),
             crate::entity::wrap_degrees(info.head_y_rot_deg - info.body_y_rot_deg).to_radians(),
         );
+        if info.head_only && info.entity_kind == EntityKind::Piglin {
+            entity_model::pose_piglin_head_ears(model, &mut anim, info.age_in_ticks);
+        }
         if info.head_only {
             // Children follow their parent's scale, so hiding the other roots
             // hides everything but the head and its hat.
