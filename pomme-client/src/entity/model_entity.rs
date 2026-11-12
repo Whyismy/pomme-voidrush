@@ -422,13 +422,28 @@ impl ModelEntityStore {
     }
 
     /// Where a passenger of vehicle `id` rides
-    /// (`Entity.getPassengerRidingPosition`).
-    // TODO: the seats' offsets along a boat (one rider sits forward of the
-    // middle, two fore and aft).
+    /// (`Entity.getPassengerRidingPosition`): in the middle, but for a
+    /// chest boat's one rider, who sits forward of its chest
+    /// (`AbstractChestBoat.getSinglePassengerXOffset`).
+    // TODO: two riders in a boat sit fore and aft of its middle.
     pub fn seat(&self, id: i32) -> Option<DVec3> {
         let vehicle = self.entities.get(&id)?;
-        is_vehicle(vehicle.kind)
-            .then(|| *vehicle.position + DVec3::new(0.0, passenger_attachment(vehicle.kind), 0.0))
+        if !is_vehicle(vehicle.kind) {
+            return None;
+        }
+        let forward = match boat(vehicle.kind) {
+            Some((_, true, _)) => 0.15,
+            _ => 0.0,
+        };
+        let (sin, cos) = f64::from(vehicle.y_rot).to_radians().sin_cos();
+        Some(
+            *vehicle.position
+                + DVec3::new(
+                    -sin * forward,
+                    passenger_attachment(vehicle.kind),
+                    cos * forward,
+                ),
+        )
     }
 
     pub fn set_motion(&mut self, id: i32, velocity: DVec3) {

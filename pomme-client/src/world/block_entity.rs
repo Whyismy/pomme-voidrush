@@ -22,6 +22,10 @@ pub struct StoredBlockEntity {
 pub struct SignLayout {
     pub lines: [Option<std::sync::Arc<crate::entity::display::TextLayout>>; 4],
     pub glowing: bool,
+    /// Glowing text's outline, line for line, and whether it shows from
+    /// any distance.
+    pub outline: [Option<std::sync::Arc<crate::entity::display::TextLayout>>; 4],
+    pub outline_always: bool,
 }
 
 impl StoredBlockEntity {

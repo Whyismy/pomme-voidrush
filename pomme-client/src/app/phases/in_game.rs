@@ -377,9 +377,11 @@ pub struct GameState {
     pub paintings: crate::entity::painting::PaintingStore,
     pub effect_clouds: crate::entity::effect_cloud::EffectCloudStore,
     pub leashes: crate::entity::leash::LeashStore,
-    /// Each nearby spawner's spin, last tick's and this one's, in the
-    /// tenths of a degree vanilla counts it in (`BaseSpawner.spin`).
-    pub spawner_spins: HashMap<BlockPos, (f32, f32)>,
+    /// Each loaded spawner's spin, last tick's and this one's, in the
+    /// tenths of a degree vanilla counts it in (`BaseSpawner.spin`), and
+    /// the ticks to its next spawn (`spawnDelay`), which the spin quickens
+    /// with.
+    pub spawner_spins: HashMap<BlockPos, (f32, f32, i32)>,
     /// The boat the local player rows: what it keeps between ticks.
     pub boat_drive: crate::physics::boat::Drive,
     /// The degrees a rowed boat turns its rower over this tick
@@ -5266,18 +5268,22 @@ pub fn update_game(
                 continue;
             };
             let sides = be.sign.get_or_init(|| {
+                let renderer = &gfx.renderer;
+                let laid_out = |line: Vec<crate::ui::text::TextSpan>| {
+                    // `Font.split` at the board's width, first line.
+                    let mut layout = renderer.layout_display_text(&line, kind.max_line_width());
+                    layout.lines.truncate(1);
+                    layout.width = layout.lines.first().map_or(0.0, |line| line.1);
+                    (layout.width > 0.0).then(|| Arc::new(layout))
+                };
                 sign::sign_sides(&be.nbt).map(|side| {
                     side.map(|side| SignLayout {
-                        lines: side.lines.map(|line| {
-                            // `Font.split` at the board's width, first line.
-                            let mut layout = gfx
-                                .renderer
-                                .layout_display_text(&line, kind.max_line_width());
-                            layout.lines.truncate(1);
-                            layout.width = layout.lines.first().map_or(0.0, |line| line.1);
-                            (layout.width > 0.0).then(|| Arc::new(layout))
-                        }),
+                        lines: side.lines.map(laid_out),
                         glowing: side.glowing,
+                        outline: side
+                            .outline
+                            .map_or_else(Default::default, |lines| lines.map(laid_out)),
+                        outline_always: side.outline_always,
                     })
                 })
             });
@@ -5304,6 +5310,33 @@ pub fn update_game(
                         back == 1,
                         line,
                     );
+                    // Glowing text's outline, seen from near: the line
+                    // eight times over, a text pixel off each way, behind
+                    // the line itself.
+                    let outlined = side.outline_always
+                        || distance < sign::OUTLINE_DISTANCE * sign::OUTLINE_DISTANCE;
+                    if let Some(outline) = side.outline[line].as_ref().filter(|_| outlined) {
+                        for (dx, dy) in sign::OUTLINE_OFFSETS {
+                            let off = glam::Mat4::from_translation(glam::Vec3::new(
+                                dx / 40.0,
+                                dy / 40.0,
+                                -0.002,
+                            ));
+                            world_texts.push((
+                                distance,
+                                crate::renderer::pipelines::menu_overlay::WorldTextRender {
+                                    layout: outline.clone(),
+                                    pose: base * pose * off,
+                                    align: crate::entity::display::TextAlign::Center,
+                                    color: 0xFFFF_FFFF,
+                                    background: 0,
+                                    shadow: false,
+                                    see_through: false,
+                                    light: light.lane(),
+                                },
+                            ));
+                        }
+                    }
                     world_texts.push((
                         distance,
                         crate::renderer::pipelines::menu_overlay::WorldTextRender {
@@ -6950,9 +6983,7 @@ fn tick_enchanting_books(game: &mut GameState) {
 
 /// `BaseSpawner.clientTick`: a spawner with a player within 16 blocks
 /// throws a wisp of smoke and a flame inside its cage each tick, and its
-/// mob spins.
-// TODO: the spin speeds up as the spawn nears (the synced delay); this
-// holds the delay at its 20 ticks.
+/// mob spins, faster as the spawn nears.
 fn tick_spawners(game: &mut GameState, camera: glam::DVec3) {
     use azalea_registry::builtin::BlockEntityKind;
 
@@ -6971,10 +7002,16 @@ fn tick_spawners(game: &mut GameState, camera: glam::DVec3) {
         )
         .collect();
     let mut active = Vec::new();
+    let mut loaded = Vec::new();
     for (pos, be) in &game.chunk_store.block_entities {
         if be.kind != BlockEntityKind::MobSpawner {
             continue;
         }
+        loaded.push(*pos);
+        // The delay the server sent with the spawner; 20 ticks unset.
+        game.spawner_spins
+            .entry(*pos)
+            .or_insert_with(|| (0.0, 0.0, i32::from(be.nbt.short("Delay").unwrap_or(20))));
         let corner = glam::DVec3::new(f64::from(pos.x), f64::from(pos.y), f64::from(pos.z));
         let middle = corner + glam::DVec3::splat(0.5);
         if !players.iter().any(|p| p.distance_squared(middle) < 256.0) {
@@ -6997,11 +7034,15 @@ fn tick_spawners(game: &mut GameState, camera: glam::DVec3) {
                 camera,
             );
         }
-        let spin = game.spawner_spins.entry(*pos).or_insert((0.0, 0.0));
-        *spin = (spin.1, (spin.1 + 1000.0 / 220.0) % 360.0);
+        let spin = game.spawner_spins.entry(*pos).or_insert((0.0, 0.0, 20));
+        spin.2 = (spin.2 - 1).max(0);
+        *spin = (
+            spin.1,
+            (spin.1 + 1000.0 / (spin.2 as f32 + 200.0)) % 360.0,
+            spin.2,
+        );
     }
-    game.spawner_spins
-        .retain(|pos, _| active.iter().any(|(p, _)| p == pos));
+    game.spawner_spins.retain(|pos, _| loaded.contains(pos));
 }
 
 /// The mob a spawner is set to, small and spinning in its cage
@@ -7042,7 +7083,7 @@ fn build_spawner_mobs(
         } else {
             0.53125
         };
-        let (before, now) = game.spawner_spins.get(pos).copied().unwrap_or_default();
+        let (before, now, _) = game.spawner_spins.get(pos).copied().unwrap_or_default();
         // The spin never wraps mid-tick the long way: it only grows.
         let spin = if now < before {
             now

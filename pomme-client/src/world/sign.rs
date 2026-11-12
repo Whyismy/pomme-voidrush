@@ -14,7 +14,29 @@ use crate::ui::text::TextSpan;
 pub struct SignSide {
     pub lines: [Vec<TextSpan>; 4],
     pub glowing: bool,
+    /// Glowing text's outline: the same lines in the outline's colour.
+    pub outline: Option<[Vec<TextSpan>; 4]>,
+    /// Whether the outline shows from any distance (black text's does;
+    /// any other's only within [`OUTLINE_DISTANCE`]).
+    pub outline_always: bool,
 }
+
+/// How near the viewer must be for a glowing sign's outline to be drawn
+/// (`AbstractSignRenderer.OUTLINE_RENDER_DISTANCE`).
+pub const OUTLINE_DISTANCE: f64 = 16.0;
+
+/// Where the eight copies of a glowing line that make its outline sit,
+/// in text pixels (`Font.drawInBatch8xOutline`).
+pub const OUTLINE_OFFSETS: [(f32, f32); 8] = [
+    (-1.0, -1.0),
+    (0.0, -1.0),
+    (1.0, -1.0),
+    (-1.0, 0.0),
+    (1.0, 0.0),
+    (-1.0, 1.0),
+    (0.0, 1.0),
+    (1.0, 1.0),
+];
 
 /// How a sign hangs, which decides where its text goes.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -80,9 +102,24 @@ fn dye_text_color(name: &str) -> [u8; 3] {
     [(rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8]
 }
 
+/// Whether `dye` is black, whose glowing text is outlined in cream.
+fn is_black(dye: &str) -> bool {
+    dye_text_color(dye) == [0, 0, 0]
+}
+
+/// `AbstractSignRenderer.getDarkColor` for glowing text, its outline's
+/// colour: four tenths of the dye's, or cream round black.
+fn outline_color(dye: &str) -> [f32; 4] {
+    if is_black(dye) {
+        let [r, g, b] = [0xF0_u8, 0xEB, 0xCC].map(|c| f32::from(c) / 255.0);
+        [r, g, b, 1.0]
+    } else {
+        text_color(dye, false)
+    }
+}
+
 /// The colour a side's text is written in (`AbstractSignRenderer`): the
 /// dye's own when it glows, four tenths of it otherwise.
-// TODO: glowing text's outline.
 fn text_color(dye: &str, glowing: bool) -> [f32; 4] {
     let [r, g, b] = dye_text_color(dye);
     let channel = |c: u8| {
@@ -120,7 +157,8 @@ fn side(nbt: &NbtCompound, key: &str) -> Option<SignSide> {
     let text = nbt.compound(key)?;
     let glowing = text.byte("has_glowing_text").is_some_and(|b| b != 0);
     let dye = text.string("color").map(|c| c.to_str().into_owned());
-    let color = text_color(dye.as_deref().unwrap_or("black"), glowing);
+    let dye = dye.as_deref().unwrap_or("black");
+    let color = text_color(dye, glowing);
     let messages = text.list("messages")?;
     let tags: Vec<NbtTag> = if let Some(strings) = messages.strings() {
         strings.iter().cloned().map(NbtTag::String).collect()
@@ -136,14 +174,23 @@ fn side(nbt: &NbtCompound, key: &str) -> Option<SignSide> {
             })
             .collect()
     };
-    let mut lines: [Vec<TextSpan>; 4] = Default::default();
-    for (line, tag) in lines.iter_mut().zip(tags) {
-        *line = message(tag, color);
-    }
+    let written = |color| {
+        let mut lines: [Vec<TextSpan>; 4] = Default::default();
+        for (line, tag) in lines.iter_mut().zip(&tags) {
+            *line = message(tag.clone(), color);
+        }
+        lines
+    };
+    let lines = written(color);
     lines
         .iter()
         .any(|line| line.iter().any(|span| !span.text.is_empty()))
-        .then_some(SignSide { lines, glowing })
+        .then(|| SignSide {
+            lines,
+            glowing,
+            outline: glowing.then(|| written(outline_color(dye))),
+            outline_always: is_black(dye),
+        })
 }
 
 /// A sign's front and back, each `None` when blank.
@@ -262,6 +309,17 @@ mod tests {
         let front = front.unwrap();
         assert!(front.glowing);
         assert_eq!(front.lines[0][0].color, [1.0, 0.0, 0.0, 1.0]);
+        // Its outline is the dark red plain text would be, and only shows
+        // from near; black text's is cream, from anywhere.
+        let outline = front.outline.unwrap();
+        assert_eq!(outline[0][0].color, [0.4, 0.0, 0.0, 1.0]);
+        assert!(!front.outline_always);
+        let [front, _] = sign_sides(&sign(["'a'", "''", "''", "''"], None, true));
+        let front = front.unwrap();
+        assert!(front.outline_always);
+        assert_eq!(front.lines[0][0].color, [0.0, 0.0, 0.0, 1.0]);
+        let cream = [0xF0_u8, 0xEB, 0xCC].map(|c| f32::from(c) / 255.0);
+        assert_eq!(front.outline.unwrap()[0][0].color[..3], cream);
 
         // Before 1.21.5 a line was JSON in a string.
         let [front, _] = sign_sides(&sign([r#"{"text":"Old"}"#, "", "", ""], None, false));

@@ -2553,6 +2553,18 @@ impl AppCore {
                     {
                         game.block_entity_anim.ring_bell(pos, action_parameter);
                     } else if action_id == 1
+                        && game.block_registry.block_state_data(state).id() == "spawner"
+                    {
+                        // `BaseSpawner.onEventTriggered`: it spawned; the
+                        // wait for the next begins at its shortest.
+                        let wait = game
+                            .chunk_store
+                            .block_entities
+                            .get(&pos)
+                            .and_then(|be| be.nbt.short("MinSpawnDelay"))
+                            .map_or(200, i32::from);
+                        game.spawner_spins.entry(pos).or_insert((0.0, 0.0, 0)).2 = wait;
+                    } else if action_id == 1
                         && game.block_registry.block_state_data(state).id() == "end_gateway"
                     {
                         // `TheEndGatewayBlockEntity.triggerEvent`: something
