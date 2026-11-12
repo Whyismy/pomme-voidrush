@@ -1048,7 +1048,34 @@ pub fn bake_item_models(
                         }
                         SpecialModel::Head { kind, texture } => (kind.layer(), texture.clone()),
                     };
-                    let mut baked = bake_exported_item(layer, &texture);
+                    let mut baked = if matches!(
+                        special,
+                        SpecialModel::Head {
+                            kind: HeadKind::Dragon,
+                            ..
+                        }
+                    ) {
+                        // `DragonHeadModel.setupAnim` at rest: the jaw
+                        // hangs a fifth of a radian open.
+                        let posed: Vec<_> = layer
+                            .iter()
+                            .map(|part| {
+                                let mut pose = part.pose;
+                                if part.name == "jaw" {
+                                    pose[3] = DRAGON_JAW_REST;
+                                }
+                                crate::renderer::entity_model::exported::ExportedPart {
+                                    name: part.name,
+                                    parent: part.parent,
+                                    pose,
+                                    quads: part.quads,
+                                }
+                            })
+                            .collect();
+                        bake_exported_item(&posed, &texture)
+                    } else {
+                        bake_exported_item(layer, &texture)
+                    };
                     // `BannerRenderer.renderPatterns`: the flag, then the base
                     // pattern in the base colour (tint 0, the part's own).
                     // The pot's four sides, in the plain side's texture.
@@ -1464,6 +1491,10 @@ impl HeadKind {
 /// The banner pattern every flag draws first, in the banner's base colour;
 /// a stack's pattern layers copy its quads.
 pub const BANNER_BASE_PATTERN: &str = "entity/banner/base";
+
+/// How far open a dragon head's jaw hangs at rest, in radians: the head's
+/// model is baked with it so.
+pub const DRAGON_JAW_REST: f32 = 0.2;
 
 /// The model keys of a placed dragon head's two halves: its jaw, which
 /// works while the head is powered, and the rest.

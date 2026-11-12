@@ -5394,8 +5394,11 @@ pub fn update_game(
                     // Glowing text's outline, seen from near: the line
                     // eight times over, a text pixel off each way, behind
                     // the line itself.
+                    // (`isOutlineVisible`: or from anywhere through a
+                    // spyglass, in first person.)
                     let outlined = side.outline_always
-                        || distance < sign::OUTLINE_DISTANCE * sign::OUTLINE_DISTANCE;
+                        || distance < sign::OUTLINE_DISTANCE * sign::OUTLINE_DISTANCE
+                        || (gfx.renderer.is_first_person() && game.interaction.is_scoping());
                     if let Some(outline) = side.outline[line].as_ref().filter(|_| outlined) {
                         for (dx, dy) in sign::OUTLINE_OFFSETS {
                             let off = glam::Mat4::from_translation(glam::Vec3::new(
@@ -6902,8 +6905,6 @@ fn build_banners(
 /// `DragonHeadModel`): the head item's own model, on the floor at its
 /// sixteenth or on its wall. Decorated pots (`DecoratedPotRenderer`) and
 /// conduits (`ConduitRenderer`) likewise, as their items' models.
-// TODO: the head as an item keeps its jaw shut; vanilla's hangs a little
-// open there too.
 fn build_dragon_heads(
     game: &GameState,
     world_light: &WorldLight,
@@ -6946,9 +6947,14 @@ fn build_dragon_heads(
                     * Mat4::from_rotation_y((-yaw).to_radians())
                     * Mat4::from_translation(Vec3::new(0.0, 0.5, 0.0));
                 // `DragonHeadModel.setupAnim`: the jaw hangs a little open
-                // and works by the head's clock. It swings from the top of
-                // its back end, the end nearer the skull's middle.
-                use crate::world::block::model::{DRAGON_JAW_KEY, DRAGON_SKULL_KEY};
+                // (as the model is baked) and works by the head's clock.
+                // It swings from the top of its back end, the end nearer
+                // the skull's middle; hanging open, the bottom of that end
+                // reaches a little further back than the hinge (the jaw is
+                // a third as deep as it is wide).
+                use crate::world::block::model::{
+                    DRAGON_JAW_KEY, DRAGON_JAW_REST, DRAGON_SKULL_KEY,
+                };
                 let skull = renderer.ensure_item_mesh(DRAGON_SKULL_KEY);
                 let jaw = renderer.ensure_item_mesh(DRAGON_JAW_KEY);
                 let middle = (skull.bounds_min.z + skull.bounds_max.z) * 0.5;
@@ -6958,7 +6964,13 @@ fn build_dragon_heads(
                     } else {
                         (jaw.bounds_max.z, jaw.bounds_min.z)
                     };
-                let hinge = Vec3::new(0.0, jaw.bounds_max.y, back);
+                let forward = (front - back).signum();
+                let depth = (jaw.bounds_max.x - jaw.bounds_min.x) / 3.0;
+                let hinge = Vec3::new(
+                    0.0,
+                    jaw.bounds_max.y,
+                    back + forward * depth * DRAGON_JAW_REST.sin(),
+                );
                 let time = skull_animation(game, *pos, partial_tick);
                 let open = ((time * std::f32::consts::PI * 0.2).sin() + 1.0) * 0.2;
                 let light = block_lighter::light_coords(world_light, [pos.x, pos.y, pos.z]);
@@ -6969,7 +6981,7 @@ fn build_dragon_heads(
                     model_matrix: Mat4::from_translation((corner - anchor).as_vec3())
                         * placement
                         * Mat4::from_translation(hinge)
-                        * Mat4::from_rotation_x((front - back).signum() * open)
+                        * Mat4::from_rotation_x(forward * (open - DRAGON_JAW_REST))
                         * Mat4::from_translation(-hinge),
                     light,
                     white_flash: false,
@@ -7679,6 +7691,45 @@ fn tick_conduits(game: &mut GameState, camera: glam::DVec3) {
                 f64::from(-0.5 + fastrand::f32() + x),
                 f64::from(-2.0 + fastrand::f32() + y),
                 f64::from(-0.5 + fastrand::f32() + z),
+            );
+            game.particle_store.add_particles_from_packet(
+                ServerParticleKind::Nautilus,
+                ParticleOptions::None,
+                ParticleLook::None,
+                false,
+                to,
+                from,
+                1.0,
+                0,
+                camera,
+            );
+        }
+        // And one a tick toward what it attacks (`destroyTarget`), from
+        // about that mob to its eye.
+        let target = game
+            .chunk_store
+            .block_entities
+            .get(pos)
+            .and_then(|be| be.nbt.int_array("Target"))
+            .and_then(|uuid| <[i32; 4]>::try_from(uuid).ok())
+            .map(|parts| {
+                uuid::Uuid::from_u128(
+                    parts
+                        .iter()
+                        .fold(0_u128, |all, part| all << 32 | u128::from(*part as u32)),
+                )
+            })
+            .and_then(|uuid| game.entity_store.living.values().find(|e| e.uuid == uuid));
+        if let Some(target) = target {
+            let dims = crate::entity::living_entity_dimensions(target);
+            let eye_height =
+                crate::entity::dimensions::EntityDimensions::eye_height(target.entity_type);
+            let to = *target.position + glam::DVec3::new(0.0, f64::from(eye_height), 0.0);
+            let reach = 3.0 + dims.width;
+            let from = glam::DVec3::new(
+                f64::from((-0.5 + fastrand::f32()) * reach),
+                f64::from(-1.0 + fastrand::f32() * dims.height),
+                f64::from((-0.5 + fastrand::f32()) * reach),
             );
             game.particle_store.add_particles_from_packet(
                 ServerParticleKind::Nautilus,
@@ -8912,18 +8963,119 @@ fn build_leashes(
                 .max(1.0e-3));
     let mut ropes = Vec::new();
     let partial = f64::from(partial_tick);
-    for (&id, &holder) in &game.leashes.holders {
-        let Some(mob) = game.entity_store.living.get(&id) else {
-            continue;
+    // One rope's pieces (`addVertexPair`): brown, every other piece seven
+    // tenths as bright, lit by the light at the leashed end shading into
+    // the light at the holder's.
+    let mut rope =
+        |start: glam::DVec3, end: glam::DVec3, lights: (LightLevels, LightLevels), slack: bool| {
+            let (lit_start, lit_end) = lights;
+            let points = leash::rope_points(start, end, slack);
+            let pieces = (points.len() - 1) as f32;
+            for (i, pair) in points.windows(2).enumerate() {
+                let along = i as f32 / pieces;
+                let level = |from: u8, to: u8| {
+                    (f32::from(from) + (f32::from(to) - f32::from(from)) * along) as u8
+                };
+                let lit = renderer.lightmap_color(
+                    level(lit_start.block(), lit_end.block()),
+                    level(lit_start.sky(), lit_end.sky()),
+                );
+                let shade = if i % 2 == 1 { 0.7 } else { 1.0 };
+                let brown = [0.5_f32, 0.4, 0.3];
+                let middle = (pair[0] + pair[1]) * 0.5;
+                ropes.push(Rope {
+                    from: pair[0],
+                    to: pair[1],
+                    color: std::array::from_fn(|c| brown[c] * shade * lit[c]),
+                    thickness: thick / (middle.distance(eye) as f32).max(0.05),
+                });
+            }
         };
-        let feet = *mob.prev_position.lerp(mob.position, partial);
-        let yaw = lerp_angle(mob.prev_body_y_rot_deg, mob.body_y_rot_deg, partial_tick);
-        let start = feet
-            + leash::leash_offset(
-                EntityDimensions::eye_height(mob.entity_type),
-                EntityDimensions::of(mob.entity_type).width,
-                yaw,
+    for (&id, &holder) in &game.leashes.holders {
+        // What is leashed: a mob, or a boat. Where it is, the way its body
+        // faces, where the one rope leaves it (`getLeashOffset`), its eye
+        // (for the rope's light), and the corners it is towed by if it can
+        // be (`getQuadLeashOffsets`).
+        let (feet, yaw, offset, eye_height, towed) =
+            if let Some(mob) = game.entity_store.living.get(&id) {
+                let kind = mob.entity_type;
+                let dims = EntityDimensions::of(kind);
+                let eye_height = EntityDimensions::eye_height(kind);
+                let shares = match kind {
+                    EntityKind::Camel | EntityKind::CamelHusk => Some(leash::CAMEL_TOWED),
+                    EntityKind::Sniffer => Some(leash::SNIFFER_TOWED),
+                    kind if crate::entity::is_equine(&kind) || crate::entity::is_llama(kind) => {
+                        Some(leash::HORSE_TOWED)
+                    }
+                    _ => None,
+                };
+                (
+                    *mob.prev_position.lerp(mob.position, partial),
+                    lerp_angle(mob.prev_body_y_rot_deg, mob.body_y_rot_deg, partial_tick),
+                    // A happy ghast's rope leaves its feet.
+                    if kind == EntityKind::HappyGhast {
+                        glam::DVec3::ZERO
+                    } else {
+                        glam::DVec3::new(0.0, f64::from(eye_height), f64::from(dims.width) * 0.4)
+                    },
+                    eye_height,
+                    shares.map(|shares| leash::quad_offsets(dims.width, dims.height, shares)),
+                )
+            } else if let Some(boat) = game
+                .model_entities
+                .entities
+                .get(&id)
+                .filter(|e| crate::entity::model_entity::boat(e.kind).is_some())
+            {
+                use crate::physics::boat::{HEIGHT, WIDTH};
+                let (width, height) = (WIDTH as f32, HEIGHT as f32);
+                (
+                    *boat.prev_position.lerp(boat.position, partial),
+                    lerp_angle(boat.prev_y_rot, boat.y_rot, partial_tick),
+                    glam::DVec3::new(0.0, 0.88 * HEIGHT, 0.64 * WIDTH),
+                    height * 0.85,
+                    Some(leash::quad_offsets(width, height, leash::BOAT_TOWED)),
+                )
+            } else {
+                continue;
+            };
+        let lit_start = light_at(feet + glam::DVec3::new(0.0, f64::from(eye_height), 0.0));
+        // Towed by a happy ghast, it hangs by four taut ropes from the
+        // ghast's corners to its own.
+        if let Some(corners) = towed
+            && let Some(ghast) = game
+                .entity_store
+                .living
+                .get(&holder)
+                .filter(|holder| holder.entity_type == EntityKind::HappyGhast)
+        {
+            let dims = EntityDimensions::of(EntityKind::HappyGhast);
+            let ghast_feet = *ghast.prev_position.lerp(ghast.position, partial);
+            let ghast_yaw = lerp_angle(
+                ghast.prev_body_y_rot_deg,
+                ghast.body_y_rot_deg,
+                partial_tick,
             );
+            let lit_end = light_at(
+                ghast_feet
+                    + glam::DVec3::new(
+                        0.0,
+                        f64::from(EntityDimensions::eye_height(EntityKind::HappyGhast)),
+                        0.0,
+                    ),
+            );
+            let holds = leash::quad_offsets(dims.width, dims.height, leash::GHAST_HOLDS);
+            for (corner, hold) in corners.into_iter().zip(holds) {
+                rope(
+                    feet + leash::turned(corner, yaw),
+                    ghast_feet + leash::turned(hold, ghast_yaw),
+                    (lit_start, lit_end),
+                    false,
+                );
+            }
+            continue;
+        }
+        let start = feet + leash::turned(offset, yaw);
         let end = if holder == game.player.entity_id {
             if renderer.is_first_person() {
                 let look = renderer.camera_look_dir();
@@ -8968,31 +9120,7 @@ fn build_leashes(
         } else {
             continue;
         };
-        // `addVertexPair`: brown, every other piece seven tenths as
-        // bright, lit by the light at the mob's end shading into the light
-        // at the holder's.
-        let (lit_start, lit_end) = (light_at(start), light_at(end));
-        let points = leash::rope_points(start, end);
-        let pieces = (points.len() - 1) as f32;
-        for (i, pair) in points.windows(2).enumerate() {
-            let along = i as f32 / pieces;
-            let level = |from: u8, to: u8| {
-                (f32::from(from) + (f32::from(to) - f32::from(from)) * along) as u8
-            };
-            let lit = renderer.lightmap_color(
-                level(lit_start.block(), lit_end.block()),
-                level(lit_start.sky(), lit_end.sky()),
-            );
-            let shade = if i % 2 == 1 { 0.7 } else { 1.0 };
-            let brown = [0.5_f32, 0.4, 0.3];
-            let middle = (pair[0] + pair[1]) * 0.5;
-            ropes.push(Rope {
-                from: pair[0],
-                to: pair[1],
-                color: std::array::from_fn(|c| brown[c] * shade * lit[c]),
-                thickness: thick / (middle.distance(eye) as f32).max(0.05),
-            });
-        }
+        rope(start, end, (lit_start, light_at(end)), true);
     }
     ropes
 }

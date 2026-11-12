@@ -36,12 +36,16 @@ impl LeashStore {
 }
 
 /// The points of a rope from `start` to `end` (`addVertexPair`): straight
-/// across, but hanging below the straight line, steepest at its higher end.
-pub fn rope_points(start: DVec3, end: DVec3) -> [DVec3; SEGMENTS + 1] {
+/// across, and, when `slack`, hanging below the straight line, steepest at
+/// its higher end. A taut one (one of the four a happy ghast tows by) runs
+/// straight.
+pub fn rope_points(start: DVec3, end: DVec3, slack: bool) -> [DVec3; SEGMENTS + 1] {
     let d = end - start;
     std::array::from_fn(|i| {
         let f = i as f64 / SEGMENTS as f64;
-        let y = if d.y > 0.0 {
+        let y = if !slack {
+            d.y * f
+        } else if d.y > 0.0 {
             d.y * f * f
         } else {
             d.y - d.y * (1.0 - f) * (1.0 - f)
@@ -50,17 +54,34 @@ pub fn rope_points(start: DVec3, end: DVec3) -> [DVec3; SEGMENTS + 1] {
     })
 }
 
-/// Where the lead leaves a mob, from its feet (`Entity.getLeashOffset`, as
-/// `MobRenderer` turns it): at eye height, four tenths of its width ahead.
-pub fn leash_offset(eye_height: f32, width: f32, body_yaw_deg: f32) -> DVec3 {
-    let turn = f64::from(body_yaw_deg).to_radians() + std::f64::consts::FRAC_PI_2;
-    let ahead = f64::from(width) * 0.4;
-    DVec3::new(
-        turn.cos() * ahead,
-        f64::from(eye_height),
-        turn.sin() * ahead,
-    )
+/// `Vec3.yRot(-yaw)`: an offset in an entity's own frame, turned to face
+/// the way its body does.
+pub fn turned(offset: DVec3, body_yaw_deg: f32) -> DVec3 {
+    y_rot(offset, -f64::from(body_yaw_deg).to_radians())
 }
+
+/// `Leashable.createQuadLeashOffsets`: the four corners something is
+/// towed by (or tows by), from shares of its width and of its height.
+pub fn quad_offsets(width: f32, height: f32, [forward, across, side, up]: [f64; 4]) -> [DVec3; 4] {
+    let (w, h) = (f64::from(width), f64::from(height));
+    let (forward, across, side, up) = (forward * w, across * w, side * w, up * h);
+    [
+        DVec3::new(-side, up, across + forward),
+        DVec3::new(-side, up, -across + forward),
+        DVec3::new(side, up, -across + forward),
+        DVec3::new(side, up, across + forward),
+    ]
+}
+
+/// A happy ghast's shares for [`quad_offsets`] as what tows
+/// (`HappyGhast.getQuadLeashHolderOffsets`).
+pub const GHAST_HOLDS: [f64; 4] = [-0.03125, 0.4375, 0.46875, 0.03125];
+/// What is towed by four ropes: a boat's shares, a camel's, a sniffer's
+/// and any other horse's (`getQuadLeashOffsets`).
+pub const BOAT_TOWED: [f64; 4] = [0.0, 0.64, 0.382, 0.88];
+pub const CAMEL_TOWED: [f64; 4] = [0.02, 0.48, 0.25, 0.82];
+pub const SNIFFER_TOWED: [f64; 4] = [-0.01, 0.63, 0.38, 1.15];
+pub const HORSE_TOWED: [f64; 4] = [0.04, 0.52, 0.23, 0.87];
 
 /// `Vec3.yRot`.
 fn y_rot(v: DVec3, angle: f64) -> DVec3 {
@@ -107,13 +128,28 @@ mod tests {
             (DVec3::new(0.0, 64.0, 0.0), DVec3::new(4.0, 66.0, 2.0)),
             (DVec3::new(0.0, 66.0, 0.0), DVec3::new(4.0, 64.0, 2.0)),
         ] {
-            let points = rope_points(start, end);
+            let points = rope_points(start, end, true);
             assert_eq!(points[0], start);
             assert!((points[SEGMENTS] - end).length() < 1e-9);
             let middle = points[SEGMENTS / 2];
             assert_eq!((middle.x, middle.z), (2.0, 1.0));
             assert!((middle.y - 64.5).abs() < 1e-9, "a quarter of the way up");
         }
+    }
+
+    /// A taut rope runs straight, and the four a boat is towed by leave
+    /// its corners: 0.382 of its width to each side, 0.64 fore and aft,
+    /// 0.88 of its height up.
+    #[test]
+    fn a_towed_boat_hangs_by_four_straight_ropes() {
+        let points = rope_points(DVec3::ZERO, DVec3::new(0.0, 8.0, 4.0), false);
+        assert!((points[SEGMENTS / 2] - DVec3::new(0.0, 4.0, 2.0)).length() < 1e-9);
+        let corners = quad_offsets(1.375, 0.5625, BOAT_TOWED);
+        assert!((corners[0] - DVec3::new(-0.52525, 0.495, 0.88)).length() < 1e-6);
+        assert!((corners[2] - DVec3::new(0.52525, 0.495, -0.88)).length() < 1e-6);
+        // Turned a quarter round, forward (+z) is toward -x.
+        let ahead = turned(DVec3::Z, 90.0);
+        assert!((ahead - DVec3::NEG_X).length() < 1e-9);
     }
 
     #[test]
@@ -133,7 +169,9 @@ mod tests {
     /// player facing south holds the rope at its right hand, to the west.
     #[test]
     fn the_rope_ends_at_the_mob_and_the_hand() {
-        let offset = leash_offset(1.3, 0.9, 0.0);
+        // (`Leashable.getLeashOffset`: at eye height, four tenths of its
+        // width ahead.)
+        let offset = turned(DVec3::new(0.0, 1.3, 0.9 * 0.4), 0.0);
         assert!(offset.x.abs() < 1e-9 && (offset.z - 0.36).abs() < 1e-6);
         assert!((offset.y - 1.3).abs() < 1e-6);
         let hand = player_hold(DVec3::ZERO, 1.8, 0.0, false);

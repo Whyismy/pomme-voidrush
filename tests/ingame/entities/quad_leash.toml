@@ -1,0 +1,49 @@
+# Leads on what a happy ghast tows (vanilla EntityRenderer.extractRenderState
+# with supportQuadLeash): a boat and a horse each hang from the ghast by
+# four taut ropes, corner to corner. Beside them a boat tied to a fence by
+# one sagging rope.
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+chat = "/gamerule send_command_feedback false"
+
+[[step]]
+chat = "/time set 6000"
+
+[[step]]
+chat = "/gamemode spectator"
+
+[[step]]
+chat = "/tp @s 2203.5 -58.0 590.5 0 -12"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+chat = "/setblock 2196 -60 606 minecraft:oak_fence"
+
+[[step]]
+chat = "/summon minecraft:happy_ghast 2204.5 -53 604.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,UUID:[I;7,7,7,7],Rotation:[180f,0f]}"
+
+[[step]]
+wait_ms = 500
+
+[[step]]
+chat = "/summon minecraft:oak_boat 2202.0 -60 604.5 {Rotation:[180f,0f],leash:{UUID:[I;7,7,7,7]}}"
+
+[[step]]
+chat = "/summon minecraft:horse 2207.0 -60 604.5 {NoAI:1b,Silent:1b,Tame:1b,Rotation:[180f,0f],leash:{UUID:[I;7,7,7,7]}}"
+
+[[step]]
+chat = "/summon minecraft:oak_boat 2197.5 -60 603.5 {Rotation:[180f,0f],leash:[I;2196,-60,606]}"
+
+[[step]]
+expect = { entity = "happy_ghast" }
+
+[[step]]
+wait_ms = 2500
+
+[[step]]
+screenshot = "towing"

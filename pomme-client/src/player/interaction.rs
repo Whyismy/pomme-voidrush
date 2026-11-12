@@ -341,6 +341,13 @@ impl InteractionState {
     /// Vanilla `ItemInHandRenderer`'s attack value: `getAttackAnim` for the
     /// swinging arm's hand, 0 for the other.
     /// The hand whose item is in use (vanilla `getUsedItemHand`).
+    /// Vanilla `Player.isScoping`: looking through a spyglass.
+    pub fn is_scoping(&self) -> bool {
+        self.using_item
+            .as_ref()
+            .is_some_and(|active| active.kind == ItemKind::Spyglass)
+    }
+
     pub fn using_hand(&self) -> Option<InteractionHand> {
         self.using_item.as_ref().map(|active| active.hand)
     }
