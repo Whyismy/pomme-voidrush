@@ -124,6 +124,26 @@ impl AdvancementStore {
             })
     }
 
+    /// `AdvancementProgress.countCompletedRequirements` over its
+    /// requirements: the groups with a criterion met, and how many there
+    /// are.
+    pub fn progress_of(&self, id: &str) -> (usize, usize) {
+        let Some(advancement) = self.by_id.get(id) else {
+            return (0, 0);
+        };
+        let criteria = self.progress.get(id);
+        let done = advancement
+            .requirements
+            .iter()
+            .filter(|group| {
+                group.iter().any(|criterion| {
+                    criteria.is_some_and(|criteria| criteria.get(criterion) == Some(&true))
+                })
+            })
+            .count();
+        (done, advancement.requirements.len())
+    }
+
     /// The tab the server last had selected, where it still exists.
     pub fn selected_tab(&self) -> Option<&str> {
         self.selected_tab

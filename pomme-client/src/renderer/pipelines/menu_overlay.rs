@@ -2825,6 +2825,29 @@ pub enum SpriteId {
     AdvancementTabMiddleSelected,
     AdvancementTabRight,
     AdvancementTabRightSelected,
+    AdvancementTabBelow0,
+    AdvancementTabBelow0Selected,
+    AdvancementTabBelow1,
+    AdvancementTabBelow1Selected,
+    AdvancementTabBelow2,
+    AdvancementTabBelow2Selected,
+    AdvancementTabLeft0,
+    AdvancementTabLeft0Selected,
+    AdvancementTabLeft1,
+    AdvancementTabLeft1Selected,
+    AdvancementTabLeft2,
+    AdvancementTabLeft2Selected,
+    AdvancementTabRight0,
+    AdvancementTabRight0Selected,
+    AdvancementTabRight1,
+    AdvancementTabRight1Selected,
+    AdvancementTabRight2,
+    AdvancementTabRight2Selected,
+    /// The box behind a hovered advancement's description, and the bar its
+    /// title sits on, by whether that much of it is done.
+    AdvancementTitleBox,
+    AdvancementBoxObtained,
+    AdvancementBoxUnobtained,
     /// A tab's tiled background, by its place in
     /// [`ADVANCEMENT_BACKGROUNDS`].
     AdvancementBackground(u8),
@@ -4627,6 +4650,111 @@ fn build_sprite_atlas(
             SpriteId::AdvancementTabRightSelected,
             "minecraft/textures/gui/sprites/advancements/tab_above_right_selected.png",
             0.0,
+        ),
+        (
+            SpriteId::AdvancementTabBelow0,
+            "minecraft/textures/gui/sprites/advancements/tab_below_left.png",
+            0.0,
+        ),
+        (
+            SpriteId::AdvancementTabBelow0Selected,
+            "minecraft/textures/gui/sprites/advancements/tab_below_left_selected.png",
+            0.0,
+        ),
+        (
+            SpriteId::AdvancementTabBelow1,
+            "minecraft/textures/gui/sprites/advancements/tab_below_middle.png",
+            0.0,
+        ),
+        (
+            SpriteId::AdvancementTabBelow1Selected,
+            "minecraft/textures/gui/sprites/advancements/tab_below_middle_selected.png",
+            0.0,
+        ),
+        (
+            SpriteId::AdvancementTabBelow2,
+            "minecraft/textures/gui/sprites/advancements/tab_below_right.png",
+            0.0,
+        ),
+        (
+            SpriteId::AdvancementTabBelow2Selected,
+            "minecraft/textures/gui/sprites/advancements/tab_below_right_selected.png",
+            0.0,
+        ),
+        (
+            SpriteId::AdvancementTabLeft0,
+            "minecraft/textures/gui/sprites/advancements/tab_left_top.png",
+            0.0,
+        ),
+        (
+            SpriteId::AdvancementTabLeft0Selected,
+            "minecraft/textures/gui/sprites/advancements/tab_left_top_selected.png",
+            0.0,
+        ),
+        (
+            SpriteId::AdvancementTabLeft1,
+            "minecraft/textures/gui/sprites/advancements/tab_left_middle.png",
+            0.0,
+        ),
+        (
+            SpriteId::AdvancementTabLeft1Selected,
+            "minecraft/textures/gui/sprites/advancements/tab_left_middle_selected.png",
+            0.0,
+        ),
+        (
+            SpriteId::AdvancementTabLeft2,
+            "minecraft/textures/gui/sprites/advancements/tab_left_bottom.png",
+            0.0,
+        ),
+        (
+            SpriteId::AdvancementTabLeft2Selected,
+            "minecraft/textures/gui/sprites/advancements/tab_left_bottom_selected.png",
+            0.0,
+        ),
+        (
+            SpriteId::AdvancementTabRight0,
+            "minecraft/textures/gui/sprites/advancements/tab_right_top.png",
+            0.0,
+        ),
+        (
+            SpriteId::AdvancementTabRight0Selected,
+            "minecraft/textures/gui/sprites/advancements/tab_right_top_selected.png",
+            0.0,
+        ),
+        (
+            SpriteId::AdvancementTabRight1,
+            "minecraft/textures/gui/sprites/advancements/tab_right_middle.png",
+            0.0,
+        ),
+        (
+            SpriteId::AdvancementTabRight1Selected,
+            "minecraft/textures/gui/sprites/advancements/tab_right_middle_selected.png",
+            0.0,
+        ),
+        (
+            SpriteId::AdvancementTabRight2,
+            "minecraft/textures/gui/sprites/advancements/tab_right_bottom.png",
+            0.0,
+        ),
+        (
+            SpriteId::AdvancementTabRight2Selected,
+            "minecraft/textures/gui/sprites/advancements/tab_right_bottom_selected.png",
+            0.0,
+        ),
+        (
+            SpriteId::AdvancementTitleBox,
+            "minecraft/textures/gui/sprites/advancements/title_box.png",
+            10.0,
+        ),
+        (
+            SpriteId::AdvancementBoxObtained,
+            "minecraft/textures/gui/sprites/advancements/box_obtained.png",
+            10.0,
+        ),
+        (
+            SpriteId::AdvancementBoxUnobtained,
+            "minecraft/textures/gui/sprites/advancements/box_unobtained.png",
+            10.0,
         ),
         (
             SpriteId::ToastRecipe,

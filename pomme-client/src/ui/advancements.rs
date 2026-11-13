@@ -2,9 +2,8 @@
 //! advancements, the tree drawn inside over its tab's background (each
 //! advancement a framed icon, joined to the one it follows), dragged about
 //! with the mouse.
-// TODO: vanilla's own title and description box over a hovered advancement
-// (a tooltip stands in for it), its progress count, and more tabs than the
-// eight that fit above the window.
+// TODO: a tab past the twenty-six that fit about the window is not shown,
+// as in vanilla.
 
 use std::collections::HashMap;
 
@@ -19,8 +18,113 @@ use crate::renderer::pipelines::menu_overlay::{
 /// The window, and the part of it the tree shows through.
 const WINDOW: (f32, f32) = (252.0, 140.0);
 const INSIDE: [f32; 4] = [9.0, 18.0, 234.0, 113.0];
-/// The tabs that fit above the window (`AdvancementTabType.ABOVE`).
-const MOST_TABS: usize = 8;
+/// `AdvancementTabType`: how many tabs fit above the window, below it, and
+/// down its left and its right, in the order they fill.
+const TABS_A_SIDE: [usize; 4] = [8, 8, 5, 5];
+/// The tabs that fit in all.
+const MOST_TABS: usize = 26;
+
+/// Where a tab sits: `AdvancementTabType`'s `getX` and `getY`, its size,
+/// and where its icon goes in it.
+#[derive(Debug, PartialEq)]
+struct TabPlace {
+    /// Above the window, below it, to its left or to its right.
+    side: usize,
+    /// How far along that side.
+    place: usize,
+    /// The tab's box, from the window's corner.
+    at: [f32; 4],
+    /// The icon, from the tab's corner.
+    icon: (f32, f32),
+}
+
+fn tab_place(index: usize) -> Option<TabPlace> {
+    let mut place = index;
+    for (side, most) in TABS_A_SIDE.into_iter().enumerate() {
+        if place < most {
+            let along = place as f32;
+            let (at, icon) = match side {
+                0 => ([32.0 * along, -28.0, 28.0, 32.0], (6.0, 9.0)),
+                1 => ([32.0 * along, 136.0, 28.0, 32.0], (6.0, 6.0)),
+                2 => ([-28.0, 28.0 * along, 32.0, 28.0], (10.0, 5.0)),
+                _ => ([248.0, 28.0 * along, 32.0, 28.0], (6.0, 5.0)),
+            };
+            return Some(TabPlace {
+                side,
+                place,
+                at,
+                icon,
+            });
+        }
+        place -= most;
+    }
+    None
+}
+
+/// A tab's sprite: the first along its side, the last that fits there, or
+/// one between.
+fn tab_sprite(side: usize, place: usize, selected: bool) -> SpriteId {
+    let part = if place == 0 {
+        0
+    } else if place == TABS_A_SIDE[side] - 1 {
+        2
+    } else {
+        1
+    };
+    match (side, part, selected) {
+        (0, 0, false) => SpriteId::AdvancementTabLeft,
+        (0, 0, true) => SpriteId::AdvancementTabLeftSelected,
+        (0, 1, false) => SpriteId::AdvancementTabMiddle,
+        (0, 1, true) => SpriteId::AdvancementTabMiddleSelected,
+        (0, 2, false) => SpriteId::AdvancementTabRight,
+        (0, 2, true) => SpriteId::AdvancementTabRightSelected,
+        (1, 0, false) => SpriteId::AdvancementTabBelow0,
+        (1, 0, true) => SpriteId::AdvancementTabBelow0Selected,
+        (1, 1, false) => SpriteId::AdvancementTabBelow1,
+        (1, 1, true) => SpriteId::AdvancementTabBelow1Selected,
+        (1, 2, false) => SpriteId::AdvancementTabBelow2,
+        (1, 2, true) => SpriteId::AdvancementTabBelow2Selected,
+        (2, 0, false) => SpriteId::AdvancementTabLeft0,
+        (2, 0, true) => SpriteId::AdvancementTabLeft0Selected,
+        (2, 1, false) => SpriteId::AdvancementTabLeft1,
+        (2, 1, true) => SpriteId::AdvancementTabLeft1Selected,
+        (2, 2, false) => SpriteId::AdvancementTabLeft2,
+        (2, 2, true) => SpriteId::AdvancementTabLeft2Selected,
+        (3, 0, false) => SpriteId::AdvancementTabRight0,
+        (3, 0, true) => SpriteId::AdvancementTabRight0Selected,
+        (3, 1, false) => SpriteId::AdvancementTabRight1,
+        (3, 1, true) => SpriteId::AdvancementTabRight1Selected,
+        (3, 2, false) => SpriteId::AdvancementTabRight2,
+        (3, 2, true) => SpriteId::AdvancementTabRight2Selected,
+        _ => SpriteId::AdvancementTabMiddle,
+    }
+}
+
+/// `AdvancementWidget.findOptimalLines`: the description split near
+/// `width`, trying a little narrower and wider for lines that fill it.
+fn optimal_lines(
+    text: &[TextSpan],
+    width: f32,
+    split: SplitLines<'_>,
+    line_width: &dyn Fn(&[TextSpan]) -> f32,
+) -> Vec<Vec<TextSpan>> {
+    let mut best: Option<(f32, Vec<Vec<TextSpan>>)> = None;
+    for offset in [0.0, 10.0, -10.0, 25.0, -25.0] {
+        let lines = split(text, (width - offset) as i32);
+        let widest = lines
+            .iter()
+            .map(|line| line_width(line))
+            .fold(0.0, f32::max);
+        let off = (widest - width).abs();
+        if off <= 10.0 {
+            return lines;
+        }
+        if best.as_ref().is_none_or(|(least, _)| off < *least) {
+            best = Some((off, lines));
+        }
+    }
+    best.map(|(_, lines)| lines).unwrap_or_default()
+}
 /// The order the game's own tabs come in.
 const TAB_ORDER: [&str; 5] = [
     "minecraft:story/root",
@@ -43,6 +147,9 @@ pub struct AdvancementsUi {
     dragging: Option<(f32, f32)>,
     /// The tab the server was last told is open.
     told: Option<String>,
+    /// How far the tree has dimmed behind a hovered advancement
+    /// (`AdvancementTab.fade`).
+    fade: f32,
     closing: bool,
 }
 
@@ -212,7 +319,8 @@ pub fn build(
         px(INSIDE[3]),
     ];
     let over_inside = hit_test(cursor, inside);
-    let mut hovered: Option<&AdvancementDisplay> = None;
+    // The advancement under the cursor, and where its widget is drawn.
+    let mut hovered: Option<(&String, &AdvancementDisplay, (f32, f32))> = None;
 
     elements.push(MenuElement::ScissorPush {
         x: inside[0],
@@ -369,7 +477,7 @@ pub fn build(
                 && ui.dragging.is_none()
                 && hit_test(cursor, [px(x), px(y), px(27.0), px(27.0)])
             {
-                hovered = Some(display);
+                hovered = Some((*id, *display, (x, y)));
             }
         }
     } else {
@@ -416,30 +524,30 @@ pub fn build(
     let mut tab_hovered = None;
     if tabs.len() > 1 {
         for (index, (id, display)) in tabs.iter().enumerate() {
-            let selected = shown.as_deref() == Some(id.as_str());
-            let x = left + 32.0 * index as f32;
-            let y = top - 28.0;
-            let sprite = match (index, selected) {
-                (0, false) => SpriteId::AdvancementTabLeft,
-                (0, true) => SpriteId::AdvancementTabLeftSelected,
-                (7, false) => SpriteId::AdvancementTabRight,
-                (7, true) => SpriteId::AdvancementTabRightSelected,
-                (_, false) => SpriteId::AdvancementTabMiddle,
-                (_, true) => SpriteId::AdvancementTabMiddleSelected,
+            let Some(TabPlace {
+                side,
+                place,
+                at: [x, y, w, h],
+                icon: icon_at,
+            }) = tab_place(index)
+            else {
+                break;
             };
-            let at = [px(x), px(y), px(28.0), px(32.0)];
+            let selected = shown.as_deref() == Some(id.as_str());
+            let (x, y) = (left + x, top + y);
+            let at = [px(x), px(y), px(w), px(h)];
             elements.push(MenuElement::Image {
                 x: at[0],
                 y: at[1],
                 w: at[2],
                 h: at[3],
-                sprite,
+                sprite: tab_sprite(side, place, selected),
                 tint: [1.0; 4],
             });
             if let Some(icon) = &display.icon_item {
                 push_item_glyph(
                     elements,
-                    [px(x + 6.0), px(y + 9.0), px(16.0), px(16.0)],
+                    [px(x + icon_at.0), px(y + icon_at.1), px(16.0), px(16.0)],
                     icon.clone(),
                     None,
                     false,
@@ -466,11 +574,43 @@ pub fn build(
         color: [64.0 / 255.0, 64.0 / 255.0, 64.0 / 255.0, 1.0],
     });
 
-    // What is under the cursor: an advancement's name and what it asks
-    // for, or a tab's name.
-    let mut lines = Vec::new();
-    if let Some(display) = hovered {
-        lines.push(TooltipLine::from_spans(display.title.clone()));
+    // `AdvancementTab.extractTooltips`: the tree dims behind a hovered
+    // advancement, by a little more each frame.
+    ui.fade = if hovered.is_some() {
+        (ui.fade + 0.02).min(0.3)
+    } else {
+        (ui.fade - 0.04).max(0.0)
+    };
+    let dim = (ui.fade * 255.0).floor() / 255.0;
+    if dim > 0.0 {
+        rect(
+            elements,
+            [left + INSIDE[0], top + INSIDE[1], INSIDE[2], INSIDE[3]],
+            [0.0, 0.0, 0.0, dim],
+        );
+    }
+    // `AdvancementWidget.extractHover`: the title on a bar as wide as the
+    // advancement is done, its progress at the bar's end, and what it asks
+    // for in a box under it (or over it, low in the window).
+    if let Some((id, display, (x, y))) = hovered {
+        let line_width =
+            |line: &[TextSpan]| -> f32 { (text_width(&plain(line), scale) / gs).ceil() };
+        let widest = |lines: &[Vec<TextSpan>]| {
+            lines
+                .iter()
+                .map(|line| line_width(line))
+                .fold(0.0, f32::max)
+        };
+        let title = split(&display.title, 163);
+        let (done, total) = store.progress_of(id);
+        let progress = (total >= 2).then(|| format!("{done}/{total}"));
+        // Room for the fullest count the progress can show.
+        let progress_room = if total > 1 {
+            (text_width(&format!("{total}/{total}"), scale) / gs).ceil() + 8.0
+        } else {
+            0.0
+        };
+        let title_width = widest(&title).max(80.0) + progress_room + 29.0;
         let green: Vec<TextSpan> = display
             .description
             .iter()
@@ -480,11 +620,155 @@ pub fn build(
                 span
             })
             .collect();
-        lines.extend(split(&green, 163).into_iter().map(TooltipLine::from_spans));
+        let description = optimal_lines(&green, title_width, split, &line_width);
+        let width = title_width.max(widest(&description)) + 3.0 + 5.0;
+
+        let bar_h = 9.0 * title.len() as f32 + 9.0 + 8.0;
+        let bar_top = y + ((26.0 - bar_h) / 2.0).trunc();
+        let bar_bottom = bar_top + bar_h;
+        let text_h = 9.0 * description.len() as f32;
+        let box_h = bar_h + 6.0 + text_h;
+        // Too near the screen's right edge, the box opens to the left;
+        // too low in the window, upward.
+        let opens_left = x - INSIDE[0] + width + 26.0 >= gui_w.floor();
+        let opens_up = bar_bottom - (top + INSIDE[1]) + 6.0 + text_h >= 113.0;
+        let amount = if total == 0 {
+            0.0
+        } else {
+            done as f32 / total as f32
+        };
+        // The bar's done part, its other part, and the frame.
+        let reach = (amount * width).floor();
+        let (done_w, parts) = if amount >= 1.0 {
+            ((width / 2.0).floor(), [true, true, true])
+        } else if reach < 2.0 {
+            ((width / 2.0).floor(), [false, false, false])
+        } else if reach > width - 2.0 {
+            ((width / 2.0).floor(), [true, true, false])
+        } else {
+            (reach, [true, false, false])
+        };
+        let box_sprite = |obtained: bool| {
+            if obtained {
+                SpriteId::AdvancementBoxObtained
+            } else {
+                SpriteId::AdvancementBoxUnobtained
+            }
+        };
+        let slice = |elements: &mut Vec<MenuElement>, at: [f32; 4], sprite: SpriteId| {
+            elements.push(MenuElement::NineSlice {
+                x: px(at[0]),
+                y: px(at[1]),
+                w: px(at[2]),
+                h: px(at[3]),
+                sprite,
+                border: px(10.0),
+                tint: [1.0; 4],
+            });
+        };
+        let bar_left = if opens_left {
+            x - width + 26.0 + 6.0
+        } else {
+            x
+        };
+        if !description.is_empty() {
+            let box_top = if opens_up {
+                bar_bottom - box_h
+            } else {
+                bar_top
+            };
+            slice(
+                elements,
+                [bar_left, box_top, width, box_h],
+                SpriteId::AdvancementTitleBox,
+            );
+        }
+        if parts[0] == parts[1] {
+            slice(
+                elements,
+                [bar_left, bar_top, width, bar_h],
+                box_sprite(parts[0]),
+            );
+        } else {
+            // Each part is its end of a bar two hundred wide.
+            for (from, part_w, sprite_x, obtained) in [
+                (bar_left, done_w, bar_left, parts[0]),
+                (
+                    bar_left + done_w,
+                    width - done_w,
+                    bar_left + width - 200.0,
+                    parts[1],
+                ),
+            ] {
+                elements.push(MenuElement::ScissorPush {
+                    x: px(from),
+                    y: px(bar_top),
+                    w: px(part_w),
+                    h: px(bar_h),
+                });
+                slice(
+                    elements,
+                    [sprite_x, bar_top, 200.0, bar_h],
+                    box_sprite(obtained),
+                );
+                elements.push(MenuElement::ScissorPop);
+            }
+        }
+        elements.push(MenuElement::Image {
+            x: px(x + 3.0),
+            y: px(y),
+            w: px(26.0),
+            h: px(26.0),
+            sprite: frame_sprite(display.frame, parts[2]),
+            tint: [1.0; 4],
+        });
+        let lines_at =
+            |elements: &mut Vec<MenuElement>, lines: &[Vec<TextSpan>], at: (f32, f32)| {
+                for (row, line) in lines.iter().enumerate() {
+                    elements.push(MenuElement::TextSpans {
+                        x: px(at.0),
+                        y: px(at.1 + 9.0 * row as f32),
+                        spans: line.clone(),
+                        scale,
+                        centered: false,
+                    });
+                }
+            };
+        let text_left = bar_left + 5.0;
+        let (title_x, progress_right) = if opens_left {
+            (text_left, x)
+        } else {
+            (x + 32.0, x + width - 5.0)
+        };
+        lines_at(elements, &title, (title_x, bar_top + 9.0));
+        if let Some(progress) = progress {
+            let progress_w = (text_width(&progress, scale) / gs).ceil();
+            elements.push(MenuElement::Text {
+                x: px(progress_right - progress_w),
+                y: px(bar_top + 9.0),
+                text: progress,
+                scale,
+                color: [1.0; 4],
+                centered: false,
+            });
+        }
+        let description_top = if opens_up {
+            bar_top - text_h + 1.0
+        } else {
+            bar_bottom
+        };
+        lines_at(elements, &description, (text_left, description_top));
+        if let Some(icon) = &display.icon_item {
+            push_item_glyph(
+                elements,
+                [px(x + 8.0), px(y + 5.0), px(16.0), px(16.0)],
+                icon.clone(),
+                None,
+                false,
+            );
+        }
     } else if let Some(display) = tab_hovered {
-        lines.push(TooltipLine::from_spans(display.title.clone()));
-    }
-    if !lines.is_empty() {
+        let lines = vec![TooltipLine::from_spans(display.title.clone())];
         push_tooltip_lines(elements, cursor, screen_w, screen_h, gs, lines);
     }
 
@@ -501,7 +785,6 @@ pub fn build(
         translate("gui.done", "Done"),
         true,
     );
-    let _ = text_width;
     done && pressed
 }
 
@@ -576,6 +859,9 @@ mod tests {
         assert_eq!(widget_at(stone.display.as_ref().unwrap()), (28.0, 54.0));
         assert!(store.is_done("minecraft:story/root"));
         assert!(!store.is_done("minecraft:story/mine_stone"));
+        assert_eq!(store.progress_of("minecraft:story/root"), (1, 1));
+        assert_eq!(store.progress_of("minecraft:story/mine_stone"), (0, 1));
+        assert_eq!(store.progress_of("minecraft:story/none"), (0, 0));
         assert_eq!(
             background_sprite(Some("minecraft:gui/advancements/backgrounds/adventure")),
             SpriteId::AdvancementBackground(1)
@@ -591,6 +877,58 @@ mod tests {
         assert_eq!(clamp_scroll(0.0, 50.0, 0.0, 400.0, 234.0), 0.0);
         assert_eq!(clamp_scroll(0.0, -50.0, 0.0, 400.0, 234.0), -50.0);
         assert_eq!(clamp_scroll(0.0, -500.0, 0.0, 400.0, 234.0), -166.0);
+    }
+
+    /// Tabs fill the window's top, then its bottom, its left and its right,
+    /// and each side's first and last have sprites of their own.
+    #[test]
+    fn tabs_go_round_the_window() {
+        assert_eq!(tab_place(1).unwrap().at, [32.0, -28.0, 28.0, 32.0]);
+        let below = tab_place(8).unwrap();
+        assert_eq!((below.side, below.place), (1, 0));
+        assert_eq!(below.at, [0.0, 136.0, 28.0, 32.0]);
+        let left = tab_place(20).unwrap();
+        assert_eq!((left.side, left.place), (2, 4));
+        assert_eq!(left.at, [-28.0, 112.0, 32.0, 28.0]);
+        assert_eq!(tab_place(21).unwrap().at, [248.0, 0.0, 32.0, 28.0]);
+        assert_eq!(tab_place(26), None);
+        assert_eq!(tab_sprite(0, 0, true), SpriteId::AdvancementTabLeftSelected);
+        assert_eq!(tab_sprite(0, 7, false), SpriteId::AdvancementTabRight);
+        assert_eq!(tab_sprite(2, 4, false), SpriteId::AdvancementTabLeft2);
+        assert_eq!(
+            tab_sprite(3, 2, true),
+            SpriteId::AdvancementTabRight1Selected
+        );
+    }
+
+    /// The description is split where its lines best fill the width.
+    #[test]
+    fn a_description_fills_its_box() {
+        let text = [TextSpan::new("aaaa bbbb cccc dddd".into(), [1.0; 4])];
+        // Six pixels a letter, broken at spaces.
+        let split = |spans: &[TextSpan], width: i32| -> Vec<Vec<TextSpan>> {
+            let mut lines: Vec<String> = Vec::new();
+            for word in spans[0].text.split(' ') {
+                match lines.last_mut() {
+                    Some(line) if (line.len() + 1 + word.len()) * 6 <= width as usize => {
+                        line.push(' ');
+                        line.push_str(word);
+                    }
+                    _ => lines.push(word.to_owned()),
+                }
+            }
+            lines
+                .into_iter()
+                .map(|line| vec![TextSpan::new(line, [1.0; 4])])
+                .collect()
+        };
+        let width = |line: &[TextSpan]| line[0].text.len() as f32 * 6.0;
+        // At 60 wide the lines are 54 wide: within ten of it, so kept.
+        let lines = optimal_lines(&text, 60.0, &split, &width);
+        assert_eq!(lines.len(), 2);
+        // At 70, two lines of 54 are sixteen short; ten narrower is no
+        // better, but ten wider is not either: the first tried stands.
+        assert_eq!(optimal_lines(&text, 70.0, &split, &width).len(), 2);
     }
 
     /// The server hears of a tab once, when it is first shown.
