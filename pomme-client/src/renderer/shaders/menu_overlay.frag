@@ -64,7 +64,17 @@ void main() {
         // Emitting (0, 0, 0, src) through the premultiplied One /
         // OneMinusSrcAlpha blend scales dst by the same 1 - src. (dst alpha is
         // scaled too, unlike vanilla; the swapchain composite ignores alpha.)
-        float src = texture(sampler2D(overlay_tex, overlay_tex_sampler), v_uv).r * v_color.r;
+        float vignette = texture(sampler2D(overlay_tex, overlay_tex_sampler), v_uv).r;
+        if (v_color.g > v_color.r) {
+            // Near the world border vanilla's colour is (0, g, g): green and
+            // blue are taken from the edges and red is left, reddening them.
+            // One blend factor can't spare a channel, so the red it takes
+            // with the others is put back as a middling red.
+            float warning = vignette * v_color.g;
+            out_color = vec4(warning * 0.5, 0.0, 0.0, warning);
+            return;
+        }
+        float src = vignette * v_color.r;
         out_color = vec4(0.0, 0.0, 0.0, src);
         return;
     }

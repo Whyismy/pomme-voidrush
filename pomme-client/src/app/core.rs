@@ -2018,6 +2018,7 @@ impl AppCore {
                         renderer.reset_camera(game.player.eye_pos(), game.player.look_dir);
                     }
                 }
+                NetworkEvent::WorldBorder(update) => game.world_border.apply(update),
                 NetworkEvent::BlockDestruction { id, pos, progress } => {
                     game.block_breaking.set(id, pos, progress, game.tick_count);
                 }
@@ -3814,6 +3815,8 @@ impl AppCore {
                     game.leashes.clear();
                     game.firework_twinkles.clear();
                     game.block_breaking.clear();
+                    // A level has its own border, which the server names anew.
+                    game.world_border = Default::default();
                     game.pot_wobbles.clear();
                     game.arrows.clear();
                     game.fishing_hooks.clear();
@@ -4047,6 +4050,7 @@ impl AppCore {
         let camera = renderer.camera_render_position();
         super::entity_status::tick(game, camera);
         game.block_breaking.tick(game.tick_count);
+        game.world_border.tick();
         let audio = &self.audio;
         game.firework_twinkles.retain_mut(|(at, ticks)| {
             *ticks = ticks.saturating_sub(1);
@@ -4475,11 +4479,14 @@ impl AppCore {
         movement::tick(
             &mut game.player,
             input,
-            crate::physics::collision::CollisionWorld::with_block_entities(
-                &game.chunk_store,
-                game.block_registry.block_state_table(),
-                &game.block_entity_anim,
-            ),
+            crate::physics::collision::CollisionWorld {
+                border: Some(&game.world_border),
+                ..crate::physics::collision::CollisionWorld::with_block_entities(
+                    &game.chunk_store,
+                    game.block_registry.block_state_table(),
+                    &game.block_entity_anim,
+                )
+            },
             game.block_registry.tags(),
             game.interaction.use_speed_multiplier(),
             game.interaction.slow_due_to_using_item(),

@@ -605,7 +605,8 @@ fn scope_rect(screen_w: f32, screen_h: f32, scale: f32) -> [f32; 3] {
     ]
 }
 
-/// Vanilla `Hud.extractCameraOverlays`: vignette, then a spyglass's scope
+/// Vanilla `Hud.extractCameraOverlays`: vignette (reddened by
+/// `border_warning` as the world border nears), then a spyglass's scope
 /// (`spyglass` is its scale while one is looked through) or the equippable
 /// camera overlay (pumpkin), powder snow's frost at `frozen` of its full
 /// strength, and the nether-portal overlay, drawn under the rest of the
@@ -618,18 +619,18 @@ pub fn build_camera_overlays(
     screen_w: f32,
     screen_h: f32,
     vignette_brightness: Option<f32>,
+    border_warning: f32,
     spyglass: Option<f32>,
     pumpkin: bool,
     frozen: f32,
     portal_intensity: f32,
 ) {
     if let Some(brightness) = vignette_brightness {
-        // TODO: nearing the world border tints the vignette cyan (no border
-        // tracking yet).
         elements.push(MenuElement::Vignette {
             w: screen_w,
             h: screen_h,
             brightness,
+            border_warning,
         });
     }
     if let Some(scale) = spyglass {
@@ -2279,6 +2280,7 @@ mod camera_overlay_tests {
             1280.0,
             720.0,
             None,
+            0.0,
             Some(0.5),
             true,
             0.5,

@@ -18,6 +18,7 @@ use super::handler::send_ordered;
 use super::sender::PacketSender;
 use super::{DimensionInfo, NetworkEvent};
 use crate::world::block::model::CardinalLightType;
+use crate::world::border::BorderUpdate;
 
 /// Decodes a lifecycle packet other than `login`, which the game loop reads
 /// itself; `None` for any other packet.
@@ -164,6 +165,56 @@ fn handle(
                 change,
                 relative,
             },
+        ),
+        LifecyclePacket::BorderInit {
+            x,
+            z,
+            old_size,
+            new_size,
+            lerp_time,
+            absolute_max,
+            warning_blocks,
+            warning_time,
+        } => send_ordered(
+            event_tx,
+            NetworkEvent::WorldBorder(BorderUpdate::Init {
+                x,
+                z,
+                old_size,
+                new_size,
+                lerp_time,
+                absolute_max,
+                warning_blocks,
+                warning_time,
+            }),
+        ),
+        LifecyclePacket::BorderCenter { x, z } => send_ordered(
+            event_tx,
+            NetworkEvent::WorldBorder(BorderUpdate::Center { x, z }),
+        ),
+        LifecyclePacket::BorderLerpSize {
+            old_size,
+            new_size,
+            lerp_time,
+        } => send_ordered(
+            event_tx,
+            NetworkEvent::WorldBorder(BorderUpdate::LerpSize {
+                old_size,
+                new_size,
+                lerp_time,
+            }),
+        ),
+        LifecyclePacket::BorderSize { size } => send_ordered(
+            event_tx,
+            NetworkEvent::WorldBorder(BorderUpdate::Size { size }),
+        ),
+        LifecyclePacket::BorderWarningDelay { time } => send_ordered(
+            event_tx,
+            NetworkEvent::WorldBorder(BorderUpdate::WarningTime { time }),
+        ),
+        LifecyclePacket::BorderWarningDistance { blocks } => send_ordered(
+            event_tx,
+            NetworkEvent::WorldBorder(BorderUpdate::WarningBlocks { blocks }),
         ),
         LifecyclePacket::PlayerLookAt {
             from_eyes,

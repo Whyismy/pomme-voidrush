@@ -266,6 +266,8 @@ pub struct GameState {
     /// How far the spyglass's scope has opened (vanilla `Hud.scopeScale`):
     /// from a half toward nine eighths while one is looked through.
     pub scope_scale: f32,
+    /// The level's border.
+    pub world_border: crate::world::border::WorldBorder,
     /// The blocks others are breaking, and how far.
     pub block_breaking: crate::world::block_breaking::BlockBreaking,
     /// Totem particles still being thrown from entities.
@@ -709,6 +711,7 @@ impl GameState {
             sign_edit: None,
             book_view: None,
             scope_scale: 0.5,
+            world_border: Default::default(),
             block_breaking: Default::default(),
             tracking_emitters: Vec::new(),
             item_activation: None,
@@ -3315,6 +3318,28 @@ pub fn update_game(
         core.menu.view_bobbing && !game.deterministic,
     );
     gfx.renderer.set_post_effect(game.drawn_spectator_effect());
+    // The world border's walls within the render distance.
+    let border_walls =
+        game.world_border
+            .mesh(
+                gfx.renderer.camera_render_position(),
+                gfx.renderer.camera_anchor(),
+                f64::from(effective_render_distance(core, game)) * 16.0,
+                partial_tick,
+                crate::renderer::camera::glint_millis(),
+            )
+            .map(
+                |(triangles, color)| crate::renderer::pipelines::world_border::BorderWalls {
+                    vertices: triangles
+                        .into_iter()
+                        .map(|(position, uv)| {
+                            crate::renderer::pipelines::world_border::BorderVertex { position, uv }
+                        })
+                        .collect(),
+                    color,
+                },
+            );
+    gfx.renderer.set_world_border(border_walls);
     gfx.renderer.update_third_person_distance(
         game.block_registry.block_state_table(),
         camera_pivot,
@@ -3443,6 +3468,8 @@ pub fn update_game(
             sw,
             sh,
             core.menu.vignette.then_some(game.vignette_brightness),
+            game.world_border
+                .warning(game.player.position.x, game.player.position.z),
             scoping.then_some(game.scope_scale),
             first_person && head_is_carved_pumpkin(&game.player),
             // `Entity.getPercentFrozen`: of the 140 ticks to frozen solid.

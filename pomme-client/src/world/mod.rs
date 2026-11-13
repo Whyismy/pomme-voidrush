@@ -4,6 +4,7 @@ pub mod block_breaking;
 pub mod block_entity;
 pub mod block_entity_anim;
 pub mod book;
+pub mod border;
 pub mod chunk;
 pub mod clock;
 pub mod environment;

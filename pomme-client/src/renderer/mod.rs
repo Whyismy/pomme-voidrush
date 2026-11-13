@@ -47,6 +47,7 @@ use pipelines::post_effect::{PostEffect, PostEffects};
 use pipelines::skin_preview::SkinPreviewPipeline;
 pub use pipelines::sky::{SkyPipeline, SkyState};
 pub use pipelines::weather::{WeatherColumn, WeatherPipeline};
+use pipelines::world_border::{BorderWalls, WorldBorderPipeline};
 use thiserror::Error;
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
@@ -326,6 +327,9 @@ pub struct Renderer {
     bedrock_ui_dir: Option<PathBuf>,
     sprite_packs: Option<crate::resource_pack::ResourcePackManager>,
     weather_pipeline: WeatherPipeline,
+    world_border_pipeline: WorldBorderPipeline,
+    /// The world border's walls near the camera this frame.
+    border_walls: Option<BorderWalls>,
     particle_pipeline: ParticlePipeline,
     cloud_pipeline: CloudPipeline,
     gui_item_pipeline: pipelines::gui_item::GuiItemPipeline,
@@ -475,6 +479,13 @@ impl Renderer {
             jar_assets_dir,
             asset_index,
             &lightmap,
+        );
+
+        let world_border_pipeline = WorldBorderPipeline::new(
+            &ctx.device,
+            swapchain_state.targets(),
+            jar_assets_dir,
+            asset_index,
         );
 
         let particle_pipeline =
@@ -663,6 +674,8 @@ impl Renderer {
             bedrock_ui_dir: Some(bedrock_ui_dir.to_path_buf()),
             sprite_packs: None,
             weather_pipeline,
+            world_border_pipeline,
+            border_walls: None,
             particle_pipeline,
             cloud_pipeline,
             gui_item_pipeline,
@@ -1168,6 +1181,8 @@ impl Renderer {
             self.held_item_pipeline
                 .recreate_pipeline(&self.ctx.device, targets);
             self.weather_pipeline
+                .recreate_pipeline(&self.ctx.device, targets);
+            self.world_border_pipeline
                 .recreate_pipeline(&self.ctx.device, targets);
             self.particle_pipeline
                 .recreate_pipeline(&self.ctx.device, targets);
@@ -2532,6 +2547,11 @@ impl Renderer {
         self.held_map_labels = labels;
     }
 
+    /// The world border's walls to draw this frame, where any are near.
+    pub fn set_world_border(&mut self, walls: Option<BorderWalls>) {
+        self.border_walls = walls;
+    }
+
     pub fn set_world_texts(&mut self, texts: Vec<pipelines::menu_overlay::WorldTextRender>) {
         self.world_texts = texts;
     }
@@ -2614,6 +2634,7 @@ impl Renderer {
             self.item_entity_pipeline.update_camera(frame, &uniform);
             self.world_text_pipeline.update_camera(frame, &uniform);
             self.weather_pipeline.update_camera(frame, &uniform);
+            self.world_border_pipeline.update_camera(frame, &uniform);
             self.particle_pipeline.update_camera(frame, &uniform);
             self.cloud_pipeline.update_camera(frame, &uniform);
         }
@@ -3074,6 +3095,11 @@ impl Renderer {
                         sky,
                         weather,
                     );
+
+                    // `LevelRenderer`: the world border with the weather.
+                    if let Some(walls) = &self.border_walls {
+                        self.world_border_pipeline.draw(&mut pass, frame, walls);
+                    }
 
                     let eye = self.camera_render_position();
                     self.lightning_pipeline
@@ -3969,6 +3995,7 @@ impl Drop for Renderer {
         self.held_item_pipeline.destroy(&self.ctx.device);
         self.map_pipeline.destroy(&self.ctx.device);
         self.weather_pipeline.destroy(&self.ctx.device);
+        self.world_border_pipeline.destroy(&self.ctx.device);
         self.particle_pipeline.destroy(&self.ctx.device);
         self.cloud_pipeline.destroy(&self.ctx.device);
         self.gui_item_pipeline.destroy(&self.ctx.device);

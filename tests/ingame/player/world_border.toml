@@ -1,0 +1,44 @@
+# The world border: its walls drawn near, and stopping the player.
+
+[[step]]
+chat = "/tp @s 4100.5 -60 600.5 0 0"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+chat = "/worldborder center 4100.5 600.5"
+
+[[step]]
+chat = "/worldborder set 12"
+
+[[step]]
+wait_ms = 800
+
+[[step]]
+screenshot = "walls"
+
+# Walking south meets the wall six blocks on.
+[[step]]
+press = { action = "key.forward", hold = true }
+
+[[step]]
+wait_ms = 2500
+
+[[step]]
+press = { action = "key.forward", hold = false }
+
+[[step]]
+screenshot = "at_the_wall"
+
+[[step]]
+chat = "/worldborder set 59999968"
+
+[[step]]
+chat = "/worldborder center 0 0"
+
+[[step]]
+wait_ms = 300
+
+[[step]]
+expect = { player = { z_between = [604.0, 606.71] } }

@@ -815,15 +815,28 @@ impl MenuGeometry {
                         *tint,
                     );
                 }
-                MenuElement::Vignette { w, h, brightness } => {
-                    // Clamp mirrors vanilla Hud.extractVignette.
-                    let b = brightness.clamp(0.0, 1.0);
+                MenuElement::Vignette {
+                    w,
+                    h,
+                    brightness,
+                    border_warning,
+                } => {
+                    // `Gui.extractVignette`: near the border the colour is
+                    // (0, g, g), which takes green and blue from the edges;
+                    // else the brightness, clamped.
+                    let color = if *border_warning > 0.0 {
+                        let g = border_warning.clamp(0.0, 1.0);
+                        [0.0, g, g, 1.0]
+                    } else {
+                        let b = brightness.clamp(0.0, 1.0);
+                        [b, b, b, 1.0]
+                    };
                     push_fullscreen_quad(
                         &mut vertices,
                         *w,
                         *h,
                         self.overlay_vignette_uv,
-                        [b, b, b, 1.0],
+                        color,
                         8.0,
                     );
                 }
@@ -2675,11 +2688,14 @@ pub enum MenuElement {
     /// Vanilla `blurBeforeThisStratum`: elements before it are blurred in
     /// place by the Menu Background Blur, and the rest drawn sharp on top.
     BlurBackground,
-    /// Full-screen vignette, multiplying the framebuffer down by `brightness`.
+    /// Full-screen vignette, multiplying the framebuffer down by
+    /// `brightness`, or where the world border is near (`border_warning`
+    /// above 0) reddening it by that.
     Vignette {
         w: f32,
         h: f32,
         brightness: f32,
+        border_warning: f32,
     },
     /// Full-screen pumpkin-blur camera overlay.
     PumpkinOverlay {

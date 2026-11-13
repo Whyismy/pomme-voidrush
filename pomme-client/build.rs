@@ -115,6 +115,7 @@ fn main() {
         ("world_text.vert", shaderc::ShaderKind::Vertex),
         ("block_overlay.vert", shaderc::ShaderKind::Vertex),
         ("block_overlay.frag", shaderc::ShaderKind::Fragment),
+        ("world_border.frag", shaderc::ShaderKind::Fragment),
         ("sky.vert", shaderc::ShaderKind::Vertex),
         ("sky.frag", shaderc::ShaderKind::Fragment),
         ("cull.comp", shaderc::ShaderKind::Compute),

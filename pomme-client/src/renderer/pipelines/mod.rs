@@ -28,3 +28,4 @@ pub mod shaderpack;
 pub mod skin_preview;
 pub mod sky;
 pub mod weather;
+pub mod world_border;

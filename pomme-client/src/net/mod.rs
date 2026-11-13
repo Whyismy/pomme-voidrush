@@ -180,6 +180,8 @@ pub enum NetworkEvent {
         x_rot: f32,
         relative_x: bool,
     },
+    /// One of the world border's packets.
+    WorldBorder(crate::world::border::BorderUpdate),
     /// `ClientboundPlayerLookAtPacket`: face a point, or an entity.
     PlayerLookAt {
         from_eyes: bool,

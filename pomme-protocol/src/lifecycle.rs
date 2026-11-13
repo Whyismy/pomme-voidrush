@@ -28,6 +28,36 @@ pub enum LifecyclePacket {
         x_rot: f32,
         relative_x: bool,
     },
+    /// `ClientboundInitializeBorderPacket`: the world border whole.
+    BorderInit {
+        x: f64,
+        z: f64,
+        old_size: f64,
+        new_size: f64,
+        /// Ticks the change from the old size to the new takes.
+        lerp_time: u64,
+        absolute_max: i32,
+        warning_blocks: i32,
+        warning_time: i32,
+    },
+    BorderCenter {
+        x: f64,
+        z: f64,
+    },
+    BorderLerpSize {
+        old_size: f64,
+        new_size: f64,
+        lerp_time: u64,
+    },
+    BorderSize {
+        size: f64,
+    },
+    BorderWarningDelay {
+        time: i32,
+    },
+    BorderWarningDistance {
+        blocks: i32,
+    },
     /// The player is turned to face `target`, or the entity given (its id,
     /// and whether its eyes rather than its feet), from its own eyes or
     /// feet.
@@ -111,6 +141,46 @@ pub fn read(name: &str, r: &mut Reader) -> Option<DecodeResult<LifecyclePacket>>
                 id: r.varint()?,
                 change: position_move_rotation(r)?,
                 relative: Relative::from_bits(r.i32()?),
+            })
+        },
+        // ClientboundInitializeBorderPacket.java:27-36
+        "initialize_border" => |r| {
+            Ok(LifecyclePacket::BorderInit {
+                x: r.f64()?,
+                z: r.f64()?,
+                old_size: r.f64()?,
+                new_size: r.f64()?,
+                lerp_time: r.varlong()?,
+                absolute_max: r.var_i32()?,
+                warning_blocks: r.var_i32()?,
+                warning_time: r.var_i32()?,
+            })
+        },
+        // ClientboundSetBorderCenterPacket.java:20-21
+        "set_border_center" => |r| {
+            Ok(LifecyclePacket::BorderCenter {
+                x: r.f64()?,
+                z: r.f64()?,
+            })
+        },
+        // ClientboundSetBorderLerpSizePacket.java:22-24
+        "set_border_lerp_size" => |r| {
+            Ok(LifecyclePacket::BorderLerpSize {
+                old_size: r.f64()?,
+                new_size: r.f64()?,
+                lerp_time: r.varlong()?,
+            })
+        },
+        // ClientboundSetBorderSizePacket.java:18
+        "set_border_size" => |r| Ok(LifecyclePacket::BorderSize { size: r.f64()? }),
+        // ClientboundSetBorderWarningDelayPacket.java:18
+        "set_border_warning_delay" => {
+            |r| Ok(LifecyclePacket::BorderWarningDelay { time: r.var_i32()? })
+        }
+        // ClientboundSetBorderWarningDistancePacket.java:18
+        "set_border_warning_distance" => |r| {
+            Ok(LifecyclePacket::BorderWarningDistance {
+                blocks: r.var_i32()?,
             })
         },
         // ClientboundPlayerLookAtPacket.java:47-57; the anchors are

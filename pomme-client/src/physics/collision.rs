@@ -22,6 +22,9 @@ pub struct CollisionWorld<'a> {
     /// Vanilla `PistonMovingBlockEntity.NOCLIP`: while a piston moves an
     /// entity, its own moving blocks heading that way don't collide.
     pub piston_noclip: Option<Direction>,
+    /// The world border, whose walls stop what is close inside them; `None`
+    /// for what the border doesn't hold.
+    pub border: Option<&'a crate::world::border::WorldBorder>,
 }
 
 impl<'a> CollisionWorld<'a> {
@@ -31,6 +34,7 @@ impl<'a> CollisionWorld<'a> {
             block_state_table,
             block_entity_anim: None,
             piston_noclip: None,
+            border: None,
         }
     }
 
@@ -335,7 +339,10 @@ pub fn resolve_collision(
     ctx: &CollisionContext,
 ) -> (DVec3, bool) {
     let expanded = player_aabb.expand(*velocity);
-    let block_aabbs = collect_block_aabbs(world, &expanded, ctx);
+    let mut block_aabbs = collect_block_aabbs(world, &expanded, ctx);
+    if let Some(border) = world.border {
+        border.add_walls(&player_aabb, &expanded, &mut block_aabbs);
+    }
 
     let (movement_step, on_ground_after_collision) =
         collide_along_axes(&block_aabbs, player_aabb, velocity);
@@ -353,7 +360,10 @@ pub fn resolve_collision(
         if !on_ground_after_collision {
             step_region = step_region.expand(dvec3(0.0, -f64::from(1.0e-5_f32), 0.0));
         }
-        let step_aabbs = collect_block_aabbs(world, &step_region, ctx);
+        let mut step_aabbs = collect_block_aabbs(world, &step_region, ctx);
+        if let Some(border) = world.border {
+            border.add_walls(&player_aabb, &step_region, &mut step_aabbs);
+        }
         let candidates = collect_candidate_step_up_heights(
             grounded_aabb,
             &step_aabbs,
