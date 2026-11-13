@@ -99,7 +99,9 @@ impl MeshGate {
 pub enum ContainerScreen {
     CraftingTable,
     Furnace(crate::ui::furnace::FurnaceVariant),
-    Chest { rows: u8 },
+    Chest {
+        rows: u8,
+    },
     ShulkerBox,
     Hopper,
     Dispenser,
@@ -113,6 +115,13 @@ pub enum ContainerScreen {
     Lectern,
     Beacon,
     Loom,
+    /// A mount's inventory; `nautilus` for a nautilus's own picture.
+    Mount {
+        columns: u8,
+        saddle: bool,
+        armor: crate::player::menu_click::MountArmor,
+        nautilus: bool,
+    },
     Anvil,
     Enchantment,
 }
@@ -137,6 +146,16 @@ impl ContainerScreen {
             Self::Lectern => ContainerKind::Lectern,
             Self::Beacon => ContainerKind::Beacon,
             Self::Loom => ContainerKind::Loom,
+            Self::Mount {
+                columns,
+                saddle,
+                armor,
+                ..
+            } => ContainerKind::Mount {
+                columns,
+                saddle,
+                armor,
+            },
             Self::Anvil => ContainerKind::Anvil,
             Self::Enchantment => ContainerKind::Enchantment,
         }
@@ -844,6 +863,24 @@ impl GameState {
     /// Vanilla `LocalPlayer.jumpableVehicle() != null`: controlling a saddled
     /// equine. Equine `getJumpCooldown()` is always 0; camels/nautilus (dash
     /// cooldown) aren't tracked by the entity store yet.
+    /// Vanilla `MultiPlayerGameMode.isServerControlledInventory`: riding
+    /// something with an inventory screen of its own (a horse and its kin,
+    /// a nautilus, a boat with a chest), which the inventory key asks the
+    /// server to open.
+    pub fn rides_inventory_holder(&self) -> bool {
+        let Some(vehicle) = self.riding_vehicle_id else {
+            return false;
+        };
+        if let Some(mount) = self.entity_store.living.get(&vehicle) {
+            return crate::ui::mount::slots_of(mount.entity_type).is_some();
+        }
+        self.model_entities
+            .entities
+            .get(&vehicle)
+            .and_then(|vehicle| crate::entity::model_entity::boat(vehicle.kind))
+            .is_some_and(|(_, chest, _)| chest)
+    }
+
     pub fn riding_jumpable_vehicle(&self) -> bool {
         self.controlled_vehicle_id
             .and_then(|id| self.entity_store.living.get(&id))
@@ -4575,6 +4612,25 @@ pub fn update_game(
                     }
                     result
                 }
+                ContainerScreen::Mount {
+                    columns,
+                    saddle,
+                    armor,
+                    nautilus,
+                } => crate::ui::mount::build(
+                    &mut elements,
+                    sw,
+                    sh,
+                    core.input.cursor_pos(),
+                    &input,
+                    &container.slots,
+                    &container.title,
+                    (columns, saddle, armor, nautilus),
+                    &game.cursor_item,
+                    &mut game.inv_drag,
+                    &mut game.inv_last_click,
+                    gs,
+                ),
                 ContainerScreen::Loom => {
                     let wheel = core.input.consume_menu_scroll();
                     crate::ui::loom::build(

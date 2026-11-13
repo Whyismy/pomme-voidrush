@@ -90,6 +90,15 @@ fn event(packet: ContainerPacket) -> Option<NetworkEvent> {
         },
         ContainerPacket::Close { .. } => NetworkEvent::ContainerClosed,
         ContainerPacket::OpenBook { off_hand } => NetworkEvent::OpenBook { off_hand },
+        ContainerPacket::MountScreenOpen {
+            container_id,
+            columns,
+            entity,
+        } => NetworkEvent::MountScreenOpen {
+            container_id,
+            columns,
+            entity,
+        },
         ContainerPacket::MerchantOffers {
             container_id,
             offers,

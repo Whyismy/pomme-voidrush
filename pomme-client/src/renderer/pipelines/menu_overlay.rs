@@ -2872,6 +2872,14 @@ pub enum SpriteId {
     PageForwardHighlighted,
     PageBackward,
     PageBackwardHighlighted,
+    HorseBackground,
+    NautilusBackground,
+    HorseChestSlots,
+    MountSlot,
+    MountSlotSaddle,
+    MountSlotHorseArmor,
+    MountSlotLlamaArmor,
+    MountSlotNautilusArmor,
     LoomBackground,
     LoomScroller,
     LoomScrollerDisabled,
@@ -3797,6 +3805,36 @@ fn build_sprite_atlas(
         (
             SpriteId::PageBackwardHighlighted,
             "minecraft/textures/gui/sprites/widget/page_backward_highlighted.png",
+            0.0,
+        ),
+        (
+            SpriteId::HorseChestSlots,
+            "minecraft/textures/gui/sprites/container/horse/chest_slots.png",
+            0.0,
+        ),
+        (
+            SpriteId::MountSlot,
+            "minecraft/textures/gui/sprites/container/slot.png",
+            0.0,
+        ),
+        (
+            SpriteId::MountSlotSaddle,
+            "minecraft/textures/gui/sprites/container/slot/saddle.png",
+            0.0,
+        ),
+        (
+            SpriteId::MountSlotHorseArmor,
+            "minecraft/textures/gui/sprites/container/slot/horse_armor.png",
+            0.0,
+        ),
+        (
+            SpriteId::MountSlotLlamaArmor,
+            "minecraft/textures/gui/sprites/container/slot/llama_armor.png",
+            0.0,
+        ),
+        (
+            SpriteId::MountSlotNautilusArmor,
+            "minecraft/textures/gui/sprites/container/slot/nautilus_armor_inventory.png",
             0.0,
         ),
         (
@@ -4837,6 +4875,20 @@ fn build_sprite_atlas(
         (
             SpriteId::LoomBackground,
             "minecraft/textures/gui/container/loom.png",
+            (0, 0),
+            INV_TEX_W,
+            166,
+        ),
+        (
+            SpriteId::HorseBackground,
+            "minecraft/textures/gui/container/horse.png",
+            (0, 0),
+            INV_TEX_W,
+            166,
+        ),
+        (
+            SpriteId::NautilusBackground,
+            "minecraft/textures/gui/container/nautilus.png",
             (0, 0),
             INV_TEX_W,
             166,

@@ -282,8 +282,28 @@ impl InputState {
                         && game.book_view.is_none()
                         && game.book_edit.is_none()
                     {
-                        game.open_inventory();
-                        should_apply_cursor_grab = true;
+                        // On a mount with an inventory of its own, the
+                        // server opens that one (`LocalPlayer.sendOpenInventory`).
+                        if game.rides_inventory_holder() {
+                            use azalea_protocol::packets::game::ServerboundGamePacket;
+                            use azalea_protocol::packets::game::s_player_command::{
+                                Action as PlayerAction, ServerboundPlayerCommand,
+                            };
+                            connection
+                                .packet_tx
+                                .send(ServerboundGamePacket::PlayerCommand(
+                                    ServerboundPlayerCommand {
+                                        id: azalea_core::entity_id::MinecraftEntityId(
+                                            game.player.entity_id,
+                                        ),
+                                        action: PlayerAction::OpenInventory,
+                                        data: 0,
+                                    },
+                                ));
+                        } else {
+                            game.open_inventory();
+                            should_apply_cursor_grab = true;
+                        }
                     }
 
                     self.recent_actions.remove(&Action::ToggleInventory);

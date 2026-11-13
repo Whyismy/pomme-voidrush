@@ -12,6 +12,19 @@ use azalea_inventory::operations::{
 use azalea_inventory::{ItemStack, ItemStackData, Menu, Player, SlotList};
 use azalea_registry::builtin::ItemKind;
 
+/// What a mount wears in its body slot (vanilla `isEquippableInSlot` for
+/// `EquipmentSlot.BODY`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MountArmor {
+    None,
+    /// Horse armor.
+    Horse,
+    /// A carpet.
+    Llama,
+    /// Nautilus armor.
+    Nautilus,
+}
+
 /// Which container menu a click applies to. `Furnace` covers the furnace,
 /// blast furnace, and smoker menus, which share the same slot structure;
 /// `Chest` covers every generic 9xN menu (chests, ender chests, barrels, ...).
@@ -45,6 +58,14 @@ pub enum ContainerKind {
     Crafter,
     /// Vanilla `BeaconMenu`: the payment.
     Beacon,
+    /// Vanilla `AbstractMountInventoryMenu`: a saddle, body armor, then
+    /// three rows of `columns` of a chest. `saddle` and `armor` are which
+    /// of the first two slots this mount has the use of.
+    Mount {
+        columns: u8,
+        saddle: bool,
+        armor: MountArmor,
+    },
     /// Vanilla `LoomMenu`: a banner, a dye, a pattern item and the result.
     Loom,
     /// Vanilla `LecternMenu`: the book alone. The inventory's slots are
@@ -66,6 +87,7 @@ impl ContainerKind {
             Self::Grindstone | Self::Cartography | Self::Merchant => 39,
             Self::Smithing | Self::Loom => 40,
             Self::Lectern | Self::Beacon => 37,
+            Self::Mount { columns, .. } => 2 + 3 * usize::from(columns) + 36,
             Self::Enchantment | Self::Stonecutter => 38,
         }
     }
@@ -83,6 +105,7 @@ impl ContainerKind {
             Self::Grindstone | Self::Cartography | Self::Merchant => 3,
             Self::Smithing | Self::Loom => 4,
             Self::Lectern | Self::Beacon => 1,
+            Self::Mount { columns, .. } => 2 + 3 * usize::from(columns),
             Self::Enchantment | Self::Stonecutter => 2,
         }
     }
@@ -108,6 +131,7 @@ impl ContainerKind {
             | Self::Crafter
             | Self::Lectern
             | Self::Beacon
+            | Self::Mount { .. }
             | Self::Enchantment => None,
         }
     }
@@ -212,6 +236,12 @@ impl ContainerKind {
                 fuel: ItemStack::Empty,
                 player: SlotList::default(),
             },
+            // No menu of azalea's has a mount's slots; the largest chest's
+            // stands in as the array they are kept in.
+            Self::Mount { .. } => Menu::Generic9x6 {
+                contents: SlotList::default(),
+                player: SlotList::default(),
+            },
             Self::Loom => Menu::Loom {
                 banner: ItemStack::Empty,
                 dye: ItemStack::Empty,
@@ -271,6 +301,18 @@ impl ContainerKind {
             (Self::Player | Self::CraftingTable, 0) => false,
             (Self::Furnace | Self::Anvil | Self::Grindstone | Self::Cartography, 2) => false,
             (Self::Smithing, 3) | (Self::Stonecutter, 1) | (Self::Merchant, 2) => false,
+            // A mount's saddle and what it wears, where it has the use of
+            // each.
+            (Self::Mount { saddle, .. }, 0) => saddle && item.kind == ItemKind::Saddle,
+            (Self::Mount { armor, .. }, 1) => {
+                let name = crate::player::inventory::item_resource_name(item.kind);
+                match armor {
+                    MountArmor::None => false,
+                    MountArmor::Horse => name.ends_with("_horse_armor"),
+                    MountArmor::Llama => name.ends_with("_carpet"),
+                    MountArmor::Nautilus => name.ends_with("_nautilus_armor"),
+                }
+            }
             // `LoomMenu`'s slots: a banner, a dye, a pattern item; nothing
             // goes in the result.
             (Self::Loom, 0) => {
@@ -764,6 +806,40 @@ fn quick_move(kind: ContainerKind, menu: &mut Menu, s: usize) {
                 } else {
                     let inputs = kind.crafting_result_slot().unwrap_or(split);
                     move_item_stack_to(kind, menu, s, 0..inputs, false);
+                }
+            }
+            // `AbstractMountInventoryMenu.quickMoveStack`: the mount's slots
+            // out to the inventory; armor and a saddle in to their empty
+            // slots; else into its chest, or failing that the inventory and
+            // the hotbar trade places.
+            ContainerKind::Mount { columns, .. } => {
+                let own = 2 + 3 * usize::from(columns);
+                let stack = menu.slot(s).and_then(ItemStack::as_present).cloned();
+                let fits = |slot: usize, menu: &Menu| {
+                    stack
+                        .as_ref()
+                        .is_some_and(|stack| kind.may_place(slot, stack))
+                        && menu.slot(slot).is_some_and(ItemStack::is_empty)
+                };
+                if s < own {
+                    move_item_stack_to(kind, menu, s, own..own + 36, true);
+                } else if fits(1, menu) {
+                    move_item_stack_to(kind, menu, s, 1..2, false);
+                } else if fits(0, menu) {
+                    move_item_stack_to(kind, menu, s, 0..1, false);
+                } else {
+                    let count = |menu: &Menu| menu.slot(s).map_or(0, ItemStack::count);
+                    let had = count(menu);
+                    if columns > 0 {
+                        move_item_stack_to(kind, menu, s, 2..own, false);
+                    }
+                    if count(menu) == had {
+                        if s >= own + 27 {
+                            move_item_stack_to(kind, menu, s, own..own + 27, false);
+                        } else {
+                            move_item_stack_to(kind, menu, s, own + 27..own + 36, false);
+                        }
+                    }
                 }
             }
             // `LoomMenu.quickMoveStack`: its own slots out to the inventory;

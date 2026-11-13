@@ -21,6 +21,7 @@ pub mod inventory;
 pub mod loom;
 pub mod menu;
 pub mod merchant;
+pub mod mount;
 pub mod object_glyph;
 pub mod pause;
 pub mod player_tab;

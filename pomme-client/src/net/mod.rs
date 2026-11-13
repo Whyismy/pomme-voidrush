@@ -280,6 +280,13 @@ pub enum NetworkEvent {
         id: i32,
         status: crate::entity::status::EntityStatus,
     },
+    /// `ClientboundMountScreenOpenPacket`: the inventory of the mount
+    /// `entity`, three rows of `columns` after its saddle and armor.
+    MountScreenOpen {
+        container_id: i32,
+        columns: u32,
+        entity: i32,
+    },
     /// `ClientboundOpenBookPacket`: read the book in that hand.
     OpenBook {
         off_hand: bool,

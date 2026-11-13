@@ -2294,6 +2294,57 @@ impl AppCore {
                 NetworkEvent::HeldSlot { slot } => {
                     self.input.set_selected_slot(slot);
                 }
+                NetworkEvent::MountScreenOpen {
+                    container_id,
+                    columns,
+                    entity,
+                } => {
+                    use crate::app::phases::in_game::ContainerScreen;
+                    // `handleMountScreenOpen`: for a mount known here.
+                    let mount = game
+                        .entity_store
+                        .living
+                        .get(&entity)
+                        .map(|mount| (mount.entity_type, mount.custom_name.clone()));
+                    if let Some((kind, name)) = mount
+                        && let Some((saddle, armor, nautilus)) = crate::ui::mount::slots_of(kind)
+                    {
+                        let screen = ContainerScreen::Mount {
+                            columns: columns.min(5) as u8,
+                            saddle,
+                            armor,
+                            nautilus,
+                        };
+                        game.paused = false;
+                        if game.inventory_open || game.recipe_book_ui.captures_typing() {
+                            game.recipe_book_ui
+                                .reset_for_closed_screen(&mut game.recipe_book);
+                        }
+                        game.inventory_open = false;
+                        game.close_creative_inventory();
+                        game.inv_drag = None;
+                        game.inv_last_click = None;
+                        game.open_container = Some(crate::app::phases::in_game::OpenContainer {
+                            id: container_id,
+                            title: name.unwrap_or_else(|| crate::ui::mount::kind_name(kind)),
+                            // No menu type of the registry's is a mount's.
+                            #[cfg(feature = "test-harness")]
+                            menu: azalea_registry::builtin::MenuKind::Generic9x1,
+                            screen,
+                            slots: vec![
+                                azalea_inventory::ItemStack::Empty;
+                                screen.click_kind().slot_count()
+                            ],
+                            data: [0; 10],
+                            anvil: None,
+                            enchant: None,
+                            state_id: 0,
+                        });
+                        game.sync_container_from_inventory();
+                        game.container_was_open = Some(container_id);
+                        self.apply_cursor_grab(window, Some(game));
+                    }
+                }
                 NetworkEvent::OpenBook { off_hand } => {
                     // `handleOpenBook`: the book in that hand, where it is
                     // one.

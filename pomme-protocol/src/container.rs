@@ -46,6 +46,13 @@ pub enum ContainerPacket {
         /// `EquipmentSlot` ordinals and their stacks.
         slots: Vec<(u8, Option<ItemStack>)>,
     },
+    /// A mount's inventory opens: three rows of `columns`, after its
+    /// saddle and body armor (`ClientboundMountScreenOpenPacket`).
+    MountScreenOpen {
+        container_id: i32,
+        columns: u32,
+        entity: i32,
+    },
     /// The server has the client read the book in a hand.
     OpenBook {
         off_hand: bool,
@@ -143,6 +150,14 @@ pub fn read(name: &str, r: &mut Reader) -> Option<DecodeResult<ContainerPacket>>
                 }
             }
             Ok(ContainerPacket::Equipment { entity, slots })
+        },
+        // ClientboundMountScreenOpenPacket.java:23-25
+        "mount_screen_open" => |r| {
+            Ok(ContainerPacket::MountScreenOpen {
+                container_id: r.var_i32()?,
+                columns: r.varint()?,
+                entity: r.i32()?,
+            })
         },
         // ClientboundOpenBookPacket.java:18: the `InteractionHand`.
         "open_book" => |r| {
