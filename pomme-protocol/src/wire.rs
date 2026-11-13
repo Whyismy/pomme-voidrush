@@ -86,6 +86,57 @@ pub fn encode_pick_item_from_block(x: i32, y: i32, z: i32, include_data: bool) -
     buf
 }
 
+/// What a `ServerboundSetStructureBlockPacket` carries: everything the
+/// structure block's screen holds, and what the server is to do about it.
+pub struct StructureBlockUpdate<'a> {
+    pub pos: (i32, i32, i32),
+    /// `StructureBlockEntity.UpdateType`'s ordinal: update the data, save,
+    /// load, or scan for the area.
+    pub update: u32,
+    /// `StructureMode`'s ordinal.
+    pub mode: u32,
+    pub name: &'a str,
+    pub offset: [i8; 3],
+    pub size: [i8; 3],
+    /// `Mirror`'s and `Rotation`'s ordinals.
+    pub mirror: u32,
+    pub rotation: u32,
+    pub data: &'a str,
+    pub integrity: f32,
+    pub seed: i64,
+    pub ignore_entities: bool,
+    pub show_air: bool,
+    pub show_bounding_box: bool,
+    pub strict: bool,
+}
+
+/// Vanilla `ServerboundSetStructureBlockPacket.write`.
+pub fn encode_set_structure_block(update: &StructureBlockUpdate) -> Vec<u8> {
+    let mut buf = Vec::new();
+    write_varint(&mut buf, game_serverbound_id("set_structure_block"));
+    let (x, y, z) = update.pos;
+    let packed = ((i64::from(x) & 0x3ff_ffff) << 38)
+        | ((i64::from(z) & 0x3ff_ffff) << 12)
+        | (i64::from(y) & 0xfff);
+    buf.extend_from_slice(&packed.to_be_bytes());
+    write_varint(&mut buf, update.update);
+    write_varint(&mut buf, update.mode);
+    write_utf(&mut buf, update.name);
+    buf.extend(update.offset.iter().chain(&update.size).map(|v| *v as u8));
+    write_varint(&mut buf, update.mirror);
+    write_varint(&mut buf, update.rotation);
+    write_utf(&mut buf, update.data);
+    buf.extend_from_slice(&update.integrity.to_be_bytes());
+    write_varlong(&mut buf, update.seed as u64);
+    buf.push(
+        u8::from(update.ignore_entities)
+            | u8::from(update.show_air) << 1
+            | u8::from(update.show_bounding_box) << 2
+            | u8::from(update.strict) << 3,
+    );
+    buf
+}
+
 /// Vanilla 26.2 `ServerboundPickItemFromEntityPacket`: entity VarInt then
 /// the Ctrl/include-data flag.
 pub fn encode_pick_item_from_entity(entity_id: i32, include_data: bool) -> Vec<u8> {

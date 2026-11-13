@@ -1389,6 +1389,7 @@ impl AppCore {
         game.book_edit = None;
         game.advancements_ui = None;
         game.stats_ui = None;
+        game.game_master_ui = None;
         game.tracking_emitters.clear();
         game.item_activation = None;
         game.server_dialog = None;
@@ -2789,6 +2790,18 @@ impl AppCore {
                 NetworkEvent::BlockEntityUpdate { pos, kind, nbt } => {
                     let chunk_pos =
                         crate::position::ChunkPos::new(pos.x.div_euclid(16), pos.z.div_euclid(16));
+                    // `handleBlockEntityData`: a command block's open screen
+                    // takes up what the server sent for it.
+                    if let Some(ui) = &mut game.game_master_ui
+                        && ui.pos() == pos
+                    {
+                        let state = game.chunk_store.get_block_state(pos.x, pos.y, pos.z);
+                        let data = game.block_registry.block_state_data(state);
+                        let conditional = data.properties().get("conditional") == Some("true");
+                        ui.updated(data.id(), conditional, &nbt, &|text| {
+                            renderer.menu_text_width(text, crate::ui::common::FONT_SIZE)
+                        });
+                    }
                     if game.chunk_store.get_chunk(&chunk_pos).is_some() {
                         game.chunk_store.block_entities.insert(
                             pos,

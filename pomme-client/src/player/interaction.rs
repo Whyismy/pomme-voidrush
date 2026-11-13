@@ -167,6 +167,12 @@ pub struct InteractionState {
     /// A book and quill was just used in this hand: the client opens it to
     /// write in (`WritableBookItem.use`), which the frame takes up.
     pub open_book_edit: Option<InteractionHand>,
+    /// Vanilla `Player.canUseGameMasterBlocks`: an operator in creative
+    /// mode, as the frame last found it.
+    pub game_master: bool,
+    /// A game master just used a block that has a screen of its own (a
+    /// command block, say): the frame opens it.
+    pub open_block_screen: Option<BlockPos>,
     using_item: Option<ActiveUse>,
     swinging: bool,
     swinging_arm: InteractionHand,
@@ -212,6 +218,8 @@ impl InteractionState {
             miss_time: 0,
             use_delay: 0,
             open_book_edit: None,
+            game_master: false,
+            open_block_screen: None,
             using_item: None,
             swinging: false,
             swinging_arm: InteractionHand::MainHand,
@@ -977,7 +985,14 @@ impl InteractionState {
         }));
         if hand == InteractionHand::MainHand && !suppress_block_use {
             let target = chunks.get_block_state(hit.block_pos.x, hit.block_pos.y, hit.block_pos.z);
-            if opens_menu(block_registry.block_state_data(target).id()) {
+            let id = block_registry.block_state_data(target).id();
+            if opens_menu(id) {
+                return UseResult::Success { swing: true };
+            }
+            // `CommandBlock.useWithoutItem` and its like: the block's screen
+            // opens for a game master, and for no one else.
+            if self.game_master && crate::ui::game_master::is_game_master_block(id) {
+                self.open_block_screen = Some(hit.block_pos);
                 return UseResult::Success { swing: true };
             }
         }

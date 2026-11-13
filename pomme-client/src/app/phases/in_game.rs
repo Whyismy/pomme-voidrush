@@ -298,6 +298,8 @@ pub struct GameState {
     pub stats: crate::ui::stats::StatsCounter,
     /// The statistics screen, while it is up.
     pub stats_ui: Option<crate::ui::stats::StatsUi>,
+    /// The screen of a command block or the like, while it is up.
+    pub game_master_ui: Option<crate::ui::game_master::GameMasterUi>,
     /// How far the spyglass's scope has opened (vanilla `Hud.scopeScale`):
     /// from a half toward nine eighths while one is looked through.
     pub scope_scale: f32,
@@ -755,6 +757,7 @@ impl GameState {
             advancements_ui: None,
             stats: Default::default(),
             stats_ui: None,
+            game_master_ui: None,
             scope_scale: 0.5,
             tick_rate: Default::default(),
             world_border: Default::default(),
@@ -981,6 +984,7 @@ impl GameState {
             || self.book_edit.is_some()
             || self.advancements_ui.is_some()
             || self.stats_ui.is_some()
+            || self.game_master_ui.is_some()
     }
 
     /// The container menu the player currently has open (0 = survival
@@ -1139,7 +1143,7 @@ impl GameState {
     /// hotkeys. The anvil field is editable only while its input slot is
     /// filled, matching vanilla.
     pub fn wants_text_input(&self) -> bool {
-        if self.sign_edit.is_some() || self.book_edit.is_some() {
+        if self.sign_edit.is_some() || self.book_edit.is_some() || self.game_master_ui.is_some() {
             return true;
         }
         if self
@@ -3283,6 +3287,12 @@ pub fn update_game(
             r.menu_text_width(text, common::FONT_SIZE)
         });
     }
+    if let Some(ui) = &mut game.game_master_ui {
+        let r = &gfx.renderer;
+        ui.handle_text_input(&text_events, &|text| {
+            r.menu_text_width(text, common::FONT_SIZE)
+        });
+    }
     let text_sw = gfx.renderer.screen_width() as f32;
     let text_gs = core
         .menu
@@ -3919,6 +3929,55 @@ pub fn update_game(
     }
     if game.stats_ui.as_ref().is_some_and(|ui| ui.closing()) {
         game.paused = game.stats_ui.take().is_some_and(|ui| ui.from_pause);
+        core.apply_cursor_grab(&gfx.window, Some(game));
+    }
+
+    // `Player.canUseGameMasterBlocks`, for the next use of a block.
+    game.interaction.game_master =
+        crate::player::is_creative(game.player.game_mode) && game.player.permission_level >= 2;
+    // `LocalPlayer.openCommandBlock` and its like: the block's own screen.
+    if let Some(pos) = game.interaction.open_block_screen.take() {
+        let state = game.chunk_store.get_block_state(pos.x, pos.y, pos.z);
+        let data = game.block_registry.block_state_data(state);
+        let r = &gfx.renderer;
+        game.game_master_ui = crate::ui::game_master::GameMasterUi::open(
+            data.id(),
+            pos,
+            data.properties().get("orientation"),
+            game.chunk_store
+                .block_entities
+                .get(&pos)
+                .map(|entity| &entity.nbt),
+            &|text| r.menu_text_width(text, common::FONT_SIZE),
+        );
+        core.apply_cursor_grab(&gfx.window, Some(game));
+    }
+    if let Some(ui) = &mut game.game_master_ui {
+        let r = &gfx.renderer;
+        let frame = ui.build(
+            &mut elements,
+            (sw, sh),
+            crate::ui::game_master::Pointer {
+                cursor: core.input.cursor_pos(),
+                pressed: core.input.left_just_pressed(),
+                held: core.input.left_held(),
+                shift: core.input.shift_held(),
+            },
+            gs,
+            &|text, size| r.menu_text_width(text, size),
+        );
+        if frame.clicked {
+            core.audio.play_ui_click();
+        }
+        for packet in frame.send {
+            connection.packet_tx.send(packet);
+        }
+        for packet in frame.send_raw {
+            connection.packet_tx.send_raw(packet);
+        }
+    }
+    if game.game_master_ui.as_ref().is_some_and(|ui| ui.closing()) {
+        game.game_master_ui = None;
         core.apply_cursor_grab(&gfx.window, Some(game));
     }
 
