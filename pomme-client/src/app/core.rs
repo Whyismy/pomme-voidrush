@@ -1385,6 +1385,7 @@ impl AppCore {
         game.book_view = None;
         game.book_edit = None;
         game.advancements_ui = None;
+        game.stats_ui = None;
         game.tracking_emitters.clear();
         game.item_activation = None;
         game.server_dialog = None;
@@ -2625,6 +2626,12 @@ impl AppCore {
                 }
                 NetworkEvent::SelectAdvancementsTab(tab) => {
                     game.toasts.select_advancements_tab(tab);
+                }
+                NetworkEvent::AwardStats(stats) => {
+                    game.stats.apply(stats);
+                    if let Some(ui) = &mut game.stats_ui {
+                        ui.loaded(&game.stats);
+                    }
                 }
                 NetworkEvent::RecipeBookAdd { entries, replace } => {
                     game.recipe_book.apply_add(entries, replace);

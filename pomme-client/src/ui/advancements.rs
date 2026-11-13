@@ -10,7 +10,6 @@ use std::collections::HashMap;
 
 use super::book::SplitLines;
 use super::common::{FONT_SIZE, hit_test, push_button, push_item_glyph, push_tooltip_lines};
-use super::container::push_transparent_background;
 use super::text::TextSpan;
 use super::toast::{AdvancementData, AdvancementDisplay, AdvancementFrame, AdvancementStore};
 use crate::renderer::pipelines::menu_overlay::{
@@ -34,6 +33,8 @@ const TAB_ORDER: [&str; 5] = [
 /// The advancements screen's own state.
 #[derive(Default)]
 pub struct AdvancementsUi {
+    /// The pause menu opened it, and has it back when it closes.
+    pub from_pause: bool,
     /// The tab shown, by its root's id.
     tab: Option<String>,
     /// Each tab's scroll, once it has been centred.
@@ -46,6 +47,14 @@ pub struct AdvancementsUi {
 }
 
 impl AdvancementsUi {
+    /// The screen as the pause menu opens it.
+    pub fn from_pause() -> Self {
+        Self {
+            from_pause: true,
+            ..Self::default()
+        }
+    }
+
     /// Marks the screen closed; the frame then tells the server.
     pub fn close(&mut self) {
         self.closing = true;
@@ -161,7 +170,9 @@ pub fn build(
     split: SplitLines<'_>,
 ) -> bool {
     let (pressed, held) = mouse;
-    push_transparent_background(elements, screen_w, screen_h);
+    // `Screen.extractBackground`: the world blurred, under the menu's dimming.
+    elements.push(MenuElement::BlurBackground);
+    super::common::push_menu_background(elements, screen_w, screen_h);
     let scale = FONT_SIZE * gs;
     let (gui_w, gui_h) = (screen_w / gs, screen_h / gs);
     let left = ((gui_w - WINDOW.0) / 2.0).floor();

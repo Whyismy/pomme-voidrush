@@ -25,6 +25,8 @@ pub enum PauseAction {
     Resume,
     /// To the advancements screen.
     Advancements,
+    /// To the statistics screen.
+    Statistics,
     Disconnect,
     Options,
     ReportBugs,
@@ -173,7 +175,7 @@ fn build_main(
     {
         action = PauseAction::Advancements;
     }
-    common::push_button(
+    if common::push_button(
         elements,
         cursor,
         col2_x,
@@ -183,8 +185,11 @@ fn build_main(
         gs,
         fs,
         "Statistics",
-        false,
-    );
+        true,
+    ) && clicked
+    {
+        action = PauseAction::Statistics;
+    }
 
     common::push_button(
         elements,

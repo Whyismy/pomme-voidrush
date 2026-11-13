@@ -33,6 +33,12 @@ pub enum LifecyclePacket {
     SelectAdvancementsTab {
         tab: Option<String>,
     },
+    /// `ClientboundAwardStatsPacket`: the player's stats, each as its type
+    /// in the `stat_type` registry, its value's id in that type's own
+    /// registry, and its count.
+    AwardStats {
+        stats: Vec<(u32, u32, i32)>,
+    },
     /// `ClientboundTickingStatePacket`: the ticks a second the server runs
     /// at, and whether it is frozen.
     TickingState {
@@ -162,6 +168,14 @@ pub fn read(name: &str, r: &mut Reader) -> Option<DecodeResult<LifecyclePacket>>
         "select_advancements_tab" => |r| {
             Ok(LifecyclePacket::SelectAdvancementsTab {
                 tab: r.optional(|r| Ok(r.utf(crate::codec::MAX_STRING_LENGTH)?.to_owned()))?,
+            })
+        },
+        // ClientboundAwardStatsPacket.java:14
+        "award_stats" => |r| {
+            Ok(LifecyclePacket::AwardStats {
+                stats: r.list(usize::MAX, |r| {
+                    Ok((r.varint()?, r.varint()?, r.varint()? as i32))
+                })?,
             })
         },
         // ClientboundTickingStatePacket.java:16

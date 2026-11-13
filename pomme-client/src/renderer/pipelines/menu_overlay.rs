@@ -2896,6 +2896,19 @@ pub enum SpriteId {
     MountSlotHorseArmor,
     MountSlotLlamaArmor,
     MountSlotNautilusArmor,
+    /// The statistics screen: a column's header, its icons, and the sort's
+    /// arrows.
+    StatHeader,
+    StatSortUp,
+    StatSortDown,
+    StatBlockMined,
+    StatItemBroken,
+    StatItemCrafted,
+    StatItemUsed,
+    StatItemPickedUp,
+    StatItemDropped,
+    /// `CreateWorldScreen.TAB_HEADER_BACKGROUND`, tiled behind a tab bar.
+    TabHeaderBackground,
     LoomBackground,
     LoomScroller,
     LoomScrollerDisabled,
@@ -4503,6 +4516,56 @@ fn build_sprite_atlas(
         (
             SpriteId::ToastAdvancement,
             "minecraft/textures/gui/sprites/toast/advancement.png",
+            0.0,
+        ),
+        (
+            SpriteId::StatHeader,
+            "minecraft/textures/gui/sprites/statistics/header.png",
+            0.0,
+        ),
+        (
+            SpriteId::StatSortUp,
+            "minecraft/textures/gui/sprites/statistics/sort_up.png",
+            0.0,
+        ),
+        (
+            SpriteId::StatSortDown,
+            "minecraft/textures/gui/sprites/statistics/sort_down.png",
+            0.0,
+        ),
+        (
+            SpriteId::StatBlockMined,
+            "minecraft/textures/gui/sprites/statistics/block_mined.png",
+            0.0,
+        ),
+        (
+            SpriteId::StatItemBroken,
+            "minecraft/textures/gui/sprites/statistics/item_broken.png",
+            0.0,
+        ),
+        (
+            SpriteId::StatItemCrafted,
+            "minecraft/textures/gui/sprites/statistics/item_crafted.png",
+            0.0,
+        ),
+        (
+            SpriteId::StatItemUsed,
+            "minecraft/textures/gui/sprites/statistics/item_used.png",
+            0.0,
+        ),
+        (
+            SpriteId::StatItemPickedUp,
+            "minecraft/textures/gui/sprites/statistics/item_picked_up.png",
+            0.0,
+        ),
+        (
+            SpriteId::StatItemDropped,
+            "minecraft/textures/gui/sprites/statistics/item_dropped.png",
+            0.0,
+        ),
+        (
+            SpriteId::TabHeaderBackground,
+            "minecraft/textures/gui/tab_header_background.png",
             0.0,
         ),
         (

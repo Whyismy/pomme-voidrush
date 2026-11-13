@@ -169,6 +169,34 @@ fn handle(
         LifecyclePacket::SelectAdvancementsTab { tab } => {
             send_ordered(event_tx, NetworkEvent::SelectAdvancementsTab(tab))
         }
+        LifecyclePacket::AwardStats { stats } => {
+            use pomme_protocol::ClientRegistry;
+
+            use crate::ui::stats::StatType;
+            // Items and entity types are numbered as the session's version
+            // has them; a stat of a kind this client does not know is left.
+            let stats = stats
+                .into_iter()
+                .filter_map(|(kind, id, value)| {
+                    let kind = StatType::from_id(kind)?;
+                    let id = match kind {
+                        StatType::Crafted
+                        | StatType::Used
+                        | StatType::Broken
+                        | StatType::PickedUp
+                        | StatType::Dropped => {
+                            super::translate::native_id(ClientRegistry::Item, id)?
+                        }
+                        StatType::Killed | StatType::KilledBy => {
+                            super::translate::native_id(ClientRegistry::EntityType, id)?
+                        }
+                        StatType::Mined | StatType::Custom => id,
+                    };
+                    Some((kind, id, value))
+                })
+                .collect();
+            send_ordered(event_tx, NetworkEvent::AwardStats(stats))
+        }
         LifecyclePacket::TickingState { tick_rate, frozen } => {
             send_ordered(event_tx, NetworkEvent::TickingState { tick_rate, frozen })
         }

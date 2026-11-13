@@ -1,0 +1,92 @@
+# The statistics screen, from the pause menu's button: the server is asked
+# for the stats, and the three tabs list them.
+
+[[step]]
+chat = "/tp @s 4700.5 -60 700.5 0 0"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+chat = "/give @s minecraft:stone 3"
+
+[[step]]
+wait_ms = 600
+
+[[step]]
+press = { action = "key.drop" }
+
+[[step]]
+chat = "/summon minecraft:pig 4700.5 -60 703.5 {NoAI:1b,Silent:1b}"
+
+[[step]]
+expect = { entity = "pig" }
+
+[[step]]
+chat = "/damage @e[type=minecraft:pig,limit=1,sort=nearest] 100 minecraft:player_attack by @s"
+
+[[step]]
+wait_ms = 800
+
+[[step]]
+press = { action = "key.menu" }
+
+[[step]]
+expect = { menu = "pause" }
+
+[[step]]
+cursor = [266, 102]
+
+[[step]]
+mouse_down = "left"
+
+[[step]]
+mouse_up = "left"
+
+[[step]]
+wait_ms = 1000
+
+[[step]]
+screenshot = "general"
+
+[[step]]
+cursor = [214, 12]
+
+[[step]]
+mouse_down = "left"
+
+[[step]]
+mouse_up = "left"
+
+[[step]]
+wait_ms = 400
+
+[[step]]
+screenshot = "items"
+
+[[step]]
+cursor = [338, 12]
+
+[[step]]
+mouse_down = "left"
+
+[[step]]
+mouse_up = "left"
+
+[[step]]
+wait_ms = 400
+
+[[step]]
+screenshot = "mobs"
+
+[[step]]
+press = { action = "key.menu" }
+
+[[step]]
+expect = { menu = "pause" }
+
+[[step]]
+press = { action = "key.menu" }
+
+[[step]]
+expect = { menu = "none" }

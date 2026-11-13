@@ -294,6 +294,10 @@ pub struct GameState {
     pub book_edit: Option<crate::ui::book::BookEditState>,
     /// The advancements screen, while it is up.
     pub advancements_ui: Option<crate::ui::advancements::AdvancementsUi>,
+    /// The player's stats, as the server last sent them.
+    pub stats: crate::ui::stats::StatsCounter,
+    /// The statistics screen, while it is up.
+    pub stats_ui: Option<crate::ui::stats::StatsUi>,
     /// How far the spyglass's scope has opened (vanilla `Hud.scopeScale`):
     /// from a half toward nine eighths while one is looked through.
     pub scope_scale: f32,
@@ -749,6 +753,8 @@ impl GameState {
             book_view: None,
             book_edit: None,
             advancements_ui: None,
+            stats: Default::default(),
+            stats_ui: None,
             scope_scale: 0.5,
             tick_rate: Default::default(),
             world_border: Default::default(),
@@ -974,6 +980,7 @@ impl GameState {
             || self.book_view.is_some()
             || self.book_edit.is_some()
             || self.advancements_ui.is_some()
+            || self.stats_ui.is_some()
     }
 
     /// The container menu the player currently has open (0 = survival
@@ -3856,7 +3863,7 @@ pub fn update_game(
         use azalea_protocol::packets::game::s_seen_advancements::{
             Action as SeenAction, ServerboundSeenAdvancements,
         };
-        game.advancements_ui = None;
+        game.paused = game.advancements_ui.take().is_some_and(|ui| ui.from_pause);
         connection
             .packet_tx
             .send(ServerboundGamePacket::SeenAdvancements(
@@ -3865,6 +3872,43 @@ pub fn update_game(
                     tab: None,
                 },
             ));
+        core.apply_cursor_grab(&gfx.window, Some(game));
+    }
+
+    if let Some(ui) = &mut game.stats_ui {
+        // `StatsScreen.init`: the server is asked for the stats.
+        if ui.take_request() {
+            use azalea_protocol::packets::game::{ServerboundClientCommand, s_client_command};
+            connection
+                .packet_tx
+                .send(ServerboundGamePacket::ClientCommand(
+                    ServerboundClientCommand {
+                        action: s_client_command::Action::RequestStats,
+                    },
+                ));
+        }
+        let wheel = core.input.consume_menu_scroll();
+        let r = &gfx.renderer;
+        let result = crate::ui::stats::build(
+            &mut elements,
+            ui,
+            sw,
+            sh,
+            core.input.cursor_pos(),
+            (core.input.left_just_pressed(), core.input.left_held()),
+            wheel,
+            gs,
+            &|text, size| r.menu_text_width(text, size),
+        );
+        if result.clicked {
+            core.audio.play_ui_click();
+        }
+        if result.done {
+            ui.close();
+        }
+    }
+    if game.stats_ui.as_ref().is_some_and(|ui| ui.closing()) {
+        game.paused = game.stats_ui.take().is_some_and(|ui| ui.from_pause);
         core.apply_cursor_grab(&gfx.window, Some(game));
     }
 
@@ -6734,9 +6778,15 @@ pub fn update_game(
             game.paused = false;
             core.apply_cursor_grab(&gfx.window, Some(game));
         }
+        // Both screens hand back to the pause menu when they close.
         PauseAction::Advancements => {
             game.paused = false;
-            game.advancements_ui = Some(Default::default());
+            game.advancements_ui = Some(crate::ui::advancements::AdvancementsUi::from_pause());
+            core.apply_cursor_grab(&gfx.window, Some(game));
+        }
+        PauseAction::Statistics => {
+            game.paused = false;
+            game.stats_ui = Some(crate::ui::stats::StatsUi::new(true));
             core.apply_cursor_grab(&gfx.window, Some(game));
         }
         PauseAction::Options => {

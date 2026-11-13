@@ -282,6 +282,7 @@ impl InputState {
                         && game.book_view.is_none()
                         && game.book_edit.is_none()
                         && game.advancements_ui.is_none()
+                        && game.stats_ui.is_none()
                     {
                         // On a mount with an inventory of its own, the
                         // server opens that one (`LocalPlayer.sendOpenInventory`).
@@ -332,6 +333,9 @@ impl InputState {
                         // then the chat screen itself.
                         should_apply_cursor_grab = game.escape_chat();
                     } else if let Some(ui) = &mut game.advancements_ui {
+                        ui.close();
+                        should_apply_cursor_grab = true;
+                    } else if let Some(ui) = &mut game.stats_ui {
                         ui.close();
                         should_apply_cursor_grab = true;
                     } else if game.book_view.is_some() || game.book_edit.is_some() {

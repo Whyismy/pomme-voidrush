@@ -31,6 +31,7 @@ pub mod server_dialog;
 pub mod server_list;
 pub mod sign_edit;
 pub mod spectator_menu;
+pub mod stats;
 pub mod stonecutter;
 pub mod subtitles;
 pub mod text;

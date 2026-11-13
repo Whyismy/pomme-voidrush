@@ -182,6 +182,9 @@ pub enum NetworkEvent {
     },
     /// `ClientboundSelectAdvancementsTabPacket`.
     SelectAdvancementsTab(Option<String>),
+    /// `ClientboundAwardStatsPacket`: each stat's type, its value's id in
+    /// the native registry, and its count.
+    AwardStats(Vec<(crate::ui::stats::StatType, u32, i32)>),
     /// `ClientboundTickingStatePacket`.
     TickingState {
         tick_rate: f32,
