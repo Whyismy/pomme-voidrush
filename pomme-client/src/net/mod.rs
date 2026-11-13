@@ -817,6 +817,8 @@ pub enum NetworkEvent {
     ResourcePackPop {
         id: Option<uuid::Uuid>,
     },
+    /// `ClientboundLowDiskSpaceWarningPacket`.
+    LowDiskSpaceWarning,
     /// `ClientboundTransferPacket`: the server hands the client on to
     /// another, which it connects to in this one's place.
     Transfer {

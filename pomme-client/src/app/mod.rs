@@ -435,6 +435,10 @@ impl App {
         // A test window rarely has focus, so it must not pause on losing it.
         if harness.is_some() {
             self.core.pause_on_lost_focus = false;
+            // The test server enforces no secure chat: the toast that says
+            // so would sit over ten seconds of every scene. One that wants
+            // it asks for it.
+            self.core.seen_insecure_chat_warning = true;
         }
         self.harness = harness;
         self

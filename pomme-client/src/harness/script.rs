@@ -51,6 +51,7 @@ struct StepFile {
     resource_pack: Option<ResourcePack>,
     cape: Option<bool>,
     hitboxes: Option<bool>,
+    chat_warning: Option<bool>,
     hover: Option<protocol::Hover>,
     cursor: Option<[f32; 2]>,
     scroll: Option<f32>,
@@ -328,6 +329,9 @@ impl StepFile {
         }
         if self.hitboxes == Some(true) {
             steps.push(Step::Run(Command::Hitboxes));
+        }
+        if self.chat_warning == Some(true) {
+            steps.push(Step::Run(Command::ChatWarning));
         }
         if let Some(ResourcePack { url, sha1 }) = self.resource_pack {
             steps.push(Step::Run(Command::ResourcePack { url, sha1 }));

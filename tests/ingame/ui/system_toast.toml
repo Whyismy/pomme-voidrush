@@ -1,0 +1,11 @@
+# The system toast, as the one warning that a server's chat cannot be
+# verified: yellow title, white lines, as wide as its text.
+
+[[step]]
+chat_warning = true
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "warning"

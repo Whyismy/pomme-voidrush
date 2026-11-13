@@ -267,10 +267,28 @@ impl TutorialToast {
     }
 }
 
+/// Vanilla `SystemToast`: a title in yellow over lines of white, on a
+/// background as wide as its text needs.
+struct SystemToast {
+    title: String,
+    lines: Vec<String>,
+    /// In GUI pixels.
+    width: i32,
+    /// How long it stays once fully out (`SystemToastId.displayTime`).
+    display_ms: i64,
+}
+
+impl SystemToast {
+    fn height(&self) -> i32 {
+        20 + self.lines.len().max(1) as i32 * 12
+    }
+}
+
 enum ToastKind {
     Advancement(AdvancementToast),
     Recipe(RecipeToast),
     Tutorial(TutorialToast),
+    System(SystemToast),
 }
 
 impl ToastKind {
@@ -278,6 +296,15 @@ impl ToastKind {
         match self {
             Self::Advancement(_) | Self::Recipe(_) => SLOT_HEIGHT,
             Self::Tutorial(t) => t.height(),
+            Self::System(s) => s.height(),
+        }
+    }
+
+    /// Vanilla `Toast.width`.
+    fn width(&self) -> i32 {
+        match self {
+            Self::System(s) => s.width,
+            _ => TOAST_WIDTH,
         }
     }
 
@@ -329,6 +356,13 @@ impl ToastKind {
                     t.last_smoothing_time = fully_visible_for_ms;
                 }
                 if t.hidden {
+                    Visibility::Hide
+                } else {
+                    Visibility::Show
+                }
+            }
+            Self::System(s) => {
+                if fully_visible_for_ms >= s.display_ms {
                     Visibility::Hide
                 } else {
                     Visibility::Show
@@ -500,6 +534,78 @@ impl ToastState {
         }
     }
 
+    /// `SystemToast.addOrUpdate`: a system toast of `width` GUI pixels, shown
+    /// for `display_ms`; one with the same title already up or waiting
+    /// stands for both.
+    pub fn add_system(&mut self, title: String, lines: Vec<String>, width: i32, display_ms: i64) {
+        let same = |kind: &ToastKind| matches!(kind, ToastKind::System(s) if s.title == title);
+        if self.visible.iter().any(|inst| same(&inst.kind)) || self.queued.iter().any(same) {
+            return;
+        }
+        self.queued.push(ToastKind::System(SystemToast {
+            title,
+            lines,
+            width,
+            display_ms,
+        }));
+    }
+
+    /// `SystemToast.multiline`: `message` wrapped at two hundred pixels by
+    /// `split`, on a toast as wide as its lines and thirty more.
+    pub fn add_multiline_system(
+        &mut self,
+        title: &str,
+        message: &str,
+        display_ms: i64,
+        split: &dyn Fn(&str, i32) -> Vec<String>,
+        width: &dyn Fn(&str) -> f32,
+    ) {
+        let lines = split(message, 200);
+        let widest = lines.iter().map(|line| width(line)).fold(0.0, f32::max);
+        let toast_width = (widest.ceil() as i32).max(200) + 30;
+        self.add_system(title.to_owned(), lines, toast_width, display_ms);
+    }
+
+    /// Vanilla's warning on joining a server that does not enforce secure
+    /// chat (`ClientPacketListener.handleLogin`).
+    pub fn warn_insecure_chat(
+        &mut self,
+        split: &dyn Fn(&str, i32) -> Vec<String>,
+        width: &dyn Fn(&str) -> f32,
+    ) {
+        let translate =
+            |key: &str, fallback: &'static str| crate::lang::translate(key).unwrap_or(fallback);
+        self.add_multiline_system(
+            translate(
+                "multiplayer.unsecureserver.toast.title",
+                "Chat messages can't be verified",
+            ),
+            translate(
+                "multiplayer.unsecureserver.toast",
+                "Messages sent on this server may be modified and might not reflect the original \
+                 message",
+            ),
+            10_000,
+            split,
+            width,
+        );
+    }
+
+    /// `SystemToast.onLowDiskSpace`: a single line under its title, on a
+    /// toast as wide as the wider of them.
+    pub fn warn_low_disk_space(&mut self, width: &dyn Fn(&str) -> f32) {
+        let title = crate::lang::translate("chunk.toast.lowDiskSpace").unwrap_or("Low disk space!");
+        let message = crate::lang::translate("chunk.toast.lowDiskSpace.description")
+            .unwrap_or("Might not be able to save the world.");
+        let widest = width(title).max(width(message)).ceil() as i32;
+        self.add_system(
+            title.to_owned(),
+            vec![message.to_owned()],
+            (30 + widest).max(160),
+            10_000,
+        );
+    }
+
     /// Queues a tutorial toast, returning a handle for progress/hide updates.
     /// `lines` are pre-wrapped at 126 gui px (see `TutorialToast::lines`).
     #[allow(dead_code)]
@@ -631,7 +737,7 @@ impl ToastState {
             }
             // Toast.xPos / yPos; yPos uses the toast's own height, not the
             // 32px slot height, replicating the vanilla multi-slot quirk.
-            let ox = (screen_w - TOAST_WIDTH as f32 * inst.visible_portion * gs).round();
+            let ox = (screen_w - inst.kind.width() as f32 * inst.visible_portion * gs).round();
             let oy = ((inst.first_slot as i32 * inst.kind.height()) as f32 * gs).round();
             match &inst.kind {
                 ToastKind::Advancement(a) => build_advancement(
@@ -645,8 +751,104 @@ impl ToastState {
                 ),
                 ToastKind::Recipe(r) => build_recipe(r, elements, ox, oy, gs),
                 ToastKind::Tutorial(t) => build_tutorial(t, elements, ox, oy, gs),
+                ToastKind::System(s) => build_system(s, elements, ox, oy, gs),
             }
         }
+    }
+}
+
+/// A sprite drawn as vanilla draws a nine-slice whose borders differ: the
+/// corners as they are, the edges and the middle repeated to fill, each
+/// border no more than half the box. Sizes are GUI pixels; `at` is the
+/// box's corner on the screen.
+fn push_tiled_nine_slice(
+    elements: &mut Vec<MenuElement>,
+    sprite: SpriteId,
+    (sprite_w, sprite_h): (i32, i32),
+    [left, top, right, bottom]: [i32; 4],
+    at: (f32, f32),
+    (w, h): (i32, i32),
+    gs: f32,
+) {
+    let (left, right) = (left.min(w / 2), right.min(w / 2));
+    let (top, bottom) = (top.min(h / 2), bottom.min(h / 2));
+    // Each band: where it goes in the box, how long it is there, and the
+    // stretch of the sprite it repeats.
+    let columns = [
+        (0, left, 0, left),
+        (left, w - left - right, left, sprite_w - left - right),
+        (w - right, right, sprite_w - right, right),
+    ];
+    let rows = [
+        (0, top, 0, top),
+        (top, h - top - bottom, top, sprite_h - top - bottom),
+        (h - bottom, bottom, sprite_h - bottom, bottom),
+    ];
+    for (y, row_h, from_y, tile_h) in rows {
+        for (x, column_w, from_x, tile_w) in columns {
+            if tile_w <= 0 || tile_h <= 0 {
+                continue;
+            }
+            let mut down = 0;
+            while down < row_h {
+                let piece_h = tile_h.min(row_h - down);
+                let mut along = 0;
+                while along < column_w {
+                    let piece_w = tile_w.min(column_w - along);
+                    let (piece_x, piece_y) = ((x + along) as f32, (y + down) as f32);
+                    elements.push(MenuElement::ScissorPush {
+                        x: at.0 + piece_x * gs,
+                        y: at.1 + piece_y * gs,
+                        w: piece_w as f32 * gs,
+                        h: piece_h as f32 * gs,
+                    });
+                    elements.push(MenuElement::Image {
+                        x: at.0 + (piece_x - from_x as f32) * gs,
+                        y: at.1 + (piece_y - from_y as f32) * gs,
+                        w: sprite_w as f32 * gs,
+                        h: sprite_h as f32 * gs,
+                        sprite,
+                        tint: [1.0; 4],
+                    });
+                    elements.push(MenuElement::ScissorPop);
+                    along += piece_w;
+                }
+                down += piece_h;
+            }
+        }
+    }
+}
+
+/// Vanilla `SystemToast.extractRenderState`.
+fn build_system(toast: &SystemToast, elements: &mut Vec<MenuElement>, ox: f32, oy: f32, gs: f32) {
+    // `toast/system.png.mcmeta`: 160 by 64, with these borders.
+    push_tiled_nine_slice(
+        elements,
+        SpriteId::ToastSystem,
+        (160, 64),
+        [17, 30, 4, 4],
+        (ox, oy),
+        (toast.width, toast.height()),
+        gs,
+    );
+    // -256, and white under it.
+    let yellow = [1.0, 1.0, 0.0, 1.0];
+    let title_y = if toast.lines.is_empty() { 12.0 } else { 7.0 };
+    push_spans(
+        elements,
+        ox + 18.0 * gs,
+        oy + title_y * gs,
+        vec![TextSpan::new(toast.title.clone(), yellow)],
+        gs,
+    );
+    for (row, line) in toast.lines.iter().enumerate() {
+        push_spans(
+            elements,
+            ox + 18.0 * gs,
+            oy + (18.0 + 12.0 * row as f32) * gs,
+            vec![TextSpan::new(line.clone(), [1.0; 4])],
+            gs,
+        );
     }
 }
 
@@ -932,5 +1134,54 @@ fn build_tutorial(
             corner_radius: 0.0,
             color,
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn system(toasts: &ToastState) -> Vec<&SystemToast> {
+        toasts
+            .queued
+            .iter()
+            .filter_map(|kind| match kind {
+                ToastKind::System(toast) => Some(toast),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A system toast is as wide as its lines and thirty more (two hundred
+    /// and thirty at least), a line taller for each, and one of a kind.
+    #[test]
+    fn a_system_toast_fits_its_text() {
+        let mut toasts = ToastState::default();
+        let split = |text: &str, _: i32| text.split(". ").map(str::to_owned).collect();
+        let width = |text: &str| text.len() as f32 * 6.0;
+        toasts.add_multiline_system("Title", "Short. Shorter", 5_000, &split, &width);
+        toasts.add_multiline_system("Title", "Again", 5_000, &split, &width);
+        let wide = "A line of text that is longer than two hundred pixels";
+        toasts.add_multiline_system("Other", wide, 5_000, &split, &width);
+        let queued = system(&toasts);
+        assert_eq!(queued.len(), 2);
+        assert_eq!((queued[0].width, queued[0].height()), (230, 44));
+        assert_eq!(queued[0].lines, ["Short", "Shorter"]);
+        assert_eq!(queued[1].width, wide.len() as i32 * 6 + 30);
+        assert_eq!(queued[1].height(), 32);
+        // A toast two lines tall takes two of the slots.
+        assert_eq!(toasts.queued[0].occupied_slots(), 2);
+        assert_eq!(toasts.queued[0].width(), 230);
+    }
+
+    /// `SystemToast.onLowDiskSpace`: a hundred and sixty wide at least.
+    #[test]
+    fn the_low_disk_warning_is_one_line() {
+        let mut toasts = ToastState::default();
+        toasts.warn_low_disk_space(&|text| text.len() as f32);
+        let queued = system(&toasts);
+        assert_eq!(queued[0].lines.len(), 1);
+        assert_eq!(queued[0].width, 160);
+        assert_eq!(queued[0].display_ms, 10_000);
     }
 }

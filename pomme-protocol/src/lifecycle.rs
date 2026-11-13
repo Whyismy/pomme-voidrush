@@ -53,6 +53,9 @@ pub enum LifecyclePacket {
         host: String,
         port: u32,
     },
+    /// `ClientboundLowDiskSpaceWarningPacket`: the server's disk is nearly
+    /// full.
+    LowDiskSpaceWarning,
     /// `ClientboundTickingStatePacket`: the ticks a second the server runs
     /// at, and whether it is frozen.
     TickingState {
@@ -212,6 +215,8 @@ pub fn read(name: &str, r: &mut Reader) -> Option<DecodeResult<LifecyclePacket>>
                 port: r.varint()?,
             })
         },
+        // ClientboundLowDiskSpaceWarningPacket.java:8 (nothing in it)
+        "low_disk_space_warning" => |_| Ok(LifecyclePacket::LowDiskSpaceWarning),
         // ClientboundTickingStatePacket.java:16
         "ticking_state" => |r| {
             Ok(LifecyclePacket::TickingState {

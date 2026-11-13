@@ -80,6 +80,9 @@ pub enum Command {
     Cape,
     /// Shows entities' hitboxes, as F3+B does.
     Hitboxes,
+    /// Shows the unverified-chat toast a scripted client leaves out on
+    /// joining.
+    ChatWarning,
     /// Has the client fetch and load the resource pack at `url`, whose
     /// SHA-1 is `sha1`, as a server pushing one in play would.
     ResourcePack {

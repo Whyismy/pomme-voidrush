@@ -215,6 +215,9 @@ fn handle(
             ));
         }
         LifecyclePacket::StoreCookie { key, payload } => super::cookies::store(&key, payload),
+        LifecyclePacket::LowDiskSpaceWarning => {
+            send_ordered(event_tx, NetworkEvent::LowDiskSpaceWarning)
+        }
         LifecyclePacket::Transfer { host, port } => send_ordered(
             event_tx,
             NetworkEvent::Transfer {

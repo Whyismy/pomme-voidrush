@@ -2853,6 +2853,7 @@ pub enum SpriteId {
     AdvancementBackground(u8),
     ToastAdvancement,
     ToastRecipe,
+    ToastSystem,
     ToastTutorial,
     ToastMovementKeys,
     ToastMouse,
@@ -4759,6 +4760,11 @@ fn build_sprite_atlas(
         (
             SpriteId::ToastRecipe,
             "minecraft/textures/gui/sprites/toast/recipe.png",
+            0.0,
+        ),
+        (
+            SpriteId::ToastSystem,
+            "minecraft/textures/gui/sprites/toast/system.png",
             0.0,
         ),
         (

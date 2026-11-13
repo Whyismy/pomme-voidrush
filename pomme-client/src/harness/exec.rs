@@ -96,6 +96,14 @@ pub fn run(command: &Command, core: &mut AppCore, phase: &mut AppPhase) -> Outco
             game.show_hitboxes = true;
             Ok(Value::Null)
         }
+        Command::ChatWarning => {
+            let r = &gfx.renderer;
+            game.toasts.warn_insecure_chat(
+                &|text, width| crate::app::core::toast_lines(r, text, width),
+                &|text| r.menu_text_width(text, crate::ui::common::FONT_SIZE),
+            );
+            Ok(Value::Null)
+        }
         Command::Cape => {
             gfx.renderer.set_test_cape(&core.user.uuid);
             Ok(Value::Null)

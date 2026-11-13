@@ -990,6 +990,9 @@ pub struct AppCore {
     pub pending_pack_download: Option<PendingPackDownload>,
     /// The server a `transfer` packet named, until the phase acts on it.
     pub pending_transfer: Option<(String, u16)>,
+    /// Vanilla `seenInsecureChatWarning`: the unverified-chat toast has
+    /// been shown since the menu was last left.
+    pub seen_insecure_chat_warning: bool,
     /// A resource pack being downloaded or loaded, for the bar shown
     /// meanwhile; and the share of it the bar shows, eased toward it.
     pub pack_progress: Option<Arc<crate::resource_pack::PackProgress>>,
@@ -1176,6 +1179,7 @@ impl AppCore {
             pack_bar: 0.0,
             pending_pack_acks: Vec::new(),
             pending_transfer: None,
+            seen_insecure_chat_warning: false,
             pending_sounds: None,
             asset_index,
             audio,
@@ -1329,6 +1333,7 @@ impl AppCore {
     /// Every return from a world or server, before the title screen shows.
     /// Vanilla builds a fresh `TitleScreen` here, which rolls a new splash.
     pub fn return_to_menu(&mut self, gfx: &mut Gfx) {
+        self.seen_insecure_chat_warning = false;
         self.menu.restore_bench_render_distance();
         self.clear_server_resource_packs(&mut gfx.renderer);
         gfx.renderer.clear_chunk_meshes();
@@ -3807,11 +3812,28 @@ impl AppCore {
                     self.apply_cursor_grab(window, Some(game));
                 }
                 NetworkEvent::SecureChatEnforced { enforced } => {
-                    // TODO: the `UNSECURE_SERVER_WARNING` toast, once per
-                    // connection when this is false (`handleLogin`; 1.20.x
-                    // `handleServerData`). 1.20.x sends a placeholder false
-                    // from `login` first, so wait for its `server_data`.
                     game.server_enforces_secure_chat = enforced;
+                    // `handleLogin`: the warning of a server that does not
+                    // enforce secure chat, once a connection (and not again
+                    // on the server it transfers to).
+                    // TODO: 1.20.x gives its word in `server_data`, after a
+                    // placeholder false from `login`; it gets no toast.
+                    if !enforced
+                        && !game.singleplayer
+                        && !self.seen_insecure_chat_warning
+                        && crate::version::session_protocol() >= 766
+                    {
+                        self.seen_insecure_chat_warning = true;
+                        game.toasts.warn_insecure_chat(
+                            &|text, width| toast_lines(renderer, text, width),
+                            &|text| renderer.menu_text_width(text, crate::ui::common::FONT_SIZE),
+                        );
+                    }
+                }
+                NetworkEvent::LowDiskSpaceWarning => {
+                    game.toasts.warn_low_disk_space(&|text| {
+                        renderer.menu_text_width(text, crate::ui::common::FONT_SIZE)
+                    });
                 }
                 NetworkEvent::PlayerScore { entity_id, score } => {
                     if entity_id == game.player.entity_id {
@@ -5287,6 +5309,17 @@ fn pickables(game: &GameState, hand_holds: bool) -> Vec<crate::player::interacti
 /// frame rate.
 fn pack_bar_ease(dt: f32) -> f32 {
     1.0 - (-dt.max(0.0) * 10.0).exp()
+}
+
+/// `Font.split` for a toast's message: its lines at `width` GUI pixels.
+pub(crate) fn toast_lines(renderer: &Renderer, text: &str, width: i32) -> Vec<String> {
+    let spans = [crate::ui::text::TextSpan::new(text.to_owned(), [1.0; 4])];
+    renderer
+        .layout_display_text(&spans, width)
+        .lines
+        .into_iter()
+        .map(|(line, _)| line.iter().map(|span| span.text.as_str()).collect())
+        .collect()
 }
 
 #[cfg(test)]
