@@ -87,6 +87,10 @@ pub fn run(command: &Command, core: &mut AppCore, phase: &mut AppPhase) -> Outco
             );
             Ok(Value::Null)
         }
+        Command::Hitboxes => {
+            game.show_hitboxes = true;
+            Ok(Value::Null)
+        }
         Command::Cape => {
             gfx.renderer.set_test_cape(&core.user.uuid);
             Ok(Value::Null)

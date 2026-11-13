@@ -50,6 +50,7 @@ struct StepFile {
     deterministic: Option<bool>,
     resource_pack: Option<ResourcePack>,
     cape: Option<bool>,
+    hitboxes: Option<bool>,
     hover: Option<protocol::Hover>,
     cursor: Option<[f32; 2]>,
     scroll: Option<f32>,
@@ -324,6 +325,9 @@ impl StepFile {
         }
         if self.cape == Some(true) {
             steps.push(Step::Run(Command::Cape));
+        }
+        if self.hitboxes == Some(true) {
+            steps.push(Step::Run(Command::Hitboxes));
         }
         if let Some(ResourcePack { url, sha1 }) = self.resource_pack {
             steps.push(Step::Run(Command::ResourcePack { url, sha1 }));

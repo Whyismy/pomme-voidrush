@@ -1,0 +1,29 @@
+# F3+B: each entity's box, a red band at its eyes, and a blue line along
+# its look.
+
+[[step]]
+chat = "/tp @s 4600.5 -60 600.5 0 5"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+chat = "/summon minecraft:zombie 4599.5 -60 604.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[150f,0f]}"
+
+[[step]]
+chat = "/summon minecraft:cow 4602 -60 605 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[220f,10f]}"
+
+[[step]]
+expect = { entity = "cow" }
+
+[[step]]
+hitboxes = true
+
+[[step]]
+wait_ms = 600
+
+[[step]]
+screenshot = "hitboxes"
+
+[[step]]
+chat = "/kill @e[type=!minecraft:player,distance=..12]"

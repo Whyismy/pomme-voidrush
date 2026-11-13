@@ -338,6 +338,8 @@ pub struct GameState {
     pub sky_state: crate::renderer::SkyState,
     pub show_debug: bool,
     pub show_chunk_borders: bool,
+    /// F3+B: entities' hitboxes are drawn.
+    pub show_hitboxes: bool,
     pub advanced_item_tooltips: bool,
     /// F1 (vanilla `hideGui`): the HUD, chat, and overlays don't render.
     pub hide_gui: bool,
@@ -767,6 +769,7 @@ impl GameState {
             sky_state: SkyState::default_day(),
             show_debug: false,
             show_chunk_borders: false,
+            show_hitboxes: false,
             advanced_item_tooltips: false,
             hide_gui: false,
             f3_chord_consumed: false,
@@ -1182,7 +1185,15 @@ impl GameState {
                 self.debug_feedback("Reloading all chunks");
                 true
             }
-            // TODO: F3+B show hitboxes (no entity hitbox renderer yet)
+            _ if bindings.matches(Action::DebugHitboxes, &input) => {
+                self.show_hitboxes = !self.show_hitboxes;
+                self.debug_feedback(if self.show_hitboxes {
+                    "Hitboxes: shown"
+                } else {
+                    "Hitboxes: hidden"
+                });
+                true
+            }
             _ if bindings.matches(Action::DebugCopyLocation, &input) => {
                 // Vanilla also crashes the game when held for 10s; not ported.
                 let p = &self.player;
@@ -6353,11 +6364,14 @@ pub fn update_game(
         add_fishing_hooks(game, core, &gfx.renderer, partial_tick, &mut particle_quads)
     };
     gfx.renderer.set_fishing_lines(fishing_lines);
-    let ropes = if benchmark_running {
+    let mut ropes = if benchmark_running {
         Vec::new()
     } else {
         build_leashes(game, &gfx.renderer, partial_tick)
     };
+    if game.show_hitboxes {
+        ropes.extend(build_hitboxes(game, &gfx.renderer, partial_tick));
+    }
     gfx.renderer.set_ropes(ropes);
     crate::frame_log::add(
         "particle_extract",
@@ -9820,6 +9834,135 @@ fn add_dragon_fireballs(
 /// The leads between mobs and what holds them (`EntityRenderer.renderLeash`),
 /// as the pieces of each rope: its ends, and whether it is one of the
 /// darker pieces the rope alternates.
+/// The twelve edges of the box from `min` to `max`.
+fn box_edges(min: glam::DVec3, max: glam::DVec3) -> [(glam::DVec3, glam::DVec3); 12] {
+    let corner = |x: bool, y: bool, z: bool| {
+        glam::dvec3(
+            if x { max.x } else { min.x },
+            if y { max.y } else { min.y },
+            if z { max.z } else { min.z },
+        )
+    };
+    let mut edges = [(min, min); 12];
+    let mut next = 0;
+    for a in [false, true] {
+        for b in [false, true] {
+            // One edge along each axis from each pair of the other two.
+            for edge in [
+                (corner(false, a, b), corner(true, a, b)),
+                (corner(a, false, b), corner(a, true, b)),
+                (corner(a, b, false), corner(a, b, true)),
+            ] {
+                edges[next] = edge;
+                next += 1;
+            }
+        }
+    }
+    edges
+}
+
+/// Vanilla `Entity.calculateViewVector`: the unit vector a look points
+/// along.
+fn view_vector(look: crate::entity::components::LookDirection) -> glam::DVec3 {
+    let pitch = f64::from(look.x_rot_deg()).to_radians();
+    let yaw = f64::from(-look.y_rot_deg()).to_radians();
+    glam::dvec3(
+        yaw.sin() * pitch.cos(),
+        -pitch.sin(),
+        yaw.cos() * pitch.cos(),
+    )
+}
+
+/// Vanilla `EntityHitboxDebugRenderer` (F3+B): each living entity's box in
+/// white, a red band at its eyes, and a blue line two blocks along its
+/// look. The player's own shows from outside first person.
+// TODO: the boxes of entities that are not living, and a dragon's parts.
+fn build_hitboxes(
+    game: &GameState,
+    renderer: &Renderer,
+    partial_tick: f32,
+) -> Vec<crate::renderer::pipelines::hit_outline::Rope> {
+    use crate::entity::dimensions::EntityDimensions;
+    use crate::renderer::pipelines::hit_outline::Rope;
+    const WHITE: [f32; 3] = [1.0, 1.0, 1.0];
+    const RED: [f32; 3] = [1.0, 0.0, 0.0];
+    const BLUE: [f32; 3] = [0.0, 0.0, 1.0];
+    /// Entities further than this are left out, and no more lines than the
+    /// line pipeline has room for beside the leads.
+    const REACH: f64 = 64.0;
+    const MOST_LINES: usize = 1700;
+
+    // Two pixels, as a share of the screen's height.
+    let thickness = 2.0 / (renderer.screen_height() as f32).max(1.0);
+    let partial = f64::from(partial_tick);
+    let camera = renderer.camera_render_position();
+    let mut ropes = Vec::new();
+    let mut line = |from: glam::DVec3, to: glam::DVec3, color: [f32; 3]| {
+        ropes.push(Rope {
+            from,
+            to,
+            color,
+            thickness,
+        });
+    };
+    let mut hitbox = |feet: glam::DVec3,
+                      width: f64,
+                      height: f64,
+                      eye_height: f64,
+                      look: crate::entity::components::LookDirection| {
+        let half = width / 2.0;
+        let min = feet - glam::dvec3(half, 0.0, half);
+        let max = feet + glam::dvec3(half, height, half);
+        for (from, to) in box_edges(min, max) {
+            line(from, to, WHITE);
+        }
+        // The eyes' height, as the rim of a box a hundredth either side.
+        let eye_y = feet.y + eye_height;
+        let rim = [
+            glam::dvec3(min.x, eye_y, min.z),
+            glam::dvec3(max.x, eye_y, min.z),
+            glam::dvec3(max.x, eye_y, max.z),
+            glam::dvec3(min.x, eye_y, max.z),
+        ];
+        for corner in 0..4 {
+            line(rim[corner], rim[(corner + 1) % 4], RED);
+        }
+        let eyes = glam::dvec3(feet.x, eye_y, feet.z);
+        line(eyes, eyes + view_vector(look) * 2.0, BLUE);
+    };
+
+    let mut drawn = 0;
+    for entity in game.entity_store.living.values() {
+        if entity.is_invisible || drawn * 17 >= MOST_LINES {
+            continue;
+        }
+        let feet = *entity.prev_position.lerp(entity.position, partial);
+        if feet.distance_squared(camera) > REACH * REACH {
+            continue;
+        }
+        let dims = crate::entity::living_entity_dimensions(entity);
+        hitbox(
+            feet,
+            f64::from(dims.width),
+            f64::from(dims.height),
+            f64::from(EntityDimensions::eye_height(entity.entity_type)),
+            entity.look_dir,
+        );
+        drawn += 1;
+    }
+    if !renderer.is_first_person() {
+        let player = &game.player;
+        hitbox(
+            *player.prev_position.lerp(player.position, partial),
+            0.6,
+            1.8,
+            f64::from(player.eye_height),
+            player.look_dir,
+        );
+    }
+    ropes
+}
+
 fn build_leashes(
     game: &GameState,
     renderer: &Renderer,

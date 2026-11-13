@@ -314,6 +314,14 @@ actions! {
         listed: true,
         defaults: [Keyboard(KeyCode::KeyD)],
     },
+    DebugHitboxes => {
+        id: "key.debug.showHitboxes",
+        translation_id: Some(StringId::new("key.debug.showHitboxes")),
+        fallback: "Show Hitboxes",
+        category: Debug,
+        listed: true,
+        defaults: [Keyboard(KeyCode::KeyB)],
+    },
     DebugChunkBorders => {
         id: "key.debug.showChunkBorders",
         translation_id: Some(StringId::new("key.debug.showChunkBorders")),
