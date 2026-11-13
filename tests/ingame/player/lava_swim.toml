@@ -1,0 +1,51 @@
+# Lava: with fire resistance the player sinks slowly through a deep pool
+# (in air the fall would be over at once), and holding jump swims back up
+# to its surface.
+
+[[step]]
+chat = "/effect give @s minecraft:fire_resistance 600 0 true"
+
+[[step]]
+chat = "/tp @s 2500.5 -60 600.5 0 0"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+chat = "/fill 2499 -60 609 2501 -40 611 minecraft:glass hollow"
+
+[[step]]
+chat = "/fill 2500 -59 610 2500 -41 610 minecraft:lava"
+
+[[step]]
+chat = "/setblock 2500 -40 610 minecraft:air"
+
+[[step]]
+wait_ms = 1000
+
+# Dropped in at the top: a second on, still near the top, where a fall
+# through air would have reached the floor.
+[[step]]
+chat = "/tp @s 2500.5 -42 610.5 0 0"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+expect = { player = { y_between = [-52.0, -42.0] } }
+timeout_ms = 300
+
+# From deeper down, holding jump: up toward the surface, a block every
+# second and a bit.
+[[step]]
+chat = "/tp @s 2500.5 -48 610.5 0 0"
+
+[[step]]
+press = { action = "key.jump", hold = true }
+
+[[step]]
+expect = { player = { y_between = [-43.5, -38.0] } }
+timeout_ms = 15000
+
+[[step]]
+press = { action = "key.jump", hold = false }

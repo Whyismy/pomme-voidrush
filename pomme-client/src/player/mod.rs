@@ -275,6 +275,9 @@ pub struct LocalPlayer {
     pub in_water: bool,
     /// Vanilla `getFluidHeight(WATER)`: water surface height above the feet.
     pub fluid_height: f64,
+    /// Vanilla `isInLava`, and `getFluidHeight(LAVA)`.
+    pub in_lava: bool,
+    pub lava_height: f64,
     pub eyes_in_water: bool,
     /// Vanilla `LocalPlayer.wasUnderwater`, a tick behind eye contact.
     pub under_water: bool,
@@ -395,6 +398,8 @@ impl LocalPlayer {
             was_shift_pressed: false,
             in_water: false,
             fluid_height: 0.0,
+            in_lava: false,
+            lava_height: 0.0,
             eyes_in_water: false,
             under_water: false,
             swimming: false,
@@ -662,6 +667,81 @@ impl LocalPlayer {
         self.update_swimming_state(chunks, block_state_table, is_passenger);
     }
 
+    /// Vanilla `EntityFluidInteraction`'s tracker for one fluid: how high
+    /// it stands over the feet, and its current's push on the player (which
+    /// averages the currents it touches), scaled by `push`.
+    fn fluid_contact(
+        &self,
+        chunks: &crate::world::chunk::ChunkStore,
+        block_state_table: BlockStateTable,
+        kind: FluidKind,
+        push: f64,
+    ) -> (f64, glam::DVec3) {
+        let half_w = PLAYER_HALF_WIDTH;
+        let height = self.height();
+        const MARGIN: f64 = 0.001;
+        let feet_y = self.position.y;
+        let x0 = (self.position.x - half_w + MARGIN).floor() as i32;
+        let x1 = (self.position.x + half_w - MARGIN).ceil() as i32 - 1;
+        let y0 = (feet_y + MARGIN).floor() as i32;
+        let y1 = (feet_y + height - MARGIN).ceil() as i32 - 1;
+        let z0 = (self.position.z - half_w + MARGIN).floor() as i32;
+        let z1 = (self.position.z + half_w - MARGIN).ceil() as i32 - 1;
+
+        let fluid_at = |x, y, z| {
+            block_state_table
+                .block_state_data(chunks.get_block_state(x, y, z))
+                .fluid()
+        };
+        let mut fluid_height = 0.0f64;
+        let mut accumulated_current = glam::DVec3::ZERO;
+        let mut current_count = 0_u32;
+        for bx in x0..=x1 {
+            for by in y0..=y1 {
+                for bz in z0..=z1 {
+                    let f = fluid_at(bx, by, bz);
+                    if f.kind != kind {
+                        continue;
+                    }
+                    let block_height = if fluid_at(bx, by + 1, bz).kind == kind {
+                        1.0
+                    } else {
+                        f64::from(f.amount as f32 / 9.0)
+                    };
+                    let fluid_top = f64::from(by) + block_height;
+                    if fluid_top < feet_y + MARGIN {
+                        continue;
+                    }
+                    fluid_height = fluid_height.max(fluid_top - feet_y);
+                    let mut flow = fluid_flow_at(
+                        |x, y, z| chunks.get_block_state(x, y, z),
+                        block_state_table,
+                        bx,
+                        by,
+                        bz,
+                        f,
+                    );
+                    if fluid_height < 0.4 {
+                        flow *= fluid_height;
+                    }
+                    accumulated_current += flow;
+                    current_count += 1;
+                }
+            }
+        }
+        let mut impulse = glam::DVec3::ZERO;
+        if current_count != 0 && accumulated_current.length_squared() >= f64::from(1.0e-5_f32) {
+            impulse = accumulated_current * (1.0 / f64::from(current_count)) * push;
+            if self.velocity.x.abs() < 0.003
+                && self.velocity.z.abs() < 0.003
+                && impulse.length() < 0.004_500_000_000_000_000_5
+            {
+                impulse = vanilla_vec3_normalize(impulse) * 0.004_500_000_000_000_000_5;
+            }
+        }
+        (fluid_height, impulse)
+    }
+
     /// Vanilla `Entity.updateFluidInteraction`, which
     /// `LivingEntity.checkFallDamage` repeats mid-move.
     pub(crate) fn refresh_water_interaction(
@@ -669,6 +749,17 @@ impl LocalPlayer {
         chunks: &crate::world::chunk::ChunkStore,
         block_state_table: BlockStateTable,
     ) {
+        // Lava's push is a sixth of water's.
+        // TODO: three times that where the dimension has fast lava (the
+        // nether).
+        let (lava_height, lava_push) = self.fluid_contact(
+            chunks,
+            block_state_table,
+            FluidKind::Lava,
+            0.002_333_333_333_333_333_5,
+        );
+        self.lava_height = lava_height;
+        self.in_lava = lava_height > 0.0;
         let half_w = PLAYER_HALF_WIDTH;
         let height = self.height();
         let eye_height = f64::from(self.target_eye_height());
@@ -736,6 +827,10 @@ impl LocalPlayer {
                 impulse = vanilla_vec3_normalize(impulse) * 0.004_500_000_000_000_000_5;
             }
             *self.velocity += impulse;
+        }
+        // The water's push, then the lava's.
+        if !self.flying {
+            *self.velocity += lava_push;
         }
 
         let eye_y = self.position.y + eye_height;

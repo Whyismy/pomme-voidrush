@@ -184,13 +184,19 @@ pub fn tick(
     apply_living_immobility(player, &mut forward, &mut strafe, &mut jump_held);
 
     // Vanilla `LivingEntity.aiStep`: swim upward when submerged past the jump
-    // threshold, otherwise a full jump off the ground or the shallow-fluid floor.
-    // TODO: lava `jumpInLiquid`.
+    // threshold, in water or in lava, otherwise a full jump off the ground or
+    // the shallow-fluid floor.
     if jump_held && player.is_affected_by_fluids() {
-        let in_water = player.in_water && player.fluid_height > 0.0;
-        if in_water && (!player.on_ground || player.fluid_height > FLUID_JUMP_THRESHOLD) {
+        let fluid_height = if player.in_lava {
+            player.lava_height
+        } else {
+            player.fluid_height
+        };
+        let in_water = player.in_water && fluid_height > 0.0;
+        let deep = !player.on_ground || fluid_height > FLUID_JUMP_THRESHOLD;
+        if (in_water || player.in_lava) && deep {
             player.velocity.y += f64::from(LIQUID_JUMP_ACCELERATION);
-        } else if (player.on_ground || (in_water && player.fluid_height <= FLUID_JUMP_THRESHOLD))
+        } else if (player.on_ground || (in_water && fluid_height <= FLUID_JUMP_THRESHOLD))
             && player.no_jump_delay == 0
         {
             jump_from_ground(player, world, sin_y_rot, cos_y_rot);
@@ -382,7 +388,6 @@ fn tick_fall_flying(
 
 /// Vanilla `LivingEntity.travel`: fluid travel only when fluids affect the
 /// player (not while flying).
-// TODO: lava travel.
 #[allow(clippy::too_many_arguments)]
 fn travel(
     player: &mut LocalPlayer,
@@ -398,6 +403,8 @@ fn travel(
         tick_water(
             player, input, world, tags, forward, strafe, sin_y_rot, cos_y_rot,
         );
+    } else if player.in_lava && player.is_affected_by_fluids() {
+        tick_lava(player, input, world, forward, strafe, sin_y_rot, cos_y_rot);
     } else if player.fall_flying {
         tick_fall_flying(
             player, input, world, tags, forward, strafe, sin_y_rot, cos_y_rot,
@@ -774,6 +781,56 @@ fn tick_water(
     let gravity = effective_gravity(player);
     player.velocity.y =
         water_falling_adjusted_y(player.velocity.y, gravity, is_falling, player.sprinting);
+
+    // `LivingEntity.jumpOutOfFluid`.
+    if player.horizontal_collision {
+        let y_offset =
+            player.velocity.y + f64::from(step_height(player)) - player.position.y + old_y;
+        let ctx = collision_context(player, input.performing_action(input::Action::Sneak));
+        let probe =
+            player
+                .bounding_box()
+                .offset(dvec3(player.velocity.x, y_offset, player.velocity.z));
+        if no_collision(world, &probe, &ctx) && !contains_any_liquid(world, &probe) {
+            player.velocity.y = f64::from(0.3_f32);
+        }
+    }
+
+    overwrite_flying_vy(player, saved_vy);
+}
+
+/// Vanilla `LivingEntity.travelInLava`: a fiftieth of a block a tick of
+/// push, the move, then half the speed kept; in lava no deeper than the
+/// jump threshold the fall is gentler, and gravity is a quarter of air's.
+fn tick_lava(
+    player: &mut LocalPlayer,
+    input: &InputState,
+    world: CollisionWorld<'_>,
+    forward: f32,
+    strafe: f32,
+    sin_y_rot: f32,
+    cos_y_rot: f32,
+) {
+    let is_falling = player.velocity.y <= 0.0;
+    let old_y = player.position.y;
+    let saved_vy = player.velocity.y;
+    let gravity = effective_gravity(player);
+
+    move_relative(player, forward, strafe, 0.02, sin_y_rot, cos_y_rot);
+    apply_collision(player, input, world, forward, strafe, sin_y_rot, cos_y_rot);
+
+    if player.lava_height <= FLUID_JUMP_THRESHOLD {
+        player.velocity.x *= 0.5;
+        player.velocity.y *= f64::from(0.8_f32);
+        player.velocity.z *= 0.5;
+        player.velocity.y =
+            water_falling_adjusted_y(player.velocity.y, gravity, is_falling, player.sprinting);
+    } else {
+        *player.velocity *= 0.5;
+    }
+    if gravity != 0.0 {
+        player.velocity.y -= gravity / 4.0;
+    }
 
     // `LivingEntity.jumpOutOfFluid`.
     if player.horizontal_collision {
