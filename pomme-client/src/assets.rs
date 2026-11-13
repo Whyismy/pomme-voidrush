@@ -152,6 +152,76 @@ fn builtin_asset(
         })
 }
 
+/// How many files [`prefetch`] reads at once.
+const PREFETCH_THREADS: usize = 32;
+
+/// The folders whose files loading the models and the atlas reads one at a
+/// time: the jar's models, item and block definitions and their textures,
+/// and every active pack's assets.
+pub fn prefetch_roots(jar_assets_dir: &Path, packs: Option<&ResourcePackManager>) -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = [
+        "models",
+        "items",
+        "blockstates",
+        "textures/block",
+        "textures/item",
+    ]
+    .iter()
+    .map(|folder| jar_assets_dir.join("minecraft").join(folder))
+    .collect();
+    if let Some(packs) = packs {
+        roots.extend(packs.active_pack_dirs().map(|dir| dir.join("assets")));
+    }
+    roots
+}
+
+/// Reads every file under `roots` on many threads at once, and drops what
+/// it read; `progress` hears how many of how many are done.
+///
+/// A file the system has not cached costs milliseconds to open (the disk,
+/// and whatever scans files as they are opened), and a pack's thousands of
+/// small files opened in turn held a reload up for twenty seconds. Opened
+/// together they take a second or two, and the loading that follows finds
+/// each of them cached.
+pub fn prefetch(roots: &[PathBuf], progress: &(dyn Fn(usize, usize) + Sync)) {
+    prefetch_on(PREFETCH_THREADS, roots, progress);
+}
+
+fn prefetch_on(threads: usize, roots: &[PathBuf], progress: &(dyn Fn(usize, usize) + Sync)) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let start = std::time::Instant::now();
+    let mut files = Vec::new();
+    let mut folders = roots.to_vec();
+    while let Some(folder) = folders.pop() {
+        let Ok(entries) = std::fs::read_dir(&folder) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            match entry.file_type() {
+                Ok(kind) if kind.is_dir() => folders.push(entry.path()),
+                Ok(kind) if kind.is_file() => files.push(entry.path()),
+                _ => {}
+            }
+        }
+    }
+    let (next, done) = (AtomicUsize::new(0), AtomicUsize::new(0));
+    std::thread::scope(|scope| {
+        for _ in 0..threads.min(files.len()) {
+            scope.spawn(|| {
+                while let Some(path) = files.get(next.fetch_add(1, Ordering::Relaxed)) {
+                    let _ = std::fs::read(path);
+                    progress(done.fetch_add(1, Ordering::Relaxed) + 1, files.len());
+                }
+            });
+        }
+    });
+    tracing::info!(
+        "Read {} asset files ahead in {:.2?}",
+        files.len(),
+        start.elapsed()
+    );
+}
+
 #[derive(Clone)]
 pub struct AssetIndex {
     objects_dir: PathBuf,
@@ -197,6 +267,55 @@ impl AssetIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every file under the roots is read, nested ones too, and the count
+    /// reaches the total; a root that isn't there is passed over.
+    #[test]
+    fn prefetch_reads_every_file_under_its_roots() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let root = crate::test_util::test_temp_dir("prefetch");
+        std::fs::create_dir_all(root.join("a/b")).unwrap();
+        for name in ["one.json", "a/two.png", "a/b/three.mcmeta"] {
+            std::fs::write(root.join(name), name).unwrap();
+        }
+        let (most, calls, total) = (
+            AtomicUsize::new(0),
+            AtomicUsize::new(0),
+            AtomicUsize::new(0),
+        );
+        prefetch(&[root.clone(), root.join("missing")], &|done, of| {
+            most.fetch_max(done, Ordering::Relaxed);
+            calls.fetch_add(1, Ordering::Relaxed);
+            total.store(of, Ordering::Relaxed);
+        });
+        assert_eq!(most.load(Ordering::Relaxed), 3);
+        assert_eq!(calls.load(Ordering::Relaxed), 3);
+        assert_eq!(total.load(Ordering::Relaxed), 3);
+        prefetch(&[], &|_, _| panic!("nothing to read"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// Times the read-ahead over a real folder: `POMME_PREFETCH_DIR=<folder>
+    /// cargo test --release -p pomme-client --lib prefetch_timing --
+    /// --ignored --nocapture`.
+    #[test]
+    #[ignore = "needs a folder to read"]
+    fn prefetch_timing() {
+        let root = std::path::PathBuf::from(std::env::var("POMME_PREFETCH_DIR").unwrap());
+        let threads = std::env::var("POMME_PREFETCH_THREADS")
+            .ok()
+            .and_then(|threads| threads.parse().ok())
+            .unwrap_or(PREFETCH_THREADS);
+        let start = std::time::Instant::now();
+        let read = std::sync::atomic::AtomicUsize::new(0);
+        prefetch_on(threads, &[root], &|done, _| {
+            read.fetch_max(done, std::sync::atomic::Ordering::Relaxed);
+        });
+        println!(
+            "read {read:?} files on {threads} threads in {:.2?}",
+            start.elapsed()
+        );
+    }
 
     #[test]
     fn asset_keys_reject_traversal_and_invalid_resource_location_syntax() {

@@ -498,36 +498,119 @@ fn format_value(v: &serde_json::Value) -> u32 {
     0
 }
 
+/// How many files [`extract_zip`] writes at once.
+const EXTRACT_THREADS: usize = 16;
+
+/// Unpacks a pack's archive into `dest`. Its thousands of small files
+/// written in turn took ten seconds or more (each one made is a file for
+/// the system to check), so they are written together: the archive is all
+/// in memory, and each thread reads it for itself.
 fn extract_zip(data: &[u8], dest: &Path) -> Result<(), PackError> {
+    use std::sync::atomic::AtomicUsize;
+    let start = std::time::Instant::now();
+    let open = || {
+        zip::ZipArchive::new(std::io::Cursor::new(data))
+            .map_err(|e| PackError::Extract(e.to_string()))
+    };
     let _ = std::fs::create_dir_all(dest);
-    let cursor = std::io::Cursor::new(data);
-    let mut archive =
-        zip::ZipArchive::new(cursor).map_err(|e| PackError::Extract(e.to_string()))?;
-
-    for i in 0..archive.len() {
-        let mut file = archive
-            .by_index(i)
-            .map_err(|e| PackError::Extract(e.to_string()))?;
-
-        let Some(enclosed) = file.enclosed_name() else {
-            continue;
-        };
-        let out_path = dest.join(enclosed);
-
-        if file.is_dir() {
-            let _ = std::fs::create_dir_all(&out_path);
-        } else {
-            if let Some(parent) = out_path.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            let mut out =
-                std::fs::File::create(&out_path).map_err(|e| PackError::Extract(e.to_string()))?;
-            std::io::copy(&mut file, &mut out).map_err(|e| PackError::Extract(e.to_string()))?;
+    let count = open()?.len();
+    let next = AtomicUsize::new(0);
+    let failed = std::sync::Mutex::new(None);
+    std::thread::scope(|scope| {
+        for _ in 0..EXTRACT_THREADS.min(count) {
+            scope.spawn(|| {
+                let unpacked = open().and_then(|mut archive| {
+                    loop {
+                        let index = next.fetch_add(1, Ordering::Relaxed);
+                        if index >= count || failed.lock().unwrap().is_some() {
+                            return Ok(());
+                        }
+                        extract_entry(&mut archive, index, dest)?;
+                    }
+                });
+                if let Err(error) = unpacked {
+                    failed.lock().unwrap().get_or_insert(error);
+                }
+            });
         }
+    });
+    if let Some(error) = failed.into_inner().unwrap() {
+        return Err(error);
     }
-
-    tracing::info!("Extracted resource pack to {}", dest.display());
+    tracing::info!(
+        "Extracted resource pack to {} ({count} entries in {:.2?})",
+        dest.display(),
+        start.elapsed()
+    );
     Ok(())
+}
+
+/// One of an archive's entries, written under `dest`; one that would land
+/// outside it is passed over.
+fn extract_entry(
+    archive: &mut zip::ZipArchive<std::io::Cursor<&[u8]>>,
+    index: usize,
+    dest: &Path,
+) -> Result<(), PackError> {
+    let extract = |e: &dyn std::fmt::Display| PackError::Extract(e.to_string());
+    let mut file = archive.by_index(index).map_err(|e| extract(&e))?;
+    let Some(enclosed) = file.enclosed_name() else {
+        return Ok(());
+    };
+    let out_path = dest.join(enclosed);
+    if file.is_dir() {
+        let _ = std::fs::create_dir_all(&out_path);
+        return Ok(());
+    }
+    if let Some(parent) = out_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let mut out = std::fs::File::create(&out_path).map_err(|e| extract(&e))?;
+    std::io::copy(&mut file, &mut out).map_err(|e| extract(&e))?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod extract_tests {
+    use std::io::Write;
+
+    /// Every entry is written where it belongs, nested ones too, an entry
+    /// that climbs out of the folder is left, and a broken archive fails.
+    #[test]
+    fn an_archive_unpacks_whole() {
+        let mut data = Vec::new();
+        {
+            let mut zip = zip::ZipWriter::new(std::io::Cursor::new(&mut data));
+            let options = zip::write::SimpleFileOptions::default();
+            for index in 0..200 {
+                zip.start_file(
+                    format!("assets/vr/models/{}/m{index}.json", index % 7),
+                    options,
+                )
+                .unwrap();
+                zip.write_all(format!("{{\"n\":{index}}}").as_bytes())
+                    .unwrap();
+            }
+            zip.start_file("pack.mcmeta", options).unwrap();
+            zip.write_all(b"{}").unwrap();
+            zip.start_file("../outside.txt", options).unwrap();
+            zip.write_all(b"no").unwrap();
+            zip.finish().unwrap();
+        }
+        let dest = crate::test_util::test_temp_dir("extract").join("pack");
+        super::extract_zip(&data, &dest).unwrap();
+        for index in [0, 57, 199] {
+            let path = dest.join(format!("assets/vr/models/{}/m{index}.json", index % 7));
+            assert_eq!(
+                std::fs::read_to_string(path).unwrap(),
+                format!("{{\"n\":{index}}}")
+            );
+        }
+        assert!(dest.join("pack.mcmeta").is_file());
+        assert!(!dest.parent().unwrap().join("outside.txt").exists());
+        assert!(super::extract_zip(b"not a zip", &dest).is_err());
+        let _ = std::fs::remove_dir_all(dest.parent().unwrap());
+    }
 }
 
 #[cfg(test)]

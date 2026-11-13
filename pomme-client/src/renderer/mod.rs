@@ -394,6 +394,12 @@ impl Renderer {
             let asset_index = asset_index.clone();
             let cache_dir = cache_dir.to_path_buf();
             std::thread::spawn(move || {
+                // The jar's models and textures, read together before
+                // they are read one at a time.
+                crate::assets::prefetch(
+                    &crate::assets::prefetch_roots(&jar_assets_dir, None),
+                    &|_, _| {},
+                );
                 BlockRenderAssets::load(&jar_assets_dir, &asset_index, Some(&cache_dir), None)
             })
         };
@@ -3488,9 +3494,11 @@ struct PreparedAssets {
 /// can run off the render thread: the block and item models, then the
 /// atlas and the item meshes cut from it, with the sky, equipment and fonts
 /// alongside.
-/// The steps [`prepare_assets`] counts off as it goes: the models, the
-/// atlas, the item meshes, and the rest joined.
-const RELOAD_STEPS: u8 = 4;
+/// What [`prepare_assets`] counts up to as it goes: the files read ahead
+/// take the first sixty, by how many are read, then the models, the atlas,
+/// the item meshes, and the rest joined.
+const RELOAD_STEPS: u8 = 100;
+const RELOAD_READ_AHEAD: u8 = 60;
 
 fn prepare_assets(
     packs: &crate::resource_pack::ResourcePackManager,
@@ -3529,9 +3537,20 @@ fn prepare_assets(
                 font_layer_limit,
             )
         });
+        // Everything the models and the atlas are about to read, read
+        // together first: one at a time, a pack's files not yet cached
+        // held this up for twenty seconds.
+        crate::assets::prefetch(
+            &crate::assets::prefetch_roots(jar_assets_dir, Some(packs)),
+            &|done, of| {
+                step((done * usize::from(RELOAD_READ_AHEAD) / of.max(1)) as u8);
+            },
+        );
+        let read_ahead = start.elapsed();
+        step(RELOAD_READ_AHEAD);
         let render_assets = BlockRenderAssets::load(jar_assets_dir, asset_index, None, Some(packs));
         let models = start.elapsed();
-        step(1);
+        step(75);
         let (texture_names, generated_item_textures) =
             chunk::atlas::atlas_texture_names(&render_assets);
         let atlas = TextureAtlas::prepare(
@@ -3542,7 +3561,7 @@ fn prepare_assets(
             Some(packs),
         );
         let atlas_done = start.elapsed();
-        step(2);
+        step(88);
         let item_meshes = render_assets
             .item_names()
             .filter_map(|name| match render_assets.get_item_model(name) {
@@ -3568,7 +3587,7 @@ fn prepare_assets(
                 Some(packs),
             ))
         });
-        step(3);
+        step(95);
         let prepared = PreparedAssets {
             glints,
             custom_sky: custom_sky.join().expect("preparing the sky panicked"),
@@ -3587,8 +3606,9 @@ fn prepare_assets(
         step(RELOAD_STEPS);
         PreparedAssets {
             prepare_laps: format!(
-                "{:.2?} (models {models:.0?}, atlas {:.0?}, item meshes {:.0?})",
+                "{:.2?} (read ahead {read_ahead:.0?}, models {:.0?}, atlas {:.0?}, item meshes {:.0?})",
                 start.elapsed(),
+                models - read_ahead,
                 atlas_done - models,
                 start.elapsed() - atlas_done,
             ),
