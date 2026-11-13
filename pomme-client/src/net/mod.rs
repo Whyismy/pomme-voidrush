@@ -527,6 +527,11 @@ pub enum NetworkEvent {
         pos: BlockPos,
         data: u32,
     },
+    /// `ClientboundOpenSignEditorPacket`: write on a side of the sign there.
+    OpenSignEditor {
+        pos: BlockPos,
+        front: bool,
+    },
     /// `ClientboundLevelParticles`. The handler drops unimplemented particle
     /// kinds and the `always_show` flag (it only matters below
     /// `ParticleStatus::All`, and pomme has no particles setting).

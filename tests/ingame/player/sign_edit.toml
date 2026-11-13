@@ -1,0 +1,66 @@
+# A sign's editing screen: a right click on a sign has the server open it,
+# what is typed shows on the board, and Done sends it to the sign.
+
+[[step]]
+chat = "/tp @s 3500.5 -60 600.5 0 20"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+chat = "/setblock 3500 -60 602 minecraft:oak_sign[rotation=8]"
+
+[[step]]
+look_at = [3500.5, -59.3, 602.5]
+
+[[step]]
+wait_ms = 300
+
+[[step]]
+mouse_down = "right"
+
+[[step]]
+wait_ms = 100
+
+[[step]]
+mouse_up = "right"
+
+[[step]]
+wait_ms = 700
+
+[[step]]
+text = "Void Rush"
+
+[[step]]
+wait_ms = 300
+
+[[step]]
+screenshot = "typed"
+
+# The Done button, in GUI units at the harness's scale of three.
+[[step]]
+cursor = [213.0, 214.0]
+
+[[step]]
+mouse_down = "left"
+
+[[step]]
+wait_ms = 100
+
+[[step]]
+mouse_up = "left"
+
+[[step]]
+wait_ms = 500
+
+[[step]]
+chat = "/data get block 3500 -60 602 front_text.messages[0]"
+
+[[step]]
+expect = { chat = "Void Rush" }
+
+[[step]]
+wait_ms = 300
+
+[[step]]
+screenshot = "written"

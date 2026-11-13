@@ -2761,6 +2761,13 @@ pub enum SpriteId {
     HeartVehicleHalf,
     /// A `hud/heart/` sprite, packed by [`heart_sprite`].
     Heart(u8),
+    /// The front of a sign's board, of the wood at this place in
+    /// [`SIGN_WOODS`], for the sign's editing screen.
+    SignBoard(u8),
+    /// The front of that sign's stick.
+    SignStick(u8),
+    /// That wood's hanging sign as its editing screen shows it.
+    HangingSignGui(u8),
     FoodEmpty,
     FoodFull,
     FoodHalf,
@@ -3096,6 +3103,12 @@ struct SpriteAtlas {
 }
 
 const INV_TEX_W: u32 = 176;
+
+/// The woods signs are made of, as their textures are named.
+pub const SIGN_WOODS: [&str; 12] = [
+    "oak", "spruce", "birch", "acacia", "cherry", "jungle", "dark_oak", "pale_oak", "crimson",
+    "warped", "mangrove", "bamboo",
+];
 const INV_TEX_H: u32 = 166;
 
 /// Gutter kept on all four sides of every sprite. Sprites are sampled with
@@ -4669,6 +4682,42 @@ fn build_sprite_atlas(
             Err(e) => {
                 tracing::warn!("Failed to load sprite {id:?}: {e}");
                 images.push((id, vec![255, 0, 255, 255], 1, 1, 0.0));
+            }
+        }
+    }
+
+    // The sign editing screen's boards: the front of each wood's board and
+    // of its stick, cut from the sign's 32 by 32 sheet as
+    // `block/template_sign_rot_0` maps it, and the hanging sign's own
+    // picture.
+    for (index, wood) in SIGN_WOODS.iter().enumerate() {
+        let index = index as u8;
+        let sheet = format!("minecraft/textures/block/{wood}_sign.png");
+        let hanging = format!("minecraft/textures/gui/hanging_signs/{wood}.png");
+        for (id, key, cut) in [
+            (SpriteId::SignBoard(index), &sheet, Some(((0, 2), (24, 12)))),
+            (SpriteId::SignStick(index), &sheet, Some(((28, 0), (2, 14)))),
+            (SpriteId::HangingSignGui(index), &hanging, None),
+        ] {
+            let (path, scale) = resolve_gui_texture(jar_assets_dir, asset_index, packs, key);
+            match crate::assets::load_image(&path) {
+                Ok(img) => {
+                    let rgba = img.to_rgba8();
+                    let scaled = |v: u32| (v as f32 * scale).round() as u32;
+                    let ((x, y), (w, h)) = match cut {
+                        Some(((x, y), (w, h))) => ((scaled(x), scaled(y)), (scaled(w), scaled(h))),
+                        None => ((0, 0), (rgba.width(), rgba.height())),
+                    };
+                    let w = w.min(rgba.width().saturating_sub(x));
+                    let h = h.min(rgba.height().saturating_sub(y));
+                    let cut = image::imageops::crop_imm(&rgba, x, y, w, h).to_image();
+                    scales.insert(id, scale);
+                    images.push((id, cut.into_raw(), w, h, 0.0));
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to load sign sprite {key}: {e}");
+                    images.push((id, vec![255, 0, 255, 255], 1, 1, 0.0));
+                }
             }
         }
     }

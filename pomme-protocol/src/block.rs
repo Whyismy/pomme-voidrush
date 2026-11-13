@@ -43,6 +43,11 @@ pub enum BlockPacket {
         data: i32,
         global: bool,
     },
+    /// The server has the client write on a side of the sign at `pos`.
+    OpenSignEditor {
+        pos: BlockPos,
+        front: bool,
+    },
 }
 
 /// Decodes packet `name`, or `None` if it isn't a block packet.
@@ -102,6 +107,13 @@ pub fn read(name: &str, r: &mut Reader) -> Option<DecodeResult<BlockPacket>> {
                 pos: r.block_pos()?,
                 data: r.i32()?,
                 global: r.bool()?,
+            })
+        },
+        // ClientboundOpenSignEditorPacket.java:22-25
+        "open_sign_editor" => |r| {
+            Ok(BlockPacket::OpenSignEditor {
+                pos: r.block_pos()?,
+                front: r.bool()?,
             })
         },
         _ => return None,

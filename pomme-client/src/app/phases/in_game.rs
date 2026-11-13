@@ -255,6 +255,8 @@ pub struct GameState {
     pub menu_list: crate::ui::stonecutter::ListState,
     /// The open merchant menu's trades and which is picked.
     pub merchant: crate::ui::merchant::MerchantState,
+    /// The sign being written on, while its editing screen is up.
+    pub sign_edit: Option<crate::ui::sign_edit::SignEditState>,
     pub chat: ChatState,
     pub server_dialog: Option<crate::ui::server_dialog::ServerDialogState>,
     pub server_links: Vec<crate::ui::server_dialog::ServerLink>,
@@ -689,6 +691,7 @@ impl GameState {
             recipe_book_ui: crate::ui::recipe_book::RecipeBookUiState::new(),
             menu_list: Default::default(),
             merchant: Default::default(),
+            sign_edit: None,
             chat: {
                 let mut chat = ChatState::new();
                 chat.set_options(chat_options);
@@ -885,6 +888,7 @@ impl GameState {
             || self.open_container.is_some()
             || self.dialog_open()
             || self.game_mode_switcher.is_some()
+            || self.sign_edit.is_some()
     }
 
     /// The container menu the player currently has open (0 = survival
@@ -1041,6 +1045,9 @@ impl GameState {
     /// hotkeys. The anvil field is editable only while its input slot is
     /// filled, matching vanilla.
     pub fn wants_text_input(&self) -> bool {
+        if self.sign_edit.is_some() {
+            return true;
+        }
         if self
             .server_dialog
             .as_ref()
@@ -3139,6 +3146,12 @@ pub fn update_game(
     } else {
         Vec::new()
     };
+    if let Some(edit) = &mut game.sign_edit {
+        let r = &gfx.renderer;
+        edit.handle_text_input(&text_events, &|text| {
+            r.menu_text_width(text, common::FONT_SIZE)
+        });
+    }
     let text_sw = gfx.renderer.screen_width() as f32;
     let text_gs = core
         .menu
@@ -3621,6 +3634,39 @@ pub fn update_game(
             gs,
             &|spans, s| r.menu_spans_width(spans, s),
         );
+    }
+
+    if let Some(edit) = &mut game.sign_edit {
+        let r = &gfx.renderer;
+        let clicked = core.input.left_just_pressed();
+        if crate::ui::sign_edit::build(
+            &mut elements,
+            edit,
+            sw,
+            sh,
+            core.input.cursor_pos(),
+            gs,
+            &|text, size| r.menu_text_width(text, size),
+        ) && clicked
+        {
+            core.audio.play_ui_click();
+            edit.finish();
+        }
+    }
+    // Closing it, however it is closed, sends what was written
+    // (`AbstractSignEditScreen.removed`).
+    if game.sign_edit.as_ref().is_some_and(|edit| edit.finished())
+        && let Some(edit) = game.sign_edit.take()
+    {
+        use azalea_protocol::packets::game::s_sign_update::ServerboundSignUpdate;
+        connection
+            .packet_tx
+            .send(ServerboundGamePacket::SignUpdate(ServerboundSignUpdate {
+                pos: edit.pos.into(),
+                is_front_text: edit.front,
+                lines: edit.into_lines(),
+            }));
+        core.apply_cursor_grab(&gfx.window, Some(game));
     }
 
     if let Some(switcher) = &mut game.game_mode_switcher {

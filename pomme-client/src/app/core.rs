@@ -1381,6 +1381,7 @@ impl AppCore {
         game.chat
             .close(crate::ui::chat::ChatExitReason::Interrupted);
         game.game_mode_switcher = None;
+        game.sign_edit = None;
         game.server_dialog = None;
 
         if let Some(message) = message {
@@ -2248,6 +2249,23 @@ impl AppCore {
                 }
                 NetworkEvent::HeldSlot { slot } => {
                     self.input.set_selected_slot(slot);
+                }
+                NetworkEvent::OpenSignEditor { pos, front } => {
+                    // `handleOpenSignEditor`: only where a sign stands.
+                    let state = game.chunk_store.get_block_state(pos.x, pos.y, pos.z);
+                    let block = game.block_registry.block_state_data(state).id();
+                    if let Some(edit) = crate::ui::sign_edit::SignEditState::open(
+                        pos,
+                        front,
+                        block,
+                        game.chunk_store.block_entities.get(&pos),
+                    ) {
+                        game.paused = false;
+                        game.close_menu();
+                        game.close_creative_inventory();
+                        game.sign_edit = Some(edit);
+                        self.apply_cursor_grab(window, Some(game));
+                    }
                 }
                 NetworkEvent::MerchantOffers {
                     container_id,

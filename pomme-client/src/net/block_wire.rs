@@ -86,6 +86,15 @@ fn dispatch(
                 },
             );
         }
+        BlockPacket::OpenSignEditor { pos, front } => {
+            send_ordered(
+                event_tx,
+                NetworkEvent::OpenSignEditor {
+                    pos: block_pos(pos),
+                    front,
+                },
+            );
+        }
         BlockPacket::LevelEvent {
             event, pos, data, ..
         } => {

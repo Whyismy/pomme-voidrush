@@ -278,6 +278,7 @@ impl InputState {
                         && game.player.game_mode != 3
                         && !game.chat.is_open()
                         && game.game_mode_switcher.is_none()
+                        && game.sign_edit.is_none()
                     {
                         game.open_inventory();
                         should_apply_cursor_grab = true;
@@ -291,6 +292,11 @@ impl InputState {
                         // pause action: link confirmation, then suggestions,
                         // then the chat screen itself.
                         should_apply_cursor_grab = game.escape_chat();
+                    } else if let Some(edit) = &mut game.sign_edit {
+                        // Esc closes a sign's editor, which sends what was
+                        // written (`AbstractSignEditScreen.removed`).
+                        edit.finish();
+                        should_apply_cursor_grab = true;
                     } else if game.game_mode_switcher.is_some() {
                         // Esc cancels the F3+F4 switcher without applying.
                         game.game_mode_switcher = None;

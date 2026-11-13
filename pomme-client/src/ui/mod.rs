@@ -23,6 +23,7 @@ pub mod player_tab;
 pub mod recipe_book;
 pub mod server_dialog;
 pub mod server_list;
+pub mod sign_edit;
 pub mod spectator_menu;
 pub mod stonecutter;
 pub mod subtitles;
