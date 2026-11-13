@@ -3236,6 +3236,9 @@ impl AppCore {
                         game.entity_store.set_living_motion(id, velocity);
                     }
                 }
+                NetworkEvent::ProjectilePower { id, power } => {
+                    game.model_entities.set_acceleration_power(id, power);
+                }
                 NetworkEvent::PlayerKnockback { delta } => {
                     // Vanilla `handleExplosion`: `LocalPlayer.addDeltaMovement`.
                     *game.player.velocity += delta;

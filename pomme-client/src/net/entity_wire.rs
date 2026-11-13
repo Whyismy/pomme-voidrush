@@ -120,6 +120,7 @@ fn event(packet: EntityPacket) -> Option<NetworkEvent> {
             on_ground,
         },
         EntityPacket::Motion { id, velocity } => NetworkEvent::EntityMotion { id, velocity },
+        EntityPacket::ProjectilePower { id, power } => NetworkEvent::ProjectilePower { id, power },
         EntityPacket::RotateHead { id, y_head_rot } => NetworkEvent::EntityHeadRotation {
             id,
             head_y_rot_deg: y_head_rot,

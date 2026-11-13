@@ -43,6 +43,9 @@ pub struct ModelEntity {
     pub age: u32,
     /// `WitherSkull.DATA_DANGEROUS`: a blue skull.
     pub dangerous: bool,
+    /// `AbstractHurtingProjectile.accelerationPower`: how much speed a skull
+    /// or a fireball gains each tick, which a deflection changes.
+    acceleration_power: f64,
     /// Evoker fangs: ticks of the bite left, once entity event 4 starts it.
     fangs_life: Option<i32>,
     /// Vehicles: the facing the server last sent, and the ticks left of
@@ -416,6 +419,7 @@ impl ModelEntityStore {
                 prev_x_rot: x_rot,
                 age: 0,
                 dangerous: false,
+                acceleration_power: SKULL_ACCELERATION,
                 fangs_life: None,
                 server_y_rot: y_rot,
                 server_x_rot: x_rot,
@@ -529,6 +533,13 @@ impl ModelEntityStore {
         }
     }
 
+    /// `ClientPacketListener.handleProjectilePowerPacket`.
+    pub fn set_acceleration_power(&mut self, id: i32, power: f64) {
+        if let Some(entity) = self.entities.get_mut(&id) {
+            entity.acceleration_power = power;
+        }
+    }
+
     /// `WitherSkull.DATA_DANGEROUS` (index 8), and a boat's paddles: 11 and
     /// 12 since 1.21.2 (protocol 768) gave each wood its own entity type,
     /// one later while the wood was synced ahead of them.
@@ -637,8 +648,8 @@ impl ModelEntityStore {
                 EntityKind::WitherSkull | EntityKind::DragonFireball => {
                     let inertia = if entity.dangerous { 0.73f32 } else { 0.95f32 };
                     let v = entity.velocity;
-                    entity.velocity =
-                        (v + v.normalize_or_zero() * SKULL_ACCELERATION) * f64::from(inertia);
+                    entity.velocity = (v + v.normalize_or_zero() * entity.acceleration_power)
+                        * f64::from(inertia);
                     entity.position = (*entity.position + entity.velocity).into();
                     rotate_towards_movement(entity, 0.2);
                     let behind = *entity.position + DVec3::new(0.0, 0.5, 0.0);
@@ -906,6 +917,12 @@ mod tests {
         let trails = store.tick();
         assert!((store.entities[&1].velocity.x - 1.1 * f64::from(0.95f32)).abs() < 1e-9);
         assert!(matches!(trails[..], [Trail::DragonBreath(_)]));
+
+        // A deflected one speeds up as the server now says it does.
+        let mut store = store_with(EntityKind::WitherSkull, DVec3::new(1.0, 0.0, 0.0));
+        store.set_acceleration_power(1, 0.5);
+        store.tick();
+        assert!((store.entities[&1].velocity.x - 1.5 * f64::from(0.95f32)).abs() < 1e-9);
     }
 
     #[test]

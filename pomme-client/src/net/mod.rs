@@ -545,6 +545,11 @@ pub enum NetworkEvent {
         id: i32,
         velocity: DVec3,
     },
+    /// `ClientboundProjectilePowerPacket`.
+    ProjectilePower {
+        id: i32,
+        power: f64,
+    },
     PlayerKnockback {
         delta: DVec3,
     },

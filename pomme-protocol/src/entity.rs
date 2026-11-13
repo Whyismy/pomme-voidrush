@@ -88,6 +88,12 @@ pub enum EntityPacket {
         id: i32,
         velocity: DVec3,
     },
+    /// `ClientboundProjectilePowerPacket`: how hard a skull or a fireball
+    /// now speeds up along its flight.
+    ProjectilePower {
+        id: i32,
+        power: f64,
+    },
     RotateHead {
         id: i32,
         y_head_rot: f32,
@@ -172,6 +178,13 @@ pub fn read(name: &str, r: &mut Reader) -> Option<DecodeResult<EntityPacket>> {
             Ok(EntityPacket::Motion {
                 id: r.var_i32()?,
                 velocity: r.lp_vec3()?,
+            })
+        },
+        // ClientboundProjectilePowerPacket.java:16
+        "projectile_power" => |r| {
+            Ok(EntityPacket::ProjectilePower {
+                id: r.var_i32()?,
+                power: r.f64()?,
             })
         },
         // ClientboundRotateHeadPacket.java:31-33
