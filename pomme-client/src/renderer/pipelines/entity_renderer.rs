@@ -66,6 +66,9 @@ pub struct ArmorRenderInfo {
     pub foil: bool,
 }
 
+/// Vanilla `ItemFeatureRenderer.ENCHANTED_GLINT_ITEM`.
+const ITEM_GLINT_TEXTURE: &str = "minecraft/textures/misc/enchanted_glint_item.png";
+
 /// Vanilla `ItemFeatureRenderer.ENCHANTED_GLINT_ARMOR`.
 // TODO: a resource pack's own glint texture; this is the game's.
 const ARMOR_GLINT_TEXTURE: &str = "minecraft/textures/misc/enchanted_glint_armor.png";
@@ -321,6 +324,8 @@ pub struct EntityRenderInfo {
     pub elytra_rot: [f32; 3],
     /// A player gliding on one.
     pub fall_flying: Option<FallFlying>,
+    /// The model itself glints (an enchanted thrown trident).
+    pub foil: bool,
 }
 
 /// A gliding avatar's pose inputs (vanilla `AvatarRenderer.extractFlightData`).
@@ -386,6 +391,7 @@ impl Default for EntityRenderInfo {
         Self {
             elytra_rot: crate::entity::ElytraAnim::REST,
             fall_flying: None,
+            foil: false,
             position: Position::new(0.0, 0.0, 0.0),
             head_x_rot_deg: 0.0,
             head_y_rot_deg: 0.0,
@@ -1390,6 +1396,11 @@ pub struct EntityRenderer {
     glint_texture: rhi::backend::Texture,
     glint_sampler: rhi::backend::Sampler,
     glint_set: rhi::backend::BindGroup,
+    /// Vanilla `ENTITY_GLINT`, for a model that glints itself: the item
+    /// glint texture, at its own scale.
+    item_glint_pipeline: rhi::backend::RenderPipeline,
+    item_glint_texture: rhi::backend::Texture,
+    item_glint_set: rhi::backend::BindGroup,
     /// Glowing outlines into the outline target, unculled then culled.
     outline_pipelines: [rhi::backend::RenderPipeline; 2],
     /// This frame's outline draws, paired with `outline_pipelines`.
@@ -3681,8 +3692,8 @@ fn mob_and_projectile_definitions() -> Vec<MobDef> {
                 "minecraft/textures/entity/lead_knot.png",
             ]],
         ),
-        // `ThrownTridentRenderer`.
-        // TODO: an enchanted trident's glint.
+        // `ThrownTridentRenderer`; an enchanted one glints
+        // (`EntityRenderInfo::foil`).
         still(
             EntityKind::Trident,
             exported_data::TRIDENT,
@@ -3855,7 +3866,8 @@ impl EntityRenderer {
         ] = create_pipelines(device, targets, pipeline_layout);
         let outline_pipelines = [rhi::CullMode::None, rhi::CullMode::Back]
             .map(|cull_mode| create_outline_pipeline(device, pipeline_layout, cull_mode));
-        let glint_pipeline = create_glint_pipeline(device, targets, pipeline_layout);
+        let glint_pipeline = create_glint_pipeline(device, targets, pipeline_layout, false);
+        let item_glint_pipeline = create_glint_pipeline(device, targets, pipeline_layout, true);
         let glint_texture =
             util::load_asset_texture(device, jar_assets_dir, asset_index, ARMOR_GLINT_TEXTURE);
         let glint_sampler = rhi::backend::create_sampler(device, &rhi::SamplerDesc::LINEAR_REPEAT);
@@ -3863,6 +3875,14 @@ impl EntityRenderer {
             device,
             texture_layout,
             glint_texture.handle(),
+            glint_sampler,
+        );
+        let item_glint_texture =
+            util::load_asset_texture(device, jar_assets_dir, asset_index, ITEM_GLINT_TEXTURE);
+        let item_glint_set = util::create_texture_group(
+            device,
+            texture_layout,
+            item_glint_texture.handle(),
             glint_sampler,
         );
 
@@ -3957,6 +3977,9 @@ impl EntityRenderer {
             glint_texture,
             glint_sampler,
             glint_set,
+            item_glint_pipeline,
+            item_glint_texture,
+            item_glint_set,
             pipeline,
             culled_pipeline,
             translucent_culled_pipeline,
@@ -4891,7 +4914,18 @@ impl EntityRenderer {
         // part) becomes a single instanced draw. `vis`/`groups` borrow self.mobs
         // and are dropped at the end of this block, before the buffer write below.
         let mut instances = Instances::default();
-        let (opaque, armor, armor_glint, culled, translucent, body, eyes, swirl, outline) = {
+        let (
+            opaque,
+            armor,
+            armor_glint,
+            model_glint,
+            culled,
+            translucent,
+            body,
+            eyes,
+            swirl,
+            outline,
+        ) = {
             let mut vis: Vec<VisEntity> = Vec::new();
             for info in entities {
                 let Some(entry) = self.mobs.get(&info.entity_kind) else {
@@ -4929,6 +4963,8 @@ impl EntityRenderer {
             // created by an earlier entity draw a later entity's lower layer
             // after its upper one.
             let mut opaque = VariantGroups::default();
+            // The models that glint themselves, again with the glint.
+            let mut foil = VariantGroups::default();
             let mut culled = VariantGroups::default();
             let mut translucent = VariantGroups::default();
             // An invisible glowing mob's parts that only leave their outline.
@@ -4965,7 +5001,12 @@ impl EntityRenderer {
                             (vi, member.1, NO_OVERLAY, [slide, 0.0]),
                         ));
                     }
-                    Route::Draw => opaque.add(base, texture_set, member),
+                    Route::Draw => {
+                        opaque.add(base, texture_set, member);
+                        if v.info.foil {
+                            foil.add(base, self.item_glint_set, member);
+                        }
+                    }
                     Route::Translucent => {
                         let [r, g, b, a] = v.info.base_tint;
                         translucent.add(
@@ -5019,6 +5060,7 @@ impl EntityRenderer {
             // the swirl through `gbuffers_entities`.
             let opaque = opaque.emit(&vis, &mut instances, false);
             let (armor, armor_glint) = self.collect_armor_draws(&vis, &mut instances);
+            let model_glint = foil.emit(&vis, &mut instances, false);
             let culled = culled.emit(&vis, &mut instances, false);
             let translucent = translucent.emit(&vis, &mut instances, false);
             let body = body.emit(&vis, &mut instances, false);
@@ -5039,6 +5081,7 @@ impl EntityRenderer {
                 opaque,
                 armor,
                 armor_glint,
+                model_glint,
                 culled,
                 translucent,
                 body,
@@ -5106,6 +5149,14 @@ impl EntityRenderer {
                 buffer,
                 self.glint_pipeline,
                 &armor_glint,
+                count,
+            );
+            self.record_pass(
+                pass,
+                frame,
+                buffer,
+                self.item_glint_pipeline,
+                &model_glint,
                 count,
             );
         }
@@ -5213,7 +5264,9 @@ impl EntityRenderer {
             self.eyes_pipeline,
             self.swirl_pipeline,
         ] = create_pipelines(device, targets, self.pipeline_layout);
-        self.glint_pipeline = create_glint_pipeline(device, targets, self.pipeline_layout);
+        self.glint_pipeline = create_glint_pipeline(device, targets, self.pipeline_layout, false);
+        self.item_glint_pipeline =
+            create_glint_pipeline(device, targets, self.pipeline_layout, true);
     }
 
     fn destroy_pipelines(&self, device: &rhi::backend::Device) {
@@ -5228,6 +5281,7 @@ impl EntityRenderer {
             pipeline.destroy(device);
         }
         self.glint_pipeline.destroy(device);
+        self.item_glint_pipeline.destroy(device);
     }
 
     pub fn destroy(&mut self, device: &rhi::backend::Device) {
@@ -5282,6 +5336,8 @@ impl EntityRenderer {
             pipeline.destroy(device);
         }
         self.glint_set.destroy(device);
+        self.item_glint_set.destroy(device);
+        std::mem::take(&mut self.item_glint_texture).destroy(device);
         self.glint_sampler.destroy(device);
         std::mem::take(&mut self.glint_texture).destroy(device);
         self.pipeline_layout.destroy(device);
@@ -5986,13 +6042,20 @@ fn create_outline_pipeline(
     )
 }
 
-/// Vanilla's `GLINT` pipeline for a worn piece: its mesh again where it is
-/// already drawn (at equal depth, unwritten), added to what is there.
+/// Vanilla's `GLINT` pipeline for a worn piece, or (`item`) for a model
+/// that glints itself: the mesh again where it is already drawn (at equal
+/// depth, unwritten), added to what is there.
 fn create_glint_pipeline(
     device: &rhi::backend::Device,
     targets: rhi::backend::PipelineTargets,
     layout: rhi::backend::PipelineLayout,
+    item: bool,
 ) -> rhi::backend::RenderPipeline {
+    let vertex_shader: rhi::Shader = if item {
+        shader::include_shader!("entity_glint_item.vert")
+    } else {
+        shader::include_shader!("entity_glint.vert")
+    };
     rhi::backend::create_render_pipeline(
         device,
         targets,
@@ -6007,7 +6070,7 @@ fn create_glint_pipeline(
             blend: Some(rhi::BlendState::GLINT),
             ..rhi::RenderPipelineDesc::new(
                 "entity glint",
-                shader::include_shader!("entity_glint.vert"),
+                vertex_shader,
                 shader::include_shader!("item_glint.frag"),
                 &INSTANCED_BUFFERS,
             )

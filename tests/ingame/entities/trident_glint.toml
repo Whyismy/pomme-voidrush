@@ -1,0 +1,42 @@
+# A thrown trident stuck in the ground glints when it is enchanted. (The
+# game only marks a trident as glinting when it is thrown, not when one is
+# summoned, so the player throws it.)
+
+[[step]]
+chat = "/tp @s 2600.5 -60 600.5 0 35"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+chat = "/item replace entity @s weapon.mainhand with minecraft:trident[minecraft:enchantments={\"minecraft:impaling\":1}]"
+
+[[step]]
+wait_ms = 500
+
+[[step]]
+mouse_down = "right"
+
+[[step]]
+wait_ms = 900
+
+[[step]]
+mouse_up = "right"
+
+[[step]]
+wait_ms = 2500
+
+[[step]]
+press = { action = "key.toggleGui" }
+
+[[step]]
+wait_ms = 300
+
+[[step]]
+screenshot = "tridents"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "tridents_later"

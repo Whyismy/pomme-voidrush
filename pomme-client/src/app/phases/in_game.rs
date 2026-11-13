@@ -4638,6 +4638,7 @@ pub fn update_game(
                     },
                     armor: e.armor.clone(),
                     elytra_rot: e.elytra.at(partial_tick),
+                    foil: false,
                     // `AvatarRenderer`: only players lie along their glide.
                     fall_flying: (e.is_fall_flying
                         && matches!(e.entity_type, EntityKind::Player | EntityKind::Mannequin))
@@ -4935,6 +4936,7 @@ pub fn update_game(
                 head_y_rot_deg: 180.0,
                 body_y_rot_deg: 180.0,
                 variant_index: u32::from(arrow.tipped),
+                foil: arrow.foil,
                 body_transform: Some(
                     glam::Mat4::from_rotation_y((y_rot - 90.0).to_radians())
                         * glam::Mat4::from_rotation_z(x_rot.to_radians())

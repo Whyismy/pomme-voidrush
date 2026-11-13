@@ -28,6 +28,8 @@ pub struct Arrow {
     pub in_ground: bool,
     /// `Arrow.ID_EFFECT_COLOR` isn't -1: a tipped arrow.
     pub tipped: bool,
+    /// `ThrownTrident.ID_FOIL`: an enchanted trident, which glints.
+    pub foil: bool,
 }
 
 /// The kinds [`ArrowStore`] tracks: arrows, and thrown tridents, which fly
@@ -68,6 +70,7 @@ impl ArrowStore {
                 prev_x_rot: x_rot,
                 in_ground: false,
                 tipped: false,
+                foil: false,
             },
         );
     }
@@ -108,6 +111,9 @@ impl ArrowStore {
             (10, super::MetaValue::Bool(in_ground)) => arrow.in_ground = *in_ground,
             (11, super::MetaValue::Int(color)) if arrow.kind == EntityKind::Arrow => {
                 arrow.tipped = *color != -1;
+            }
+            (12, super::MetaValue::Bool(foil)) if arrow.kind == EntityKind::Trident => {
+                arrow.foil = *foil;
             }
             _ => {}
         }

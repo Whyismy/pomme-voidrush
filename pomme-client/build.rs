@@ -86,6 +86,7 @@ fn main() {
         "atlas_sprite.glsl",
         "item_tint.glsl",
         "item_instance.glsl",
+        "entity_glint.glsl",
         "lightmap.glsl",
         "light.glsl",
     ] {
@@ -121,6 +122,7 @@ fn main() {
         ("entity.vert", shaderc::ShaderKind::Vertex),
         ("entity.frag", shaderc::ShaderKind::Fragment),
         ("entity_glint.vert", shaderc::ShaderKind::Vertex),
+        ("entity_glint_item.vert", shaderc::ShaderKind::Vertex),
         ("entity_outline.frag", shaderc::ShaderKind::Fragment),
         ("entity_sobel.frag", shaderc::ShaderKind::Fragment),
         (
