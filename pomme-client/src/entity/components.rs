@@ -178,6 +178,17 @@ pub struct LookDirection {
 }
 
 impl LookDirection {
+    /// Vanilla `Entity.lookAt`: the look from `from` toward `to`.
+    pub fn toward(from: DVec3, to: DVec3) -> Self {
+        let delta = to - from;
+        let flat = delta.x.hypot(delta.z);
+        let wrap = |degrees: f32| (degrees + 180.0).rem_euclid(360.0) - 180.0;
+        Self::new(
+            wrap(delta.z.atan2(delta.x).to_degrees() as f32 - 90.0),
+            wrap(-(delta.y.atan2(flat).to_degrees() as f32)),
+        )
+    }
+
     pub fn new(y_rot_deg: f32, x_rot_deg: f32) -> Self {
         Self {
             y_rot_deg,
@@ -243,5 +254,47 @@ mod tests {
         }
         let mid = Position::new(0.0, 0.0, 0.0).lerp(Position::new(2.0, -4.0, 6.0), 0.5);
         assert_eq!(mid, Position::new(1.0, -2.0, 3.0));
+    }
+}
+
+#[cfg(test)]
+mod look_toward_tests {
+    use glam::dvec3;
+
+    use super::LookDirection;
+
+    /// South is yaw 0 and west 90; up is a negative pitch.
+    #[test]
+    fn a_look_points_at_its_target() {
+        let from = dvec3(0.5, 64.0, 0.5);
+        let close = |look: LookDirection, yaw: f32, pitch: f32| {
+            assert!((look.y_rot_deg() - yaw).abs() < 1e-3, "{look:?}");
+            assert!((look.x_rot_deg() - pitch).abs() < 1e-3, "{look:?}");
+        };
+        close(
+            LookDirection::toward(from, from + dvec3(0.0, 0.0, 5.0)),
+            0.0,
+            0.0,
+        );
+        close(
+            LookDirection::toward(from, from + dvec3(-5.0, 0.0, 0.0)),
+            90.0,
+            0.0,
+        );
+        close(
+            LookDirection::toward(from, from + dvec3(5.0, 0.0, 0.0)),
+            -90.0,
+            0.0,
+        );
+        close(
+            LookDirection::toward(from, from + dvec3(0.0, 5.0, 5.0)),
+            0.0,
+            -45.0,
+        );
+        close(
+            LookDirection::toward(from, from + dvec3(0.0, -5.0, -5.0)),
+            -180.0,
+            45.0,
+        );
     }
 }

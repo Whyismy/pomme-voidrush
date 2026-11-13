@@ -180,6 +180,19 @@ pub enum NetworkEvent {
         x_rot: f32,
         relative_x: bool,
     },
+    /// `ClientboundPlayerLookAtPacket`: face a point, or an entity.
+    PlayerLookAt {
+        from_eyes: bool,
+        target: glam::DVec3,
+        entity: Option<(i32, bool)>,
+    },
+    /// `ClientboundBlockDestructionPacket`: entity `id` has the block at
+    /// `pos` broken to a stage (0 to 9), or no longer.
+    BlockDestruction {
+        id: i32,
+        pos: BlockPos,
+        progress: u8,
+    },
     PlayerHealth {
         health: f32,
         food: u32,
@@ -244,6 +257,11 @@ pub enum NetworkEvent {
         container_id: i32,
         id: u16,
         value: u16,
+    },
+    /// An entity status the client answers with particles or a sound.
+    EntityStatus {
+        id: i32,
+        status: crate::entity::status::EntityStatus,
     },
     /// `ClientboundOpenBookPacket`: read the book in that hand.
     OpenBook {

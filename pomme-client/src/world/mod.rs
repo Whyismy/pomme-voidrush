@@ -1,5 +1,6 @@
 pub mod beacon;
 pub mod block;
+pub mod block_breaking;
 pub mod block_entity;
 pub mod block_entity_anim;
 pub mod book;

@@ -1,0 +1,49 @@
+# Entity status events: a dead mob's puff of smoke, and the totem of
+# undying saving the player.
+
+[[step]]
+chat = "/tp @s 3800.5 -60 600.5 0 5"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+chat = "/summon minecraft:zombie 3800.5 -60 604.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f],Tags:[\"doomed\"]}"
+
+[[step]]
+expect = { entity = "zombie" }
+
+[[step]]
+chat = "/kill @e[tag=doomed]"
+
+# The death takes twenty ticks; the puff follows it.
+[[step]]
+wait_ms = 1250
+
+[[step]]
+screenshot = "death_poof"
+
+[[step]]
+chat = "/item replace entity @s weapon.offhand with minecraft:totem_of_undying"
+
+[[step]]
+chat = "/gamemode survival"
+
+[[step]]
+wait_ms = 400
+
+[[step]]
+chat = "/damage @s 1000 minecraft:generic"
+
+[[step]]
+wait_ms = 900
+
+[[step]]
+screenshot = "totem"
+
+# The totem leaves the player alive and regenerating.
+[[step]]
+expect = { player = { effect = "regeneration" } }
+
+[[step]]
+chat = "/gamemode creative"

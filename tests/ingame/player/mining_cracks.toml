@@ -1,0 +1,38 @@
+# Breaking a block by hand shows its cracks growing over it.
+
+[[step]]
+chat = "/tp @s 3900.5 -60 600.5 0 10"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+chat = "/fill 3899 -60 602 3901 -58 602 minecraft:stone"
+
+[[step]]
+chat = "/gamemode survival"
+
+[[step]]
+look_at = [3900.5, -58.9, 602.0]
+
+[[step]]
+wait_ms = 500
+
+[[step]]
+mouse_down = "left"
+
+# Stone takes seven and a half seconds by hand; this is about half way.
+[[step]]
+wait_ms = 3800
+
+[[step]]
+screenshot = "cracks"
+
+[[step]]
+mouse_up = "left"
+
+[[step]]
+expect = { block = "stone", at = [3900, -59, 602] }
+
+[[step]]
+chat = "/gamemode creative"

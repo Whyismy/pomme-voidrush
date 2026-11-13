@@ -263,6 +263,12 @@ pub struct GameState {
     pub sign_edit: Option<crate::ui::sign_edit::SignEditState>,
     /// The book being read, while its screen is up.
     pub book_view: Option<crate::ui::book::BookViewState>,
+    /// The blocks others are breaking, and how far.
+    pub block_breaking: crate::world::block_breaking::BlockBreaking,
+    /// Totem particles still being thrown from entities.
+    pub tracking_emitters: Vec<crate::entity::status::TrackingEmitter>,
+    /// The item swelling on screen after a totem saved the player.
+    pub item_activation: Option<crate::entity::status::ItemActivation>,
     pub chat: ChatState,
     pub server_dialog: Option<crate::ui::server_dialog::ServerDialogState>,
     pub server_links: Vec<crate::ui::server_dialog::ServerLink>,
@@ -699,6 +705,9 @@ impl GameState {
             merchant: Default::default(),
             sign_edit: None,
             book_view: None,
+            block_breaking: Default::default(),
+            tracking_emitters: Vec::new(),
+            item_activation: None,
             chat: {
                 let mut chat = ChatState::new();
                 chat.set_options(chat_options);
@@ -3646,6 +3655,27 @@ pub fn update_game(
         );
     }
 
+    // `GameRenderer.renderItemActivationAnimation`: the totem that saved
+    // the player, swelling and spinning about the middle of the screen. A
+    // flat item's turn about the upright shows as its width.
+    if let Some(activation) = &game.item_activation {
+        let (drift, size, facing) = activation.frame(partial_tick);
+        let quarter = |pixels: f32| (pixels / gs / 4.0).floor() * gs;
+        let x = sw / 2.0 + activation.offset.0 * quarter(sw) * drift;
+        let y = sh / 2.0 + activation.offset.1 * quarter(sh) * drift;
+        let height = size.abs() * gs;
+        let width = height * facing.abs();
+        if width >= 1.0 {
+            common::push_item_glyph(
+                &mut elements,
+                [x - width / 2.0, y - height / 2.0, width, height],
+                crate::player::inventory::item_resource_name(activation.stack.kind),
+                Some(&activation.stack),
+                true,
+            );
+        }
+    }
+
     if let Some(view) = &mut game.book_view {
         use crate::ui::book::BookButton;
         let r = &gfx.renderer;
@@ -4833,10 +4863,31 @@ pub fn update_game(
 
     let swing_progress = HANDS.map(|hand| game.interaction.swing_progress(hand, partial_tick));
     let use_anim = HANDS.map(|hand| game.interaction.use_animation(hand, partial_tick));
-    let destroy_info = game.interaction.destroy_stage().map(|(pos, stage)| {
-        let state = game.chunk_store.get_block_state(pos.x, pos.y, pos.z);
-        (pos, stage, state)
-    });
+    // `LevelRenderer.renderBlockDestroyAnimation`: every block being broken
+    // within 32 blocks, the player's own among them, each at its furthest
+    // stage.
+    let destroy_info = {
+        let mut stages = game.block_breaking.stages();
+        if let Some((pos, stage)) = game.interaction.destroy_stage() {
+            let shown = stages.entry(pos).or_insert(stage);
+            *shown = (*shown).max(stage);
+        }
+        let eye = gfx.renderer.camera_render_position();
+        stages
+            .into_iter()
+            .filter(|(pos, _)| {
+                let block = glam::dvec3(f64::from(pos.x), f64::from(pos.y), f64::from(pos.z));
+                block.distance_squared(eye) <= 1024.0
+            })
+            .map(|(pos, stage)| {
+                (
+                    pos,
+                    stage,
+                    game.chunk_store.get_block_state(pos.x, pos.y, pos.z),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
 
     use crate::entity::glowing::{appears_glowing, outline_color, scoreboard_name};
     use crate::renderer::pipelines::entity_renderer::Visibility;

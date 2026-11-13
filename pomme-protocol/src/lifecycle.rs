@@ -28,6 +28,14 @@ pub enum LifecyclePacket {
         x_rot: f32,
         relative_x: bool,
     },
+    /// The player is turned to face `target`, or the entity given (its id,
+    /// and whether its eyes rather than its feet), from its own eyes or
+    /// feet.
+    PlayerLookAt {
+        from_eyes: bool,
+        target: [f64; 3],
+        entity: Option<(i32, bool)>,
+    },
     SetTime {
         game_time: i64,
         /// `world_clock` registry ids and their states.
@@ -103,6 +111,19 @@ pub fn read(name: &str, r: &mut Reader) -> Option<DecodeResult<LifecyclePacket>>
                 id: r.varint()?,
                 change: position_move_rotation(r)?,
                 relative: Relative::from_bits(r.i32()?),
+            })
+        },
+        // ClientboundPlayerLookAtPacket.java:47-57; the anchors are
+        // `EntityAnchorArgument.Anchor`'s FEET and EYES.
+        "player_look_at" => |r| {
+            Ok(LifecyclePacket::PlayerLookAt {
+                from_eyes: r.varint()? == 1,
+                target: [r.f64()?, r.f64()?, r.f64()?],
+                entity: if r.bool()? {
+                    Some((r.var_i32()?, r.varint()? == 1))
+                } else {
+                    None
+                },
             })
         },
         // ClientboundPlayerRotationPacket.java:16

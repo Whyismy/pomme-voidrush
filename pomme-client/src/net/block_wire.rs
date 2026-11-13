@@ -86,6 +86,16 @@ fn dispatch(
                 },
             );
         }
+        BlockPacket::Destruction { id, pos, progress } => {
+            send_ordered(
+                event_tx,
+                NetworkEvent::BlockDestruction {
+                    id,
+                    pos: block_pos(pos),
+                    progress,
+                },
+            );
+        }
         BlockPacket::OpenSignEditor { pos, front } => {
             send_ordered(
                 event_tx,

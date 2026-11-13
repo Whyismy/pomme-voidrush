@@ -1383,6 +1383,8 @@ impl AppCore {
         game.game_mode_switcher = None;
         game.sign_edit = None;
         game.book_view = None;
+        game.tracking_emitters.clear();
+        game.item_activation = None;
         game.server_dialog = None;
 
         if let Some(message) = message {
@@ -2015,6 +2017,41 @@ impl AppCore {
                         // low until the first in-game frame.
                         renderer.reset_camera(game.player.eye_pos(), game.player.look_dir);
                     }
+                }
+                NetworkEvent::BlockDestruction { id, pos, progress } => {
+                    game.block_breaking.set(id, pos, progress, game.tick_count);
+                }
+                NetworkEvent::PlayerLookAt {
+                    from_eyes,
+                    target,
+                    entity,
+                } => {
+                    // `ClientboundPlayerLookAtPacket.getPosition`: the entity's
+                    // feet or eyes where it is known here, else the point.
+                    let target = entity
+                        .and_then(|(id, eyes)| {
+                            let entity = game.entity_store.living.get(&id)?;
+                            let feet: glam::DVec3 = entity.position.into();
+                            let rise = if eyes {
+                                crate::entity::dimensions::EntityDimensions::eye_height(
+                                    entity.entity_type,
+                                )
+                            } else {
+                                0.0
+                            };
+                            Some(feet + glam::dvec3(0.0, f64::from(rise), 0.0))
+                        })
+                        .unwrap_or(target);
+                    let from: glam::DVec3 = if from_eyes {
+                        game.player.eye_pos().into()
+                    } else {
+                        game.player.position.into()
+                    };
+                    // `Entity.lookAt`: the look set, and the old look with it.
+                    let look = crate::entity::components::LookDirection::toward(from, target);
+                    game.player.look_dir = look;
+                    game.player.prev_look_dir = look;
+                    renderer.reset_camera(game.player.eye_pos(), look);
                 }
                 NetworkEvent::PlayerRotation {
                     y_rot,
@@ -3568,10 +3605,27 @@ impl AppCore {
                 }
                 NetworkEvent::EntityDamaged { id } => hurt_entity(game, id, None),
                 NetworkEvent::HurtAnimation { id, yaw } => hurt_entity(game, id, Some(yaw)),
+                NetworkEvent::EntityStatus { id, status } => {
+                    super::entity_status::apply(
+                        &self.audio,
+                        game,
+                        renderer.camera_render_position(),
+                        id,
+                        status,
+                        self.input.selected_slot(),
+                    );
+                }
                 NetworkEvent::EntityDied { id } => {
-                    // TODO: vanilla's event 3 plays every living entity's
-                    // getDeathSound client-side; pomme has no per-kind death
-                    // sound table yet, so only the player's is played here.
+                    // Event 3 on a snowball or an egg is its burst.
+                    super::entity_status::projectile_break(
+                        game,
+                        renderer.camera_render_position(),
+                        id,
+                    );
+                    // Event 3 plays `getDeathSound` through `Entity.playSound`,
+                    // which on the client sounds only for the local player
+                    // (`ClientLevel.playSeededSound`); a mob's death sound is
+                    // the server's own broadcast.
                     if id == game.player.entity_id {
                         let pitch = (fastrand::f32() - fastrand::f32()) * 0.2 + 1.0;
                         self.audio.play_world_sound(
@@ -3754,6 +3808,7 @@ impl AppCore {
                     game.effect_clouds.clear();
                     game.leashes.clear();
                     game.firework_twinkles.clear();
+                    game.block_breaking.clear();
                     game.pot_wobbles.clear();
                     game.arrows.clear();
                     game.fishing_hooks.clear();
@@ -3985,6 +4040,8 @@ impl AppCore {
         // `FireworkParticles.Starter.tick`: a twinkling firework's last
         // sound, the far one from sixteen blocks off.
         let camera = renderer.camera_render_position();
+        super::entity_status::tick(game, camera);
+        game.block_breaking.tick(game.tick_count);
         let audio = &self.audio;
         game.firework_twinkles.retain_mut(|(at, ticks)| {
             *ticks = ticks.saturating_sub(1);

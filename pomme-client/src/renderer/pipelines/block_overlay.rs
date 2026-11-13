@@ -17,6 +17,9 @@ const STAGE_COUNT: u32 = 10;
 /// Vertex-buffer capacity (a multiple of 6). Block models stay well under this;
 /// an oversized model is capped with a warning rather than truncated silently.
 const MAX_OVERLAY_VERTS: usize = 1536;
+/// How many models' worth of vertices a frame's buffer holds: every block
+/// being broken in view gets its cracks, up to this many.
+const MAX_OVERLAYS: usize = 16;
 
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -44,6 +47,9 @@ pub struct BlockOverlayPipeline {
     vertex_buffers: Vec<rhi::backend::Buffer>,
     atlas: rhi::backend::Texture,
     atlas_sampler: rhi::backend::Sampler,
+    /// Vertices written to this frame's buffer so far, where the next
+    /// overlay's go.
+    cursor: usize,
 }
 
 impl BlockOverlayPipeline {
@@ -85,7 +91,7 @@ impl BlockOverlayPipeline {
                 position: [0.0; 3],
                 uv: [0.0; 2],
             };
-            MAX_OVERLAY_VERTS
+            MAX_OVERLAY_VERTS * MAX_OVERLAYS
         ];
         let bytes = bytemuck::cast_slice::<OverlayVertex, u8>(&placeholder);
         let vertex_buffers = (0..MAX_FRAMES_IN_FLIGHT)
@@ -110,10 +116,13 @@ impl BlockOverlayPipeline {
             vertex_buffers,
             atlas,
             atlas_sampler,
+            cursor: 0,
         }
     }
 
+    /// Once a frame, before its overlays are drawn.
     pub fn update_camera(&mut self, frame: usize, uniform: &CameraUniform) {
+        self.cursor = 0;
         let bytes = bytemuck::bytes_of(uniform);
         self.camera_buffers[frame].write(bytes);
     }
@@ -133,9 +142,14 @@ impl BlockOverlayPipeline {
         if vertices.is_empty() {
             return;
         }
-        // TODO: one overlay per frame; multiple draws would need a write cursor.
+        // Each overlay's vertices follow the last's in the frame's buffer.
+        let first = self.cursor;
+        if first + vertices.len() > MAX_OVERLAY_VERTS * MAX_OVERLAYS {
+            return;
+        }
+        self.cursor += vertices.len();
         let bytes = bytemuck::cast_slice::<OverlayVertex, u8>(&vertices);
-        self.vertex_buffers[frame].write(bytes);
+        self.vertex_buffers[frame].write_at(first * size_of::<OverlayVertex>(), bytes);
 
         pass.set_pipeline(&self.pipeline);
         let push = OverlayPush {
@@ -145,7 +159,7 @@ impl BlockOverlayPipeline {
         pass.set_push_constants(rhi::ShaderStages::FRAGMENT, 0, bytemuck::bytes_of(&push));
         pass.set_bind_groups(0, &[self.camera_sets[frame], self.texture_set]);
         pass.set_vertex_buffer(0, self.vertex_buffers[frame].handle());
-        pass.draw(vertices.len() as u32, 1, 0, 0);
+        pass.draw(vertices.len() as u32, 1, first as u32, 0);
     }
 
     pub fn recreate_pipeline(

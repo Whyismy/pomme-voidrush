@@ -43,6 +43,13 @@ pub enum BlockPacket {
         data: i32,
         global: bool,
     },
+    /// Someone (the entity `id`) is breaking the block at `pos`: a stage
+    /// from 0 to 9, anything else for no longer.
+    Destruction {
+        id: i32,
+        pos: BlockPos,
+        progress: u8,
+    },
     /// The server has the client write on a side of the sign at `pos`.
     OpenSignEditor {
         pos: BlockPos,
@@ -107,6 +114,14 @@ pub fn read(name: &str, r: &mut Reader) -> Option<DecodeResult<BlockPacket>> {
                 pos: r.block_pos()?,
                 data: r.i32()?,
                 global: r.bool()?,
+            })
+        },
+        // ClientboundBlockDestructionPacket.java:24-26
+        "block_destruction" => |r| {
+            Ok(BlockPacket::Destruction {
+                id: r.var_i32()?,
+                pos: r.block_pos()?,
+                progress: r.u8()?,
             })
         },
         // ClientboundOpenSignEditorPacket.java:22-25

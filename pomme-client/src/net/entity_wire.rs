@@ -156,8 +156,10 @@ fn event(packet: EntityPacket) -> Option<NetworkEvent> {
 }
 
 /// `Entity.handleEntityEvent`'s ids the client acts on.
-// TODO: event 60 (`makePoofParticles`) when a mob's death clock hits 20.
 fn entity_event(id: i32, event: i8) -> Option<NetworkEvent> {
+    if let Some(status) = crate::entity::status::EntityStatus::from_event(event) {
+        return Some(NetworkEvent::EntityStatus { id, status });
+    }
     Some(match event {
         1 => NetworkEvent::RabbitJump { id },
         3 => NetworkEvent::EntityDied { id },

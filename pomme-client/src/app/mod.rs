@@ -1,5 +1,6 @@
 mod copper_golem;
 pub mod core;
+mod entity_status;
 pub mod input;
 mod install;
 pub mod level_load;

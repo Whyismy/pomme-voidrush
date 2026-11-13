@@ -205,7 +205,7 @@ enum RenderMode<'a> {
         shown_hands: HandRenderSelection,
         player_team_color: Option<u32>,
         render_first_person_hand: bool,
-        destroy_info: Option<(BlockPos, u32, BlockState)>,
+        destroy_info: Vec<(BlockPos, u32, BlockState)>,
         show_chunk_borders: bool,
         sky: SkyState,
         shadows: ShadowScene<'a>,
@@ -1589,7 +1589,7 @@ impl Renderer {
         shown_hands: HandRenderSelection,
         player_team_color: Option<u32>,
         render_first_person_hand: bool,
-        destroy_info: Option<(BlockPos, u32, BlockState)>,
+        destroy_info: Vec<(BlockPos, u32, BlockState)>,
         show_chunk_borders: bool,
         mut sky: SkyState,
         shadows: ShadowScene<'_>,
@@ -2977,7 +2977,7 @@ impl Renderer {
                     let anchor = self.camera.anchor();
                     let eye = self.camera_render_position();
 
-                    if let Some((block_pos, stage, state)) = destroy_info {
+                    for (block_pos, stage, state) in destroy_info {
                         self.block_overlay_pipeline.draw(
                             &mut pass,
                             frame,

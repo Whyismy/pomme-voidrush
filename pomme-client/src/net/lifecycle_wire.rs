@@ -165,6 +165,18 @@ fn handle(
                 relative,
             },
         ),
+        LifecyclePacket::PlayerLookAt {
+            from_eyes,
+            target,
+            entity,
+        } => send_ordered(
+            event_tx,
+            NetworkEvent::PlayerLookAt {
+                from_eyes,
+                target: glam::DVec3::from_array(target),
+                entity,
+            },
+        ),
         LifecyclePacket::PlayerRotation {
             y_rot,
             relative_y,
