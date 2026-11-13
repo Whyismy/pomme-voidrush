@@ -1,0 +1,27 @@
+# `/transfer` hands the client on to another server (here its own): it
+# leaves, connects again as a transfer, and is back in the world.
+
+[[step]]
+chat = "/tp @s 4800.5 -60 800.5 0 0"
+
+[[step]]
+expect = { player = { z_between = [800.0, 801.0] } }
+
+[[step]]
+chat = "/transfer 127.0.0.1 {server_port}"
+
+[[step]]
+wait_ms = 6000
+
+[[step]]
+chat = "/tp @s 4800.5 -60 810.5 0 0"
+
+[[step]]
+expect = { player = { z_between = [810.0, 811.0] } }
+timeout_ms = 15000
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "back"

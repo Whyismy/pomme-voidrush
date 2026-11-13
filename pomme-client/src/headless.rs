@@ -82,6 +82,7 @@ pub fn run(
             view_distance: rd as u8,
             chat_options,
             skin_options,
+            transferred: false,
         },
     );
     let mut game = GameState::new(

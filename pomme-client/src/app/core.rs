@@ -988,6 +988,8 @@ pub struct AppCore {
     pub resource_packs: ResourcePackManager,
     pub(crate) block_definitions: Rc<BlockDefinitions>,
     pub pending_pack_download: Option<PendingPackDownload>,
+    /// The server a `transfer` packet named, until the phase acts on it.
+    pub pending_transfer: Option<(String, u16)>,
     /// A resource pack being downloaded or loaded, for the bar shown
     /// meanwhile; and the share of it the bar shows, eased toward it.
     pub pack_progress: Option<Arc<crate::resource_pack::PackProgress>>,
@@ -1173,6 +1175,7 @@ impl AppCore {
             pack_progress: None,
             pack_bar: 0.0,
             pending_pack_acks: Vec::new(),
+            pending_transfer: None,
             pending_sounds: None,
             asset_index,
             audio,
@@ -3868,6 +3871,10 @@ impl AppCore {
                     if removed {
                         self.begin_live_resource_reload(renderer);
                     }
+                }
+                NetworkEvent::Transfer { host, port } => {
+                    tracing::info!("Transferred to {host}:{port}");
+                    self.pending_transfer = Some((host, port));
                 }
                 NetworkEvent::Reconfiguring => {
                     tracing::info!("Server re-entered configuration");

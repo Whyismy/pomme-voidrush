@@ -450,6 +450,7 @@ fn prepare_server(dir: &Path, port: u16) -> Result<(), String> {
          view-distance=4\n\
          simulation-distance=4\n\
          motd=pomme in-game tests\n\
+         accepts-transfers=true\n\
          {extra}"
     );
     let uuid = offline_uuid(PLAYER);
@@ -528,7 +529,8 @@ fn run_script(
         .arg("--harness-script")
         .arg(script)
         .arg("--harness-out")
-        .arg(&out);
+        .arg(&out)
+        .env("POMME_INGAME_SERVER_PORT", port.to_string());
     // The client keeps out of the way of whoever is at the machine (its
     // window off the screen and unfocused) unless asked to show itself.
     if std::env::var_os("POMME_INGAME_FOREGROUND").is_none() {

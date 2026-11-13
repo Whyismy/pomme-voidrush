@@ -428,6 +428,11 @@ impl Script {
     pub fn tick(&mut self, core: &mut AppCore, phase: &mut AppPhase) -> Option<i32> {
         if !matches!(phase, AppPhase::InGame { .. }) {
             let joined = self.next > 0 || self.step_started.is_some();
+            // A server that hands the client on to another has it connect
+            // again: the script waits for the world to come back.
+            if joined && matches!(phase, AppPhase::Connecting { .. }) {
+                return None;
+            }
             if joined {
                 return Some(self.fail(format!("left the game ({})", exec::phase_name(phase))));
             }

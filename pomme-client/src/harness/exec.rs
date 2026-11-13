@@ -36,7 +36,12 @@ pub fn run(command: &Command, core: &mut AppCore, phase: &mut AppPhase) -> Outco
     Outcome::Done(match command {
         Command::Status => Ok(json!(name)),
         Command::Chat { text } => {
-            connection.packet_tx.send_chat(text.clone());
+            // `{server_port}` is the test server's own port, for a scene
+            // that sends the client back to it.
+            let port = std::env::var("POMME_INGAME_SERVER_PORT").unwrap_or_default();
+            connection
+                .packet_tx
+                .send_chat(text.replace("{server_port}", &port));
             Ok(Value::Null)
         }
         Command::OpenInventory | Command::CloseMenu => {

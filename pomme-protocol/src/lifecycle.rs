@@ -39,6 +39,20 @@ pub enum LifecyclePacket {
     AwardStats {
         stats: Vec<(u32, u32, i32)>,
     },
+    /// `ClientboundCookieRequestPacket`: the server asks for a cookie back.
+    CookieRequest {
+        key: String,
+    },
+    /// `ClientboundStoreCookiePacket`: a cookie for the client to keep.
+    StoreCookie {
+        key: String,
+        payload: Vec<u8>,
+    },
+    /// `ClientboundTransferPacket`: the server to connect to instead.
+    Transfer {
+        host: String,
+        port: u32,
+    },
     /// `ClientboundTickingStatePacket`: the ticks a second the server runs
     /// at, and whether it is frozen.
     TickingState {
@@ -176,6 +190,26 @@ pub fn read(name: &str, r: &mut Reader) -> Option<DecodeResult<LifecyclePacket>>
                 stats: r.list(usize::MAX, |r| {
                     Ok((r.varint()?, r.varint()?, r.varint()? as i32))
                 })?,
+            })
+        },
+        // ClientboundCookieRequestPacket.java:13
+        "cookie_request" => |r| {
+            Ok(LifecyclePacket::CookieRequest {
+                key: r.identifier()?.to_owned(),
+            })
+        },
+        // ClientboundStoreCookiePacket.java:16 (a payload of 5120 bytes at most)
+        "store_cookie" => |r| {
+            Ok(LifecyclePacket::StoreCookie {
+                key: r.identifier()?.to_owned(),
+                payload: r.byte_array(5120)?.to_vec(),
+            })
+        },
+        // ClientboundTransferPacket.java:11
+        "transfer" => |r| {
+            Ok(LifecyclePacket::Transfer {
+                host: r.utf(crate::codec::MAX_STRING_LENGTH)?.to_owned(),
+                port: r.varint()?,
             })
         },
         // ClientboundTickingStatePacket.java:16

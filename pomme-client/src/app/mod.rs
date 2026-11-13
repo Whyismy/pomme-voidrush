@@ -169,6 +169,54 @@ fn leave_world(
     }
 }
 
+/// Vanilla `ClientCommonPacketListenerImpl.handleTransfer`: this connection
+/// is dropped and another made to the server named, as a transfer; the
+/// cookies and the server's resource packs go with it.
+// TODO: a transfer that fails to connect says so as any connection does,
+// not with vanilla's `connect.failed.transfer`.
+fn transfer(
+    core: &mut AppCore,
+    mut gfx: Gfx,
+    connection: ConnectionHandle,
+    world: Option<World>,
+    host: String,
+    port: u16,
+) -> AppPhase {
+    if world.is_some() {
+        // Vanilla throws here, which ends the session the same way.
+        core.menu.show_disconnect(
+            "Cannot transfer to server from singleplayer".into(),
+            &core.input.key_bindings,
+        );
+        return leave_world(
+            core,
+            gfx,
+            Panorama::new(),
+            connection,
+            world,
+            AfterSaving::Menu,
+        );
+    }
+    drop(connection);
+    core.audio.stop_all_sounds();
+    gfx.renderer.clear_chunk_meshes();
+    let server = if host.contains(':') {
+        format!("[{host}]:{port}")
+    } else {
+        format!("{host}:{port}")
+    };
+    let mut connect_args = in_menu::connect_args(
+        core,
+        crate::net::connection::Transport::Remote {
+            server,
+            protocol: None,
+        },
+        core.user.username.clone(),
+    );
+    connect_args.transferred = true;
+    start_connecting(core, gfx, Panorama::new(), connect_args, None)
+}
+
 /// A launch straight into a world (vanilla `--quickPlay*`), skipping the
 /// title screen.
 pub enum QuickPlay {
@@ -188,6 +236,8 @@ fn start_connecting(
 ) -> AppPhase {
     let connect_phase = if world.is_some() {
         ConnectionPhase::StartingWorld
+    } else if connect_args.transferred {
+        ConnectionPhase::Transferring
     } else {
         ConnectionPhase::Connecting
     };
@@ -1148,6 +1198,9 @@ impl ApplicationHandler for App {
                                     AfterSaving::Menu,
                                 )
                             }
+                            ConnectingUpdateResult::Transfer { host, port } => {
+                                transfer(core, gfx, connection, world, host, port)
+                            }
                             ConnectingUpdateResult::JoinGame => {
                                 if let Some(p) = &mut core.presence {
                                     if world.is_some() {
@@ -1207,6 +1260,9 @@ impl ApplicationHandler for App {
                                     world,
                                     AfterSaving::Menu,
                                 )
+                            }
+                            GameUpdateResult::Transfer { host, port } => {
+                                transfer(core, gfx, connection, world, host, port)
                             }
                         }
                     }

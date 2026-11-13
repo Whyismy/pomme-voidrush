@@ -9,7 +9,14 @@ use crate::singleplayer::World;
 pub enum ConnectingUpdateResult {
     None,
     ManualDisconnect,
-    Disconnected { reason: String },
+    Disconnected {
+        reason: String,
+    },
+    /// The server handed the client on to another.
+    Transfer {
+        host: String,
+        port: u16,
+    },
     JoinGame,
 }
 
@@ -44,6 +51,9 @@ pub fn update_connecting(
         &gfx.window,
         game,
     );
+    if let Some((host, port)) = core.pending_transfer.take() {
+        return ConnectingUpdateResult::Transfer { host, port };
+    }
     if let Some(reason) = disconnect_reason {
         return ConnectingUpdateResult::Disconnected { reason };
     }
@@ -80,6 +90,8 @@ pub fn update_connecting(
     let status_text = match connect_phase {
         ConnectionPhase::StartingWorld | ConnectionPhase::Loading => "Loading terrain...",
         ConnectionPhase::Connecting => "Connecting to the server...",
+        ConnectionPhase::Transferring => crate::lang::translate("connect.transferring")
+            .unwrap_or("Transferring to new server..."),
     };
 
     if game.dialog_open() {

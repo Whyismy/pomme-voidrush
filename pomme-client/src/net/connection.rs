@@ -86,6 +86,9 @@ pub struct ConnectArgs {
     pub view_distance: u8,
     pub chat_options: crate::ui::chat::ChatOptions,
     pub skin_options: crate::ui::menu::SkinOptions,
+    /// Another server handed the client on to this one: the handshake says
+    /// so, and the cookies that server gave are kept for this one to ask for.
+    pub transferred: bool,
 }
 
 pub struct ConnectionHandle {
@@ -141,7 +144,17 @@ pub async fn connect_to_server(
         view_distance,
         chat_options,
         skin_options,
+        transferred,
     } = args;
+    // Vanilla `TransferState`: only a transfer brings cookies with it.
+    if !transferred {
+        super::cookies::clear();
+    }
+    let intention = if transferred {
+        ClientIntention::Transfer
+    } else {
+        ClientIntention::Login
+    };
 
     let (mut conn, wire) = match transport {
         Transport::Remote { server, protocol } => {
@@ -152,7 +165,7 @@ pub async fn connect_to_server(
             let wire = negotiate_wire_version(&server_addr, protocol).await?;
             select_block_protocol(&event_tx, wire);
             (
-                super::resolve::connect(&server_addr, ClientIntention::Login).await?,
+                super::resolve::connect(&server_addr, intention).await?,
                 wire,
             )
         }
@@ -475,8 +488,8 @@ async fn login_sequence(
             ClientboundLoginPacket::CookieRequest(p) => {
                 conn.write_packet(
                     azalea_protocol::packets::login::s_cookie_response::ServerboundCookieResponse {
+                        payload: super::cookies::get(&p.key.to_string()),
                         key: p.key,
-                        payload: None,
                     },
                 )
                 .await?;
@@ -748,12 +761,28 @@ async fn config_sequence(
                     conn,
                     ServerboundConfigPacket::CookieResponse(
                         s_cookie_response::ServerboundCookieResponse {
+                            payload: super::cookies::get(&p.key.to_string()),
                             key: p.key,
-                            payload: None,
                         },
                     ),
                 )
                 .await?;
+            }
+            ClientboundConfigPacket::StoreCookie(p) => {
+                super::cookies::store(&p.key.to_string(), p.payload);
+            }
+            // `ClientCommonPacketListenerImpl.handleTransfer`: the game
+            // thread drops this connection and makes the next; nothing more
+            // is read from this one.
+            ClientboundConfigPacket::Transfer(p) => {
+                send_ordered(
+                    event_tx,
+                    NetworkEvent::Transfer {
+                        host: p.host,
+                        port: p.port as u16,
+                    },
+                );
+                return std::future::pending().await;
             }
             ClientboundConfigPacket::ResourcePackPush(p) => {
                 tracing::info!(
@@ -1453,6 +1482,7 @@ mod tests {
                 view_distance: 8,
                 chat_options: crate::ui::chat::ChatOptions::default(),
                 skin_options: crate::ui::menu::SkinOptions::default(),
+                transferred: false,
             },
             event_tx,
             packet_tx,
@@ -1513,6 +1543,7 @@ mod tests {
                 view_distance: 8,
                 chat_options: crate::ui::chat::ChatOptions::default(),
                 skin_options: crate::ui::menu::SkinOptions::default(),
+                transferred: false,
             },
             event_tx,
             packet_tx.clone(),

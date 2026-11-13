@@ -76,6 +76,7 @@ pub fn connect_args(core: &AppCore, transport: Transport, username: String) -> C
         view_distance: core.view_distance(),
         chat_options: core.menu.chat_options,
         skin_options: core.menu.skin_options(),
+        transferred: false,
     }
 }
 

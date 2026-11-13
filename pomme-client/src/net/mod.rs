@@ -11,6 +11,7 @@ pub mod commands;
 pub mod conn;
 pub mod connection;
 mod container_wire;
+pub(crate) mod cookies;
 mod dialog;
 mod entity_data;
 mod entity_wire;
@@ -815,6 +816,12 @@ pub enum NetworkEvent {
     },
     ResourcePackPop {
         id: Option<uuid::Uuid>,
+    },
+    /// `ClientboundTransferPacket`: the server hands the client on to
+    /// another, which it connects to in this one's place.
+    Transfer {
+        host: String,
+        port: u16,
     },
     /// The server re-entered the configuration phase (a proxy transfer);
     /// world-scoped state resets like vanilla's `clearClientLevel`.

@@ -203,6 +203,25 @@ fn handle(
         LifecyclePacket::TickingStep { steps } => {
             send_ordered(event_tx, NetworkEvent::TickingStep { steps })
         }
+        // `ClientCommonPacketListenerImpl.handleRequestCookie`: what the
+        // key holds, or nothing.
+        LifecyclePacket::CookieRequest { key } => {
+            use azalea_protocol::packets::game::s_cookie_response::ServerboundCookieResponse;
+            sender.send(ServerboundGamePacket::CookieResponse(
+                ServerboundCookieResponse {
+                    payload: super::cookies::get(&key),
+                    key: Identifier::new(&key),
+                },
+            ));
+        }
+        LifecyclePacket::StoreCookie { key, payload } => super::cookies::store(&key, payload),
+        LifecyclePacket::Transfer { host, port } => send_ordered(
+            event_tx,
+            NetworkEvent::Transfer {
+                host,
+                port: port as u16,
+            },
+        ),
         LifecyclePacket::BorderInit {
             x,
             z,

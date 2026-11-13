@@ -1977,7 +1977,14 @@ fn aabb_in_frustum(mn: &[f32; 3], mx: &[f32; 3], planes: &[[f32; 4]; 6]) -> bool
 pub enum GameUpdateResult {
     None,
     ManualDisconnect,
-    Disconnected { reason: String },
+    Disconnected {
+        reason: String,
+    },
+    /// The server handed the client on to another.
+    Transfer {
+        host: String,
+        port: u16,
+    },
 }
 
 enum ResultKind {
@@ -2858,6 +2865,9 @@ pub fn update_game(
 
     let disconnect_reason =
         core.drain_network_events(connection, None, &mut gfx.renderer, &gfx.window, game);
+    if let Some((host, port)) = core.pending_transfer.take() {
+        return GameUpdateResult::Transfer { host, port };
+    }
     if let Some(reason) = disconnect_reason {
         return GameUpdateResult::Disconnected { reason };
     }

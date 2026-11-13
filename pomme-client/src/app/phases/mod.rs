@@ -100,6 +100,8 @@ pub enum ConnectionPhase {
     /// Waiting on the integrated server. Singleplayer only.
     StartingWorld,
     Connecting,
+    /// Connecting to the server another handed the client on to.
+    Transferring,
     Loading,
 }
 
