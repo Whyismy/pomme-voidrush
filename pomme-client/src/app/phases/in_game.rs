@@ -112,6 +112,7 @@ pub enum ContainerScreen {
     Crafter,
     Lectern,
     Beacon,
+    Loom,
     Anvil,
     Enchantment,
 }
@@ -135,6 +136,7 @@ impl ContainerScreen {
             Self::Crafter => ContainerKind::Crafter,
             Self::Lectern => ContainerKind::Lectern,
             Self::Beacon => ContainerKind::Beacon,
+            Self::Loom => ContainerKind::Loom,
             Self::Anvil => ContainerKind::Anvil,
             Self::Enchantment => ContainerKind::Enchantment,
         }
@@ -263,6 +265,8 @@ pub struct GameState {
     pub merchant: crate::ui::merchant::MerchantState,
     /// The powers picked on the open beacon's screen.
     pub beacon: crate::ui::beacon::BeaconState,
+    /// Where the open loom's pattern list is scrolled.
+    pub loom: crate::ui::loom::LoomState,
     /// The sign being written on, while its editing screen is up.
     pub sign_edit: Option<crate::ui::sign_edit::SignEditState>,
     /// The book being read, while its screen is up.
@@ -715,6 +719,7 @@ impl GameState {
             menu_list: Default::default(),
             merchant: Default::default(),
             beacon: Default::default(),
+            loom: Default::default(),
             sign_edit: None,
             book_view: None,
             book_edit: None,
@@ -4549,6 +4554,25 @@ pub fn update_game(
                     }
                     result
                 }
+                ContainerScreen::Loom => {
+                    let wheel = core.input.consume_menu_scroll();
+                    crate::ui::loom::build(
+                        &mut elements,
+                        sw,
+                        sh,
+                        core.input.cursor_pos(),
+                        &input,
+                        &container.slots,
+                        &container.data,
+                        &container.title,
+                        &mut game.loom,
+                        wheel,
+                        &game.cursor_item,
+                        &mut game.inv_drag,
+                        &mut game.inv_last_click,
+                        gs,
+                    )
+                }
                 ContainerScreen::Stonecutter => {
                     let options = crate::ui::recipe_book::stonecutter_options(
                         &game.recipe_book,
@@ -4661,6 +4685,9 @@ pub fn update_game(
                 if container.screen == ContainerScreen::Stonecutter {
                     core.audio
                         .play_ui_sound("ui.stonecutter.select_recipe", 1.0, 1.0);
+                }
+                if container.screen == ContainerScreen::Loom {
+                    core.audio.play_ui_sound("ui.loom.select_pattern", 1.0, 1.0);
                 }
                 connection
                     .packet_tx

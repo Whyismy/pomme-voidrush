@@ -956,6 +956,10 @@ fn forward_tags(event_tx: &Sender<NetworkEvent>, tags: &azalea_protocol::common:
         event_tx,
         NetworkEvent::ItemTags(super::recipe_wire::item_tags(tags)),
     );
+    // The patterns a loom offers are a tag's.
+    if let Some(patterns) = registry_tags(tags, &"minecraft:banner_pattern".into()) {
+        crate::banner::set_tags(patterns);
+    }
     let key: azalea_registry::identifier::Identifier = "minecraft:block".into();
     let Some(tags) = tags.0.get(&key) else {
         return;

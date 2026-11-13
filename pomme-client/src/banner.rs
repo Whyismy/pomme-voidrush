@@ -5,11 +5,73 @@
 use std::sync::{PoisonError, RwLock};
 
 use azalea_core::registry_holder::RegistryHolder;
+use azalea_inventory::ItemStackData;
 use azalea_inventory::components::BannerPatterns;
 use azalea_registry::identifier::Identifier;
 
 /// Each pattern's `asset_id`, by protocol id.
 static PATTERNS: RwLock<Vec<String>> = RwLock::new(Vec::new());
+
+/// The `banner_pattern` registry's tags: each tag's patterns, by protocol
+/// id, in the tag's order.
+static PATTERN_TAGS: RwLock<Vec<(String, Vec<usize>)>> = RwLock::new(Vec::new());
+
+/// The patterns a loom offers with no pattern item in it
+/// (`BannerPatternTags.NO_ITEM_REQUIRED`).
+const NO_ITEM_REQUIRED: &str = "minecraft:no_item_required";
+
+/// Keeps the pattern tags the server synced.
+pub fn set_tags(tags: impl IntoIterator<Item = (String, Vec<usize>)>) {
+    *PATTERN_TAGS.write().unwrap_or_else(PoisonError::into_inner) = tags.into_iter().collect();
+}
+
+/// The patterns of tag `tag`, each as its protocol id and its asset (bare
+/// of `minecraft:`), in the tag's order.
+fn tagged_patterns(tag: &str) -> Vec<(usize, String)> {
+    let tags = PATTERN_TAGS.read().unwrap_or_else(PoisonError::into_inner);
+    let names = PATTERNS.read().unwrap_or_else(PoisonError::into_inner);
+    tags.iter()
+        .find(|(name, _)| name == tag)
+        .map(|(_, patterns)| {
+            patterns
+                .iter()
+                .filter_map(|id| Some((*id, path_of(names.get(*id)?).to_owned())))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Vanilla `LoomMenu.getSelectablePatterns`: with no pattern item, the
+/// patterns that need none; with one, those its `provides_banner_patterns`
+/// tag names.
+pub fn selectable_patterns(pattern_item: Option<&ItemStackData>) -> Vec<(usize, String)> {
+    use azalea_inventory::components::ProvidesBannerPatterns;
+    use azalea_registry::HolderSet;
+    let Some(item) = pattern_item else {
+        return tagged_patterns(NO_ITEM_REQUIRED);
+    };
+    match item
+        .get_component::<ProvidesBannerPatterns>()
+        .map(|provides| provides.key.clone())
+    {
+        Some(HolderSet::Named { key, .. }) => tagged_patterns(&key.to_string()),
+        _ => Vec::new(),
+    }
+}
+
+/// A banner's pattern layers as a loom's preview draws them: each layer's
+/// asset (bare of `minecraft:`) and colour.
+pub fn preview_layers(patterns: &BannerPatterns) -> Vec<(String, u32)> {
+    let names = PATTERNS.read().unwrap_or_else(PoisonError::into_inner);
+    patterns
+        .patterns
+        .iter()
+        .filter_map(|layer| {
+            let asset = pattern_asset(&names, layer.pattern)?;
+            Some((path_of(asset).to_owned(), dye_rgb(layer.color)))
+        })
+        .collect()
+}
 
 /// Keeps the pattern registry from the registries the server synced.
 pub fn set_from_registries(holder: &RegistryHolder) {

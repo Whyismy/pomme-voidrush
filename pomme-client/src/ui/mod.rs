@@ -18,6 +18,7 @@ pub mod furnace;
 pub mod game_mode_switcher;
 pub mod hud;
 pub mod inventory;
+pub mod loom;
 pub mod menu;
 pub mod merchant;
 pub mod object_glyph;

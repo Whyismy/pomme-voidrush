@@ -2390,8 +2390,12 @@ impl AppCore {
                         MenuKind::Crafter3x3 => Some(ContainerScreen::Crafter),
                         MenuKind::Lectern => Some(ContainerScreen::Lectern),
                         MenuKind::Beacon => Some(ContainerScreen::Beacon),
+                        MenuKind::Loom => Some(ContainerScreen::Loom),
                         MenuKind::Anvil => Some(ContainerScreen::Anvil),
                         MenuKind::Enchantment => Some(ContainerScreen::Enchantment),
+                        // Every menu this version has is drawn; one a later
+                        // version adds would fall through to here.
+                        #[allow(unreachable_patterns)]
                         _ => None,
                     };
                     if let Some(screen) = screen {
@@ -2408,6 +2412,7 @@ impl AppCore {
                         game.menu_list = Default::default();
                         game.merchant = Default::default();
                         game.beacon = Default::default();
+                        game.loom = Default::default();
                         game.inv_last_click = None;
                         game.open_container = Some(crate::app::phases::in_game::OpenContainer {
                             id: container_id,
@@ -2430,9 +2435,8 @@ impl AppCore {
                         game.container_was_open = Some(container_id);
                         self.apply_cursor_grab(window, Some(game));
                     } else {
-                        // TODO: render the remaining menu screens (chest,
-                        // brewing stand, ...). Until then tell the server we
-                        // closed the menu so its container state stays
+                        // A menu with no screen here: tell the server it
+                        // was closed, so its container state stays
                         // consistent.
                         use azalea_protocol::packets::game::s_container_close::ServerboundContainerClose;
                         connection

@@ -45,6 +45,8 @@ pub enum ContainerKind {
     Crafter,
     /// Vanilla `BeaconMenu`: the payment.
     Beacon,
+    /// Vanilla `LoomMenu`: a banner, a dye, a pattern item and the result.
+    Loom,
     /// Vanilla `LecternMenu`: the book alone. The inventory's slots are
     /// kept after it only so slot arithmetic holds; none is shown.
     Lectern,
@@ -62,7 +64,7 @@ impl ContainerKind {
             Self::Hopper | Self::BrewingStand => 41,
             Self::Dispenser => 45,
             Self::Grindstone | Self::Cartography | Self::Merchant => 39,
-            Self::Smithing => 40,
+            Self::Smithing | Self::Loom => 40,
             Self::Lectern | Self::Beacon => 37,
             Self::Enchantment | Self::Stonecutter => 38,
         }
@@ -79,7 +81,7 @@ impl ContainerKind {
             Self::Hopper | Self::BrewingStand => 5,
             Self::Dispenser | Self::Crafter => 9,
             Self::Grindstone | Self::Cartography | Self::Merchant => 3,
-            Self::Smithing => 4,
+            Self::Smithing | Self::Loom => 4,
             Self::Lectern | Self::Beacon => 1,
             Self::Enchantment | Self::Stonecutter => 2,
         }
@@ -95,7 +97,7 @@ impl ContainerKind {
         match self {
             Self::Player | Self::CraftingTable => Some(0),
             Self::Anvil | Self::Grindstone | Self::Cartography | Self::Merchant => Some(2),
-            Self::Smithing => Some(3),
+            Self::Smithing | Self::Loom => Some(3),
             Self::Stonecutter => Some(1),
             Self::Furnace
             | Self::Chest { .. }
@@ -210,6 +212,13 @@ impl ContainerKind {
                 fuel: ItemStack::Empty,
                 player: SlotList::default(),
             },
+            Self::Loom => Menu::Loom {
+                banner: ItemStack::Empty,
+                dye: ItemStack::Empty,
+                pattern: ItemStack::Empty,
+                result: ItemStack::Empty,
+                player: SlotList::default(),
+            },
             Self::Beacon => Menu::Beacon {
                 payment: ItemStack::Empty,
                 player: SlotList::default(),
@@ -262,6 +271,18 @@ impl ContainerKind {
             (Self::Player | Self::CraftingTable, 0) => false,
             (Self::Furnace | Self::Anvil | Self::Grindstone | Self::Cartography, 2) => false,
             (Self::Smithing, 3) | (Self::Stonecutter, 1) | (Self::Merchant, 2) => false,
+            // `LoomMenu`'s slots: a banner, a dye, a pattern item; nothing
+            // goes in the result.
+            (Self::Loom, 0) => {
+                crate::player::inventory::item_resource_name(item.kind).ends_with("_banner")
+            }
+            (Self::Loom, 1) => {
+                crate::player::inventory::item_resource_name(item.kind).ends_with("_dye")
+            }
+            (Self::Loom, 2) => {
+                crate::player::inventory::item_resource_name(item.kind).ends_with("_banner_pattern")
+            }
+            (Self::Loom, 3) => false,
             // `BeaconMenu.PaymentSlot`: what a beacon takes.
             (Self::Beacon, 0) => matches!(
                 item.kind,
@@ -743,6 +764,22 @@ fn quick_move(kind: ContainerKind, menu: &mut Menu, s: usize) {
                 } else {
                     let inputs = kind.crafting_result_slot().unwrap_or(split);
                     move_item_stack_to(kind, menu, s, 0..inputs, false);
+                }
+            }
+            // `LoomMenu.quickMoveStack`: its own slots out to the inventory;
+            // a banner, a dye or a pattern item in to its slot; else the
+            // inventory and the hotbar trade places.
+            ContainerKind::Loom => {
+                let own_slot = menu
+                    .slot(s)
+                    .and_then(ItemStack::as_present)
+                    .and_then(|stack| (0..3).find(|slot| kind.may_place(*slot, stack)));
+                match (s, own_slot) {
+                    (3, _) => move_item_stack_to(kind, menu, s, 4..40, true),
+                    (0..=2, _) => move_item_stack_to(kind, menu, s, 4..40, false),
+                    (_, Some(slot)) => move_item_stack_to(kind, menu, s, slot..slot + 1, false),
+                    (4..=30, None) => move_item_stack_to(kind, menu, s, 31..40, false),
+                    (_, None) => move_item_stack_to(kind, menu, s, 4..31, false),
                 }
             }
             // `BeaconMenu.quickMoveStack`: the payment out to the inventory;

@@ -2872,6 +2872,19 @@ pub enum SpriteId {
     PageForwardHighlighted,
     PageBackward,
     PageBackwardHighlighted,
+    LoomBackground,
+    LoomScroller,
+    LoomScrollerDisabled,
+    LoomPattern,
+    LoomPatternSelected,
+    LoomPatternHighlighted,
+    LoomError,
+    LoomSlotBanner,
+    LoomSlotDye,
+    LoomSlotPattern,
+    /// A banner pattern's flag (the 20 by 40 of its sheet), by its place in
+    /// [`BANNER_PATTERN_ASSETS`].
+    BannerPattern(u8),
     BeaconBackground,
     BeaconButton,
     BeaconButtonDisabled,
@@ -3139,6 +3152,63 @@ struct SpriteAtlas {
 }
 
 const INV_TEX_W: u32 = 176;
+
+/// The banner patterns the game ships, as their textures are named; a
+/// loom's buttons and its preview draw from them.
+pub const BANNER_PATTERN_ASSETS: [&str; 43] = [
+    "base",
+    "border",
+    "bricks",
+    "circle",
+    "creeper",
+    "cross",
+    "curly_border",
+    "diagonal_left",
+    "diagonal_right",
+    "diagonal_up_left",
+    "diagonal_up_right",
+    "flow",
+    "flower",
+    "globe",
+    "gradient",
+    "gradient_up",
+    "guster",
+    "half_horizontal",
+    "half_horizontal_bottom",
+    "half_vertical",
+    "half_vertical_right",
+    "mojang",
+    "piglin",
+    "rhombus",
+    "skull",
+    "small_stripes",
+    "square_bottom_left",
+    "square_bottom_right",
+    "square_top_left",
+    "square_top_right",
+    "straight_cross",
+    "stripe_bottom",
+    "stripe_center",
+    "stripe_downleft",
+    "stripe_downright",
+    "stripe_left",
+    "stripe_middle",
+    "stripe_right",
+    "stripe_top",
+    "triangle_bottom",
+    "triangle_top",
+    "triangles_bottom",
+    "triangles_top",
+];
+
+/// The sprite of banner pattern `asset` (bare of `minecraft:`), where it
+/// is one the game ships.
+pub fn banner_pattern_sprite(asset: &str) -> Option<SpriteId> {
+    BANNER_PATTERN_ASSETS
+        .iter()
+        .position(|name| *name == asset)
+        .map(|index| SpriteId::BannerPattern(index as u8))
+}
 
 /// The woods signs are made of, as their textures are named.
 pub const SIGN_WOODS: [&str; 12] = [
@@ -3727,6 +3797,51 @@ fn build_sprite_atlas(
         (
             SpriteId::PageBackwardHighlighted,
             "minecraft/textures/gui/sprites/widget/page_backward_highlighted.png",
+            0.0,
+        ),
+        (
+            SpriteId::LoomScroller,
+            "minecraft/textures/gui/sprites/container/loom/scroller.png",
+            0.0,
+        ),
+        (
+            SpriteId::LoomScrollerDisabled,
+            "minecraft/textures/gui/sprites/container/loom/scroller_disabled.png",
+            0.0,
+        ),
+        (
+            SpriteId::LoomPattern,
+            "minecraft/textures/gui/sprites/container/loom/pattern.png",
+            0.0,
+        ),
+        (
+            SpriteId::LoomPatternSelected,
+            "minecraft/textures/gui/sprites/container/loom/pattern_selected.png",
+            0.0,
+        ),
+        (
+            SpriteId::LoomPatternHighlighted,
+            "minecraft/textures/gui/sprites/container/loom/pattern_highlighted.png",
+            0.0,
+        ),
+        (
+            SpriteId::LoomError,
+            "minecraft/textures/gui/sprites/container/loom/error.png",
+            0.0,
+        ),
+        (
+            SpriteId::LoomSlotBanner,
+            "minecraft/textures/gui/sprites/container/slot/banner.png",
+            0.0,
+        ),
+        (
+            SpriteId::LoomSlotDye,
+            "minecraft/textures/gui/sprites/container/slot/dye.png",
+            0.0,
+        ),
+        (
+            SpriteId::LoomSlotPattern,
+            "minecraft/textures/gui/sprites/container/slot/banner_pattern.png",
             0.0,
         ),
         (
@@ -4720,6 +4835,13 @@ fn build_sprite_atlas(
             219,
         ),
         (
+            SpriteId::LoomBackground,
+            "minecraft/textures/gui/container/loom.png",
+            (0, 0),
+            INV_TEX_W,
+            166,
+        ),
+        (
             SpriteId::BookBackground,
             "minecraft/textures/gui/book.png",
             (0, 0),
@@ -4818,6 +4940,29 @@ fn build_sprite_atlas(
             }
             Err(e) => {
                 tracing::warn!("Failed to load sprite {id:?}: {e}");
+                images.push((id, vec![255, 0, 255, 255], 1, 1, 0.0));
+            }
+        }
+    }
+
+    // A banner pattern's flag: the 20 by 40 at (1, 1) of its 64 by 64 sheet.
+    for (index, pattern) in BANNER_PATTERN_ASSETS.iter().enumerate() {
+        let id = SpriteId::BannerPattern(index as u8);
+        let key = format!("minecraft/textures/entity/banner/{pattern}.png");
+        let (path, scale) = resolve_gui_texture(jar_assets_dir, asset_index, packs, &key);
+        match crate::assets::load_image(&path) {
+            Ok(img) => {
+                let rgba = img.to_rgba8();
+                let scaled = |v: u32| (v as f32 * scale).round() as u32;
+                let (x, y) = (scaled(1), scaled(1));
+                let w = scaled(20).min(rgba.width().saturating_sub(x));
+                let h = scaled(40).min(rgba.height().saturating_sub(y));
+                let flag = image::imageops::crop_imm(&rgba, x, y, w, h).to_image();
+                scales.insert(id, scale);
+                images.push((id, flag.into_raw(), w, h, 0.0));
+            }
+            Err(e) => {
+                tracing::warn!("Failed to load banner pattern {key}: {e}");
                 images.push((id, vec![255, 0, 255, 255], 1, 1, 0.0));
             }
         }
