@@ -2287,6 +2287,8 @@ impl AppCore {
                         MenuKind::Generic9x5 => Some(ContainerScreen::Chest { rows: 5 }),
                         MenuKind::Generic9x6 => Some(ContainerScreen::Chest { rows: 6 }),
                         MenuKind::ShulkerBox => Some(ContainerScreen::ShulkerBox),
+                        MenuKind::Hopper => Some(ContainerScreen::Hopper),
+                        MenuKind::Generic3x3 => Some(ContainerScreen::Dispenser),
                         MenuKind::Anvil => Some(ContainerScreen::Anvil),
                         MenuKind::Enchantment => Some(ContainerScreen::Enchantment),
                         _ => None,
@@ -2540,9 +2542,11 @@ impl AppCore {
                     color,
                     fill_color,
                     collision_rule,
+                    name_tag_visibility,
                     see_friendly_invisibles,
                     members,
                 } => {
+                    let team = name.clone();
                     game.scoreboard.set_team(
                         name,
                         display_name,
@@ -2554,6 +2558,8 @@ impl AppCore {
                         see_friendly_invisibles,
                         members,
                     );
+                    game.scoreboard
+                        .set_name_tag_visibility(&team, name_tag_visibility);
                 }
                 NetworkEvent::ScoreboardTeamMembers {
                     name,
@@ -4021,9 +4027,20 @@ impl AppCore {
         // Vanilla ticks the camera FOV interpolation even while dead.
         renderer.set_base_fov(self.menu.fov as f32);
         let fov_effect_scale = self.menu.fov_effect();
-        renderer.update_fov_mod(compute_fov_modifier(&game.player, fov_effect_scale));
-        // TODO: lava camera fluid (no eyes_in_lava).
-        renderer.set_fluid_fov_factor(if game.player.eyes_in_water {
+        // A bow's draw, in whole ticks; a spyglass only in first person.
+        let bow_ticks = (game.interaction.using_kind()
+            == Some(azalea_registry::builtin::ItemKind::Bow))
+        .then(|| game.interaction.ticks_using(0.0));
+        let scoping = game.interaction.is_scoping()
+            && crate::app::phases::in_game::renders_first_person_hand(game);
+        renderer.update_fov_mod(compute_fov_modifier(
+            &game.player,
+            bow_ticks,
+            scoping,
+            fov_effect_scale,
+        ));
+        // `GameRenderer.getFov`: either fluid at the camera narrows it.
+        renderer.set_fluid_fov_factor(if game.player.eyes_in_water || game.player.eyes_in_lava {
             1.0_f32.lerp(0.857_142_87, fov_effect_scale)
         } else {
             1.0
@@ -4875,18 +4892,31 @@ fn worn_for<'a>(
 
 /// Vanilla `AbstractClientPlayer.getFieldOfViewModifier`. `effect_scale` is the
 /// `fovEffectScale` accessibility value (1.0 = full effect).
-fn compute_fov_modifier(player: &LocalPlayer, effect_scale: f32) -> f32 {
+///
+/// The view widens with the movement speed attribute over the walking speed
+/// (sprinting, Speed and Slowness, gear), narrows as a bow is drawn
+/// (`bow_ticks` in use), and a spyglass (`scoping`) takes it to a tenth
+/// whatever the scale.
+fn compute_fov_modifier(
+    player: &LocalPlayer,
+    bow_ticks: Option<f32>,
+    scoping: bool,
+    effect_scale: f32,
+) -> f32 {
     let mut modifier = 1.0;
     if player.flying {
         modifier *= 1.1;
     }
-    // Vanilla's speedFactor is MOVEMENT_SPEED / walkingSpeed; with Pomme's
-    // client-side speed model that reduces to sprint ? 1.3 : 1.0.
-    // TODO: drive from the MOVEMENT_SPEED attribute so Speed/Slowness potions
-    // and gear modifiers affect FOV too.
-    // TODO: bow-draw narrowing and spyglass scoping (need item-use-duration state).
-    let speed_factor: f32 = if player.sprinting { 1.3 } else { 1.0 };
-    modifier *= (speed_factor + 1.0) / 2.0;
+    if player.walk_speed != 0.0 {
+        let speed_factor = crate::physics::movement::movement_speed(player) / player.walk_speed;
+        modifier *= (speed_factor + 1.0) / 2.0;
+    }
+    if let Some(ticks) = bow_ticks {
+        let drawn = (ticks / 20.0).min(1.0);
+        modifier *= 1.0 - drawn * drawn * 0.15;
+    } else if scoping {
+        return 0.1;
+    }
     1.0_f32.lerp(modifier, effect_scale)
 }
 
@@ -5031,6 +5061,24 @@ fn pack_bar_ease(dt: f32) -> f32 {
 
 #[cfg(test)]
 mod tests {
+    /// The view is unchanged at a walk, widens with a sprint, narrows by
+    /// up to 15% as a bow draws over a second, and a spyglass takes it to
+    /// a tenth whatever the accessibility scale says.
+    #[test]
+    fn the_view_follows_speed_bow_and_spyglass() {
+        let mut player = crate::player::LocalPlayer::new();
+        let fov = |player: &crate::player::LocalPlayer, bow, scoping, scale| {
+            super::compute_fov_modifier(player, bow, scoping, scale)
+        };
+        assert!((fov(&player, None, false, 1.0) - 1.0).abs() < 1e-6);
+        assert!((fov(&player, Some(10.0), false, 1.0) - (1.0 - 0.25 * 0.15)).abs() < 1e-6);
+        assert!((fov(&player, Some(40.0), false, 1.0) - 0.85).abs() < 1e-6);
+        assert_eq!(fov(&player, None, true, 0.0), 0.1);
+        player.sprinting = true;
+        assert!((fov(&player, None, false, 1.0) - 1.15).abs() < 1e-5);
+        assert!((fov(&player, None, false, 0.0) - 1.0).abs() < 1e-6);
+    }
+
     /// The pack bar's fill moves by time, not by frame: two half-length
     /// frames take it as far as one whole one, and it never overshoots.
     #[test]

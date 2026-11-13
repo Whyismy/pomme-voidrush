@@ -284,6 +284,8 @@ pub struct LocalPlayer {
     /// as hard there.
     pub fast_lava: bool,
     pub eyes_in_water: bool,
+    /// The eyes are under lava (vanilla `FogType.LAVA` for the camera).
+    pub eyes_in_lava: bool,
     /// Vanilla `LocalPlayer.wasUnderwater`, a tick behind eye contact.
     pub under_water: bool,
     /// The shared swimming flag.
@@ -408,6 +410,7 @@ impl LocalPlayer {
             lava_height: 0.0,
             fast_lava: false,
             eyes_in_water: false,
+            eyes_in_lava: false,
             under_water: false,
             swimming: false,
             glowing: false,
@@ -871,6 +874,17 @@ impl LocalPlayer {
         }
         // Eyes count only below the fluid surface.
         self.eyes_in_water = eye_fluid.kind == FluidKind::Water && eye_y <= eye_fluid_top;
+        self.eyes_in_lava = eye_fluid.kind == FluidKind::Lava && {
+            let above = block_state_table
+                .block_state_data(chunks.get_block_state(eye_block_x, eye_block_y + 1, eye_block_z))
+                .fluid();
+            let top = if above.kind == FluidKind::Lava {
+                1.0
+            } else {
+                f64::from(eye_fluid.height())
+            };
+            eye_y <= f64::from(eye_block_y) + top
+        };
     }
 
     fn update_swimming_state(

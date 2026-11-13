@@ -35,6 +35,11 @@ wait_ms = 1500
 expect = { player = { y_between = [-52.0, -42.0] } }
 timeout_ms = 300
 
+# Under the surface the view is lava's fog, which Fire Resistance thins to
+# five blocks.
+[[step]]
+screenshot = "under_lava"
+
 # From deeper down, holding jump: up toward the surface, a block every
 # second and a bit.
 [[step]]

@@ -101,6 +101,8 @@ pub enum ContainerScreen {
     Furnace(crate::ui::furnace::FurnaceVariant),
     Chest { rows: u8 },
     ShulkerBox,
+    Hopper,
+    Dispenser,
     Anvil,
     Enchantment,
 }
@@ -113,6 +115,8 @@ impl ContainerScreen {
             Self::Furnace(_) => ContainerKind::Furnace,
             Self::Chest { rows } => ContainerKind::Chest { rows },
             Self::ShulkerBox => ContainerKind::ShulkerBox,
+            Self::Hopper => ContainerKind::Hopper,
+            Self::Dispenser => ContainerKind::Dispenser,
             Self::Anvil => ContainerKind::Anvil,
             Self::Enchantment => ContainerKind::Enchantment,
         }
@@ -4104,6 +4108,33 @@ pub fn update_game(
                     &mut game.inv_last_click,
                     gs,
                 ),
+                ContainerScreen::Hopper => crate::ui::chest::build_hopper(
+                    &mut elements,
+                    sw,
+                    sh,
+                    core.input.cursor_pos(),
+                    &input,
+                    &container.slots,
+                    &container.title,
+                    &game.cursor_item,
+                    &mut game.inv_drag,
+                    &mut game.inv_last_click,
+                    gs,
+                ),
+                ContainerScreen::Dispenser => crate::ui::chest::build_dispenser(
+                    &mut elements,
+                    sw,
+                    sh,
+                    core.input.cursor_pos(),
+                    &input,
+                    &container.slots,
+                    &container.title,
+                    &game.cursor_item,
+                    &mut game.inv_drag,
+                    &mut game.inv_last_click,
+                    gs,
+                    &|t, s| gfx.renderer.menu_text_width(t, s),
+                ),
                 ContainerScreen::Anvil => crate::ui::anvil::build_anvil(
                     &mut elements,
                     sw,
@@ -4657,8 +4688,9 @@ pub fn update_game(
                     } else {
                         0x7f
                     },
-                    cape: (e.entity_type == EntityKind::Player && e.skin_parts & 1 != 0).then(
-                        || {
+                    cape: (matches!(e.entity_type, EntityKind::Player | EntityKind::Mannequin)
+                        && e.skin_parts & 1 != 0)
+                        .then(|| {
                             e.cape.pose(
                                 partial_tick,
                                 glam::DVec3::from(e.prev_position)
@@ -4671,8 +4703,7 @@ pub fn update_game(
                                     0.0
                                 },
                             )
-                        },
-                    ),
+                        }),
                     // `AvatarRenderer`: only players lie along their glide.
                     fall_flying: (e.is_fall_flying
                         && matches!(e.entity_type, EntityKind::Player | EntityKind::Mannequin))
@@ -5295,11 +5326,20 @@ pub fn update_game(
             < horizon
             && !game.player.eyes_in_water,
         cardinal_light: game.cardinal_light,
-        effect_fog: crate::renderer::pipelines::sky::EffectFog::new(
-            game.player.effects.duration("blindness"),
-            game.player.effects.darkness_factor(partial_tick),
-            effective_render_distance(core, game) as f32 * 16.0,
-        ),
+        // `FogRenderer`'s environments in order: lava's comes first.
+        effect_fog: if game.player.eyes_in_lava {
+            Some(crate::renderer::pipelines::sky::EffectFog::lava(
+                game.player.effects.has("fire_resistance"),
+                crate::player::is_spectator(game.player.game_mode),
+                effective_render_distance(core, game) as f32 * 16.0,
+            ))
+        } else {
+            crate::renderer::pipelines::sky::EffectFog::new(
+                game.player.effects.duration("blindness"),
+                game.player.effects.darkness_factor(partial_tick),
+                effective_render_distance(core, game) as f32 * 16.0,
+            )
+        },
         ..game.sky_state.clone()
     };
     if game.show_chunk_borders {
@@ -9703,8 +9743,9 @@ struct NameTagSources<'a> {
 /// camera, within 64 blocks (32 for a sneaking player). A name draws twice:
 /// faded (0x80) over a quarter-black background through walls, then fully
 /// in the world; a sneaking player's only once, faded, on its background,
-/// without the see-through pass.
-// TODO: teams' nameTagVisibility, and "deadmau5"'s raised tag.
+/// without the see-through pass. A team's name tag visibility decides who
+/// sees its members' (`LivingEntityRenderer.shouldShowName`).
+// TODO: "deadmau5"'s raised tag.
 fn build_name_tags(
     sources: NameTagSources<'_>,
     world_light: &WorldLight,
@@ -9792,18 +9833,35 @@ fn build_name_tags(
         }
     };
 
+    // The viewer's own scoreboard name, for the teams' rules.
+    let viewer = sources
+        .tab_list
+        .players
+        .get(&sources.local_uuid)
+        .map_or("", |player| player.name.as_str());
     // Other players (and NPC bots, which are players): their profile name
     // from the player list, unlisted entries too, in their team's style.
     for (id, entity) in &sources.living.living {
         let Some(uuid) = entity.player_uuid else {
             continue;
         };
-        if uuid == sources.local_uuid || *id == sources.local_entity || entity.is_invisible {
+        if uuid == sources.local_uuid || *id == sources.local_entity {
             continue;
         }
         let Some(player) = sources.tab_list.players.get(&uuid) else {
             continue;
         };
+        // `Entity.isInvisibleTo`: an invisible teammate may still be seen.
+        let visible = !entity.is_invisible
+            || sources
+                .scoreboard
+                .sees_friendly_invisible(viewer, &player.name);
+        if !sources
+            .scoreboard
+            .shows_name_tag(viewer, &player.name, visible)
+        {
+            continue;
+        }
         let feet = *entity
             .prev_position
             .lerp(entity.position, f64::from(partial_tick));
@@ -9849,6 +9907,15 @@ fn build_name_tags(
             continue;
         }
         let Some(name) = &named.name else { continue };
+        // A mob on a team follows its team's rule too.
+        if let Some(uuid) = named.uuid
+            && sources.living.living.contains_key(id)
+            && !sources
+                .scoreboard
+                .shows_name_tag(viewer, &uuid.to_string(), true)
+        {
+            continue;
+        }
         let spans = match named.uuid {
             Some(uuid) => sources.scoreboard.entity_name(&uuid.to_string(), name),
             None => name.clone(),

@@ -154,9 +154,32 @@ pub struct EffectFog {
     pub start: f32,
     pub end: f32,
     pub darkness: f32,
+    /// The fog's own colour, where it has one (lava's), in place of the
+    /// darkened atmosphere's.
+    pub color: Option<[f32; 3]>,
 }
 
 impl EffectFog {
+    /// Vanilla `LavaFogEnvironment`: the fog with the camera in lava, a
+    /// block deep, or five with Fire Resistance; a spectator sees half the
+    /// render distance (`render_distance` blocks) through it.
+    pub fn lava(fire_resistant: bool, spectator: bool, render_distance: f32) -> Self {
+        let (start, end) = if spectator {
+            (-8.0, render_distance * 0.5)
+        } else if fire_resistant {
+            (0.0, 5.0)
+        } else {
+            (0.25, 1.0)
+        };
+        Self {
+            start,
+            end,
+            darkness: 0.0,
+            // 0x991900.
+            color: Some([153.0 / 255.0, 25.0 / 255.0, 0.0]),
+        }
+    }
+
     /// The fog of the camera's Blindness (its remaining ticks, `-1` for
     /// none's end), else of its Darkness (blend factor), `render_distance`
     /// blocks out.
@@ -178,6 +201,7 @@ impl EffectFog {
                 start: end * 0.25,
                 end,
                 darkness,
+                color: None,
             });
         }
         (darkness > 0.0).then(|| {
@@ -186,6 +210,7 @@ impl EffectFog {
                 start: end * 0.75,
                 end,
                 darkness,
+                color: None,
             }
         })
     }

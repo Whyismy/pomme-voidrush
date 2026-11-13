@@ -348,6 +348,11 @@ impl InteractionState {
             .is_some_and(|active| active.kind == ItemKind::Spyglass)
     }
 
+    /// The item in use, where one is (vanilla `getUseItem`).
+    pub fn using_kind(&self) -> Option<ItemKind> {
+        self.using_item.as_ref().map(|active| active.kind)
+    }
+
     pub fn using_hand(&self) -> Option<InteractionHand> {
         self.using_item.as_ref().map(|active| active.hand)
     }

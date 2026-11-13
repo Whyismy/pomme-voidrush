@@ -1,0 +1,31 @@
+# A mannequin wearing a named player's skin wears that profile's cape too,
+# fetched from Mojang with the skin (so this needs the network). Seen from
+# behind; the one with no profile beside it has none.
+
+[[step]]
+chat = "/tp @s 2900.5 -60 600.5 0 5"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+chat = "/summon minecraft:mannequin 2901.5 -60 604.5 {NoAI:1b,Silent:1b,NoGravity:1b,PersistenceRequired:1b,Rotation:[0f,0f],profile:{name:\"jeb_\"}}"
+
+[[step]]
+chat = "/summon minecraft:mannequin 2899.5 -60 604.5 {NoAI:1b,Silent:1b,NoGravity:1b,PersistenceRequired:1b,Rotation:[0f,0f]}"
+
+[[step]]
+expect = { entity = "mannequin" }
+
+# The skin and cape take a moment to come.
+[[step]]
+wait_ms = 8000
+
+[[step]]
+press = { action = "key.toggleGui" }
+
+[[step]]
+wait_ms = 300
+
+[[step]]
+screenshot = "cape"

@@ -1,7 +1,7 @@
 //! Vanilla `FogRenderer.computeFogColor` for the atmosphere: the colour the
 //! world fogs to, the sky disc fades into at its rim, and the screen clears
 //! to. Colours are vanilla's sRGB values.
-//! TODO: boss darkening, night vision, and the lava and powder snow colours.
+//! TODO: boss darkening, night vision, and the powder snow colour.
 
 use glam::{FloatExt, Vec3};
 
@@ -10,6 +10,10 @@ use super::pipelines::sky::SkyState;
 /// The fog colour for a camera looking along `forward`, `render_distance`
 /// chunks out.
 pub fn fog_color(sky: &SkyState, forward: Vec3, render_distance: u32) -> Vec3 {
+    // A fog with a colour of its own (lava's) takes the atmosphere's place.
+    if let Some(color) = sky.effect_fog.and_then(|fog| fog.color) {
+        return Vec3::from_array(color);
+    }
     let effect_darkness = sky.effect_fog.map_or(0.0, |fog| fog.darkness);
     let brightness = (1.0 - sky.void_darkness) * (1.0 - effect_darkness);
     base_color(sky, forward, render_distance) * brightness.powi(2)

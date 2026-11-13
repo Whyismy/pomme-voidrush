@@ -2974,8 +2974,12 @@ impl EntityStore {
             } else {
                 0
             };
-            // `Avatar.tick`: a player's cape trails after it.
-            if entity.entity_type == EntityKind::Player {
+            // `Avatar.tick`: a player's cape trails after it, and a
+            // mannequin's.
+            if matches!(
+                entity.entity_type,
+                EntityKind::Player | EntityKind::Mannequin
+            ) {
                 let at = DVec3::from(entity.position);
                 entity.cape.tick(
                     at,

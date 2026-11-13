@@ -1348,7 +1348,7 @@ fn can_fall_at_least(
 /// `Player.getSpeed`: the movement-speed attribute (Speed, Slowness and the
 /// server's own modifiers), with the client's sprint modifier for its own
 /// sprint state.
-fn movement_speed(player: &LocalPlayer) -> f32 {
+pub(crate) fn movement_speed(player: &LocalPlayer) -> f32 {
     let base = player
         .attributes
         .instance(AttributeKind::MovementSpeed)

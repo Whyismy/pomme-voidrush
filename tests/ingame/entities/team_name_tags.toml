@@ -1,0 +1,35 @@
+# A team's name tag visibility: of two named zombies, the one on a team
+# whose tags never show has none; the other keeps its tag.
+
+[[step]]
+chat = "/tp @s 3000.5 -60 600.5 0 0"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+chat = "/team add hidden"
+
+[[step]]
+chat = "/team modify hidden nametagVisibility never"
+
+[[step]]
+chat = "/summon minecraft:zombie 3001.5 -60 604.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f],CustomName:\"Shown\",CustomNameVisible:1b,equipment:{head:{id:\"minecraft:leather_helmet\",count:1}},Tags:[\"shown\"]}"
+
+[[step]]
+chat = "/summon minecraft:zombie 2999.5 -60 604.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f],CustomName:\"Hidden\",CustomNameVisible:1b,equipment:{head:{id:\"minecraft:leather_helmet\",count:1}},Tags:[\"hidden\"]}"
+
+[[step]]
+chat = "/team join hidden @e[tag=hidden]"
+
+[[step]]
+expect = { entity = "zombie" }
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "tags"
+
+[[step]]
+chat = "/team remove hidden"

@@ -113,6 +113,9 @@ fn team(
         color,
         fill_color,
         collision_rule: collision_rule(parameters.collision_rule),
+        name_tag_visibility: crate::ui::hud::NameTagVisibility::from_id(
+            parameters.name_tag_visibility,
+        ),
         // `PlayerTeam.unpackOptions`: bit 2.
         see_friendly_invisibles: parameters.options & 2 != 0,
         members,

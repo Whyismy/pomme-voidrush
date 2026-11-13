@@ -49,6 +49,28 @@ pub enum ScoreNumberFormat {
     Fixed(Vec<TextSpan>),
 }
 
+/// Vanilla `Team.Visibility`, of a team's members' name tags.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum NameTagVisibility {
+    #[default]
+    Always,
+    Never,
+    HideForOtherTeams,
+    HideForOwnTeam,
+}
+
+impl NameTagVisibility {
+    /// By `Team.Visibility`'s id; one out of range is ALWAYS.
+    pub fn from_id(id: u32) -> Self {
+        match id {
+            1 => Self::Never,
+            2 => Self::HideForOtherTeams,
+            3 => Self::HideForOwnTeam,
+            _ => Self::Always,
+        }
+    }
+}
+
 /// Vanilla `Team.CollisionRule`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CollisionRule {
@@ -90,6 +112,7 @@ pub(crate) struct ScoreboardTeam {
     /// menu), like vanilla's `PlayerTeam.getColor()` Optional.
     pub(crate) fill_color: Option<u32>,
     collision_rule: CollisionRule,
+    name_tag_visibility: NameTagVisibility,
     see_friendly_invisibles: bool,
     pub(crate) members: HashSet<String>,
 }
@@ -187,6 +210,7 @@ impl Scoreboard {
             color,
             fill_color: None,
             collision_rule,
+            name_tag_visibility: NameTagVisibility::Always,
             see_friendly_invisibles,
             members: HashSet::new(),
         });
@@ -221,6 +245,36 @@ impl Scoreboard {
                     team.members.remove(&member);
                 }
             }
+        }
+    }
+
+    /// Sets whose name tags of the team `name` show, where it is known.
+    pub fn set_name_tag_visibility(&mut self, name: &str, visibility: NameTagVisibility) {
+        if let Some(team) = self.teams.get_mut(name) {
+            team.name_tag_visibility = visibility;
+        }
+    }
+
+    /// Vanilla `LivingEntityRenderer.shouldShowName`'s team rule: whether
+    /// `viewer` is shown the name tag of `target` (both by scoreboard
+    /// name), which it can see (`visible`) or not. A target on no team
+    /// shows its tag to whoever sees it.
+    pub fn shows_name_tag(&self, viewer: &str, target: &str, visible: bool) -> bool {
+        let Some((their_name, their)) = self.team_of(target) else {
+            return visible;
+        };
+        let own = self.team_of(viewer).map(|(name, _)| name);
+        match their.name_tag_visibility {
+            NameTagVisibility::Always => visible,
+            NameTagVisibility::Never => false,
+            NameTagVisibility::HideForOtherTeams => match own {
+                None => visible,
+                Some(own) => own == their_name && (their.see_friendly_invisibles || visible),
+            },
+            NameTagVisibility::HideForOwnTeam => match own {
+                None => visible,
+                Some(own) => own != their_name && visible,
+            },
         }
     }
 
@@ -2024,6 +2078,55 @@ mod tests {
         let mut scoreboard = Scoreboard::default();
         add_team(&mut scoreboard, "a", PushOtherTeams, &["pusher"]);
         assert!(!scoreboard.pushable_by("pusher", "target"));
+    }
+
+    /// A team's name tags show to all, to none, only to the team, or only
+    /// to others; a viewer on no team sees the tags of whoever it sees.
+    #[test]
+    fn a_team_decides_who_sees_its_name_tags() {
+        use super::NameTagVisibility::{Always, HideForOtherTeams, HideForOwnTeam, Never};
+        let team = |scoreboard: &mut Scoreboard, name: &str, members: &[&str]| {
+            scoreboard.set_team(
+                name.into(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                [1.0; 4],
+                None,
+                CollisionRule::Always,
+                false,
+                Some(members.iter().map(|member| (*member).to_owned()).collect()),
+            );
+        };
+        let mut scoreboard = Scoreboard::default();
+        team(&mut scoreboard, "red", &["ann", "bob"]);
+        team(&mut scoreboard, "blue", &["cat"]);
+        let shown =
+            |scoreboard: &Scoreboard, viewer: &str| scoreboard.shows_name_tag(viewer, "ann", true);
+
+        for viewer in ["bob", "cat", "dan"] {
+            assert!(shown(&scoreboard, viewer));
+        }
+        assert!(!scoreboard.shows_name_tag("bob", "ann", false));
+
+        scoreboard.set_name_tag_visibility("red", Never);
+        for viewer in ["bob", "cat", "dan"] {
+            assert!(!shown(&scoreboard, viewer));
+        }
+        scoreboard.set_name_tag_visibility("red", HideForOtherTeams);
+        assert!(shown(&scoreboard, "bob"));
+        assert!(!shown(&scoreboard, "cat"));
+        assert!(shown(&scoreboard, "dan"));
+        scoreboard.set_name_tag_visibility("red", HideForOwnTeam);
+        assert!(!shown(&scoreboard, "bob"));
+        assert!(shown(&scoreboard, "cat"));
+        assert!(shown(&scoreboard, "dan"));
+        scoreboard.set_name_tag_visibility("red", Always);
+        // Someone on no team shows to whoever sees them.
+        assert!(scoreboard.shows_name_tag("ann", "dan", true));
+        assert!(!scoreboard.shows_name_tag("ann", "dan", false));
+        assert_eq!(super::NameTagVisibility::from_id(2), HideForOtherTeams);
+        assert_eq!(super::NameTagVisibility::from_id(9), Always);
     }
 
     #[test]

@@ -20,8 +20,14 @@ pub enum ContainerKind {
     Player,
     CraftingTable,
     Furnace,
-    Chest { rows: u8 },
+    Chest {
+        rows: u8,
+    },
     ShulkerBox,
+    /// Vanilla `HopperMenu`: five slots.
+    Hopper,
+    /// Vanilla `DispenserMenu` (a dispenser's or a dropper's): nine.
+    Dispenser,
     Anvil,
     Enchantment,
 }
@@ -33,6 +39,8 @@ impl ContainerKind {
             Self::Furnace | Self::Anvil => 39,
             Self::Chest { rows } => rows as usize * 9 + 36,
             Self::ShulkerBox => 63,
+            Self::Hopper => 41,
+            Self::Dispenser => 45,
             Self::Enchantment => 38,
         }
     }
@@ -45,6 +53,8 @@ impl ContainerKind {
             Self::Furnace | Self::Anvil => 3,
             Self::Chest { rows } => rows as usize * 9,
             Self::ShulkerBox => 27,
+            Self::Hopper => 5,
+            Self::Dispenser => 9,
             Self::Enchantment => 2,
         }
     }
@@ -59,7 +69,12 @@ impl ContainerKind {
         match self {
             Self::Player | Self::CraftingTable => Some(0),
             Self::Anvil => Some(2),
-            Self::Furnace | Self::Chest { .. } | Self::ShulkerBox | Self::Enchantment => None,
+            Self::Furnace
+            | Self::Chest { .. }
+            | Self::ShulkerBox
+            | Self::Hopper
+            | Self::Dispenser
+            | Self::Enchantment => None,
         }
     }
 
@@ -127,6 +142,14 @@ impl ContainerKind {
                 player: SlotList::default(),
             },
             Self::ShulkerBox => Menu::ShulkerBox {
+                contents: SlotList::default(),
+                player: SlotList::default(),
+            },
+            Self::Hopper => Menu::Hopper {
+                contents: SlotList::default(),
+                player: SlotList::default(),
+            },
+            Self::Dispenser => Menu::Generic3x3 {
                 contents: SlotList::default(),
                 player: SlotList::default(),
             },
@@ -603,7 +626,11 @@ fn quick_move(kind: ContainerKind, menu: &mut Menu, s: usize) {
             break;
         }
         match kind {
-            ContainerKind::Chest { .. } | ContainerKind::ShulkerBox => {
+            // `HopperMenu` and `DispenserMenu` move a stack the same way.
+            ContainerKind::Chest { .. }
+            | ContainerKind::ShulkerBox
+            | ContainerKind::Hopper
+            | ContainerKind::Dispenser => {
                 let split = kind.inv_start();
                 if s < split {
                     move_item_stack_to(kind, menu, s, split..menu.len(), true);
