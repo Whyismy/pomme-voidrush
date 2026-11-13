@@ -634,8 +634,9 @@ pub struct CameraUniform {
     camera_block: [i32; 4],
     /// xy: the environmental fog band (vanilla `environmentalStart/End`,
     /// spherical), layered by max() over the render-distance band in the .w
-    /// lanes above. Appended last so shaders that don't fog can keep their
-    /// shorter prefix declarations.
+    /// lanes above. z: how big this view draws a compass's or a clock's
+    /// glint ([`Self::with_glint`]). Appended last so shaders that don't
+    /// fog can keep their shorter prefix declarations.
     fog_env: [f32; 4],
     /// The enchantment glint's texture transform ([`glint_transform`]).
     glint: [f32; 4],
@@ -749,10 +750,19 @@ impl CameraUniform {
         .with_cardinal_light(sky.cardinal_light)
     }
 
-    /// Sets the enchantment glint's texture transform ([`glint_transform`]).
-    pub fn with_glint(mut self, glint: [f32; 4]) -> Self {
+    /// Sets the enchantment glint's texture transform ([`glint_transform`]),
+    /// and the size this view draws a compass's or a clock's own glint at
+    /// (vanilla `computeFoilDecalPose`: a half in an icon, three quarters
+    /// in the first-person hand, whole anywhere else).
+    pub fn with_glint(mut self, glint: [f32; 4], decal_size: f32) -> Self {
         self.glint = glint;
+        self.fog_env[2] = decal_size;
         self
+    }
+
+    /// [`Self::with_glint`] for the world's view.
+    pub fn with_glint_whole(self, glint: [f32; 4]) -> Self {
+        self.with_glint(glint, 1.0)
     }
 
     /// Lights directional shading (`light.glsl`) as `cardinal_light` does.

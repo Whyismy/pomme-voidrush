@@ -151,14 +151,19 @@ pub fn can_fit_inside_container_items(kind: ItemKind) -> bool {
 
 /// Vanilla `ItemStack.hasFoil`: the stack's `enchantment_glint_override`
 /// where it has one (its item's own included, as an enchanted golden
-/// apple's), else whether it is enchanted.
+/// apple's), else `Item.isFoil`: whether it is enchanted, or, for a
+/// compass, tracks a lodestone (`CompassItem.isFoil`).
 pub fn has_foil(stack: &ItemStackData) -> bool {
-    use azalea_inventory::components::{EnchantmentGlintOverride, Enchantments};
+    use azalea_inventory::components::{EnchantmentGlintOverride, Enchantments, LodestoneTracker};
     match stack.get_component::<EnchantmentGlintOverride>() {
         Some(glint) => glint.show_glint,
-        None => stack
-            .get_component::<Enchantments>()
-            .is_some_and(|enchantments| !enchantments.levels.is_empty()),
+        None => {
+            stack
+                .get_component::<Enchantments>()
+                .is_some_and(|enchantments| !enchantments.levels.is_empty())
+                || (stack.kind == ItemKind::Compass
+                    && stack.get_component::<LodestoneTracker>().is_some())
+        }
     }
 }
 
@@ -228,6 +233,7 @@ mod tests {
         assert!(!foil(ItemStack::new(ItemKind::DiamondSword, 1)));
         assert!(foil(ItemStack::new(ItemKind::EnchantedGoldenApple, 1)));
         assert!(foil(ItemStack::new(ItemKind::ExperienceBottle, 1)));
+        assert!(!foil(ItemStack::new(ItemKind::Compass, 1)));
         assert!(foil(
             ItemStack::new(ItemKind::DiamondSword, 1)
                 .with_component(EnchantmentGlintOverride { show_glint: true })

@@ -2615,10 +2615,11 @@ impl Renderer {
             ..
         } = mode
         {
-            let uniform =
-                CameraUniform::new(&self.camera, sky, render_distance, eyes_in_water).with_glint(
-                    camera::glint_transform(camera::glint_millis(), self.atlas.size),
-                );
+            let uniform = CameraUniform::new(&self.camera, sky, render_distance, eyes_in_water)
+                .with_glint_whole(camera::glint_transform(
+                    camera::glint_millis(),
+                    self.atlas.size,
+                ));
             self.chunk_pipeline.update_camera(frame, &uniform);
             self.block_overlay_pipeline.update_camera(frame, &uniform);
             self.entity_renderer.update_camera(frame, &uniform);
@@ -3597,6 +3598,8 @@ pub(crate) struct SkinData {
     pub slim: bool,
     /// The profile's cape, where it has one: its pixels, width and height.
     pub cape: Option<(Vec<u8>, u32, u32)>,
+    /// The profile's own elytra texture, where it has one.
+    pub elytra: Option<(Vec<u8>, u32, u32)>,
 }
 
 pub(crate) async fn fetch_skin_texture_by_name(name: &str) -> Result<SkinData, String> {
@@ -3677,10 +3680,14 @@ pub(crate) async fn fetch_skin_texture(uuid: &str) -> Result<SkinData, String> {
 pub(crate) async fn fetch_skin_texture_from_profile_property(
     value: &str,
 ) -> Result<SkinData, String> {
-    let (skin_url, slim, cape_url) = texture_urls(value)?;
-    let (pixels, width, height) = fetch_skin_image(&skin_url).await?;
-    // A cape that won't load leaves the player without one.
-    let cape = match cape_url {
+    let urls = texture_urls(value)?;
+    let (pixels, width, height) = fetch_skin_image(&urls.skin).await?;
+    // A cape or an elytra that won't load leaves the player without one.
+    let cape = match urls.cape {
+        Some(url) => fetch_cape_image(&url).await.ok(),
+        None => None,
+    };
+    let elytra = match urls.elytra {
         Some(url) => fetch_cape_image(&url).await.ok(),
         None => None,
     };
@@ -3688,9 +3695,20 @@ pub(crate) async fn fetch_skin_texture_from_profile_property(
         pixels,
         width,
         height,
-        slim,
+        slim: urls.slim,
         cape,
+        elytra,
     })
+}
+
+/// What a profile's `textures` property names: its skin and whether that
+/// is slim, and its cape and elytra where it has them.
+#[derive(Debug, PartialEq)]
+struct TextureUrls {
+    skin: String,
+    slim: bool,
+    cape: Option<String>,
+    elytra: Option<String>,
 }
 
 /// A cape's texture, as it is (`SkinManager` doesn't touch capes).
@@ -3712,12 +3730,11 @@ async fn fetch_cape_image(url: &str) -> Result<(Vec<u8>, u32, u32), String> {
 
 #[cfg(test)]
 fn skin_url_from_texture_property(value: &str) -> Result<(String, bool), String> {
-    texture_urls(value).map(|(skin, slim, _)| (skin, slim))
+    texture_urls(value).map(|urls| (urls.skin, urls.slim))
 }
 
-/// The skin's URL and whether it is slim, and the cape's URL, from a
-/// profile's `textures` property.
-fn texture_urls(value: &str) -> Result<(String, bool, Option<String>), String> {
+/// The URLs in a profile's `textures` property.
+fn texture_urls(value: &str) -> Result<TextureUrls, String> {
     #[derive(serde::Deserialize)]
     struct TexturesPayload {
         textures: Textures,
@@ -3780,6 +3797,7 @@ fn texture_urls(value: &str) -> Result<(String, bool, Option<String>), String> {
     // doesn't verify the signature yet.
     let mut skin = None;
     let mut cape = None;
+    let mut elytra = None;
     for (key, texture) in payload.textures.0 {
         match texture.url {
             Some(url) if is_allowed_texture_url(&url) => {
@@ -3788,13 +3806,20 @@ fn texture_urls(value: &str) -> Result<(String, bool, Option<String>), String> {
                     skin = Some((url, slim));
                 } else if key == "CAPE" {
                     cape = Some(url);
+                } else if key == "ELYTRA" {
+                    elytra = Some(url);
                 }
             }
             url => return Err(format!("texture url not allowed: {url:?}")),
         }
     }
     let (skin, slim) = skin.ok_or_else(|| "No skin texture".to_string())?;
-    Ok((skin, slim, cape))
+    Ok(TextureUrls {
+        skin,
+        slim,
+        cape,
+        elytra,
+    })
 }
 
 /// authlib's `TextureUrlChecker.isAllowedTextureDomain`: a `java.net.URI`
@@ -3983,6 +4008,29 @@ fn entity_cull_distance(render_distance: u32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A profile's cape and elytra come with its skin.
+    #[test]
+    fn a_profile_names_its_cape_and_elytra() {
+        let url = |name: &str| format!("https://textures.minecraft.net/texture/{name}");
+        let value = textures_property(
+            r#"{"textures":{"SKIN":{"url":"https://textures.minecraft.net/texture/s"},"CAPE":{"url":"https://textures.minecraft.net/texture/c"},"ELYTRA":{"url":"https://textures.minecraft.net/texture/e"}}}"#,
+        );
+        assert_eq!(
+            texture_urls(&value).unwrap(),
+            TextureUrls {
+                skin: url("s"),
+                slim: false,
+                cape: Some(url("c")),
+                elytra: Some(url("e")),
+            }
+        );
+        let plain = textures_property(
+            r#"{"textures":{"SKIN":{"url":"https://textures.minecraft.net/texture/s"}}}"#,
+        );
+        let urls = texture_urls(&plain).unwrap();
+        assert_eq!((urls.cape, urls.elytra), (None, None));
+    }
 
     #[test]
     fn decodes_skin_url_from_textures_property() {

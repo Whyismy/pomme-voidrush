@@ -1056,9 +1056,9 @@ fn honey_slide(player: &LocalPlayer, block: BlockPos) -> Option<DVec3> {
 /// Vanilla `Entity.applyEffectsFromBlocks`, for the blocks that act on how
 /// the player moves: slime slows whoever walks on it (`stepOn`); cobwebs,
 /// sweet berry bushes and powder snow hold the player back; bubble columns
-/// push it up or pull it down; honey lets it slide down its side.
-// TODO: vanilla visits every block crossed along the tick's moves
-// (`checkInsideBlocks`); these are the ones the player ends the tick in.
+/// push it up or pull it down; honey lets it slide down its side. Each
+/// block the player's box crossed on the way from where the tick began
+/// counts once (`checkInsideBlocks`), so a fast fall doesn't skip a cobweb.
 fn apply_effects_from_blocks(
     player: &mut LocalPlayer,
     input: &InputState,
@@ -1078,59 +1078,53 @@ fn apply_effects_from_blocks(
         }
     }
 
-    let aabb = player.bounding_box();
-    let inset = f64::from(1.0e-5_f32);
-    let min = (aabb.min + DVec3::splat(inset)).floor().as_ivec3();
-    let max = (aabb.max - DVec3::splat(inset)).floor().as_ivec3();
     let feet = table
         .block_state_data(block_state_at_player_position(player, world.chunks))
         .id();
-    for x in min.x..=max.x {
-        for y in min.y..=max.y {
-            for z in min.z..=max.z {
-                let data = table.block_state_data(world.chunks.get_block_state(x, y, z));
-                match data.id() {
-                    "cobweb" => {
-                        let weaving = player.effects.amplifier(mob_effect::WEAVING).is_some();
-                        make_stuck(
-                            player,
-                            if weaving {
-                                dvec3(0.5, 0.25, 0.5)
-                            } else {
-                                dvec3(0.25, f64::from(0.05_f32), 0.25)
-                            },
-                        );
-                    }
-                    "sweet_berry_bush" => {
-                        make_stuck(player, dvec3(f64::from(0.8_f32), 0.75, f64::from(0.8_f32)))
-                    }
-                    // `getInBlockState`: only with the feet in it.
-                    "powder_snow" if feet == "powder_snow" => {
-                        make_stuck(player, dvec3(f64::from(0.9_f32), 1.5, f64::from(0.9_f32)))
-                    }
-                    // `Player.onAboveBubbleColumn`: not while flying.
-                    "bubble_column" if !player.flying => {
-                        let above =
-                            table.block_state_data(world.chunks.get_block_state(x, y + 1, z));
-                        let open_above = (!above.has_collision()
-                            || above.collision_boxes().is_some_and(<[_]>::is_empty))
-                            && above.fluid().amount == 0;
-                        let drag_down = data.properties().get("drag") == Some("true");
-                        player.velocity.y =
-                            bubble_column_speed(player.velocity.y, drag_down, open_above);
-                        if !open_above {
-                            player.fall_distance = 0.0;
-                        }
-                    }
-                    "honey_block" => {
-                        if let Some(slid) = honey_slide(player, BlockPos { x, y, z }) {
-                            *player.velocity = slid;
-                            player.fall_distance = 0.0;
-                        }
-                    }
-                    _ => {}
+    let cells = cells_crossed(
+        &player.bounding_box(),
+        DVec3::from(player.prev_position) - DVec3::from(player.position),
+    );
+    for [x, y, z] in cells {
+        let data = table.block_state_data(world.chunks.get_block_state(x, y, z));
+        match data.id() {
+            "cobweb" => {
+                let weaving = player.effects.amplifier(mob_effect::WEAVING).is_some();
+                make_stuck(
+                    player,
+                    if weaving {
+                        dvec3(0.5, 0.25, 0.5)
+                    } else {
+                        dvec3(0.25, f64::from(0.05_f32), 0.25)
+                    },
+                );
+            }
+            "sweet_berry_bush" => {
+                make_stuck(player, dvec3(f64::from(0.8_f32), 0.75, f64::from(0.8_f32)))
+            }
+            // `getInBlockState`: only with the feet in it.
+            "powder_snow" if feet == "powder_snow" => {
+                make_stuck(player, dvec3(f64::from(0.9_f32), 1.5, f64::from(0.9_f32)))
+            }
+            // `Player.onAboveBubbleColumn`: not while flying.
+            "bubble_column" if !player.flying => {
+                let above = table.block_state_data(world.chunks.get_block_state(x, y + 1, z));
+                let open_above = (!above.has_collision()
+                    || above.collision_boxes().is_some_and(<[_]>::is_empty))
+                    && above.fluid().amount == 0;
+                let drag_down = data.properties().get("drag") == Some("true");
+                player.velocity.y = bubble_column_speed(player.velocity.y, drag_down, open_above);
+                if !open_above {
+                    player.fall_distance = 0.0;
                 }
             }
+            "honey_block" => {
+                if let Some(slid) = honey_slide(player, BlockPos { x, y, z }) {
+                    *player.velocity = slid;
+                    player.fall_distance = 0.0;
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -1472,6 +1466,42 @@ fn block_state_at_player_position(
         player.position.y.floor() as i32,
         player.position.z.floor() as i32,
     )
+}
+
+/// The block cells a box crossed in reaching where it is (`aabb`) from
+/// `back` away, each once, in the order met: vanilla
+/// `BlockGetter.forEachBlockIntersectedBetween`, with the box a
+/// hundred-thousandth smaller all round. The way is walked a quarter of a
+/// block at a time; a jump too long to be a move (a teleport) counts only
+/// where it ends.
+fn cells_crossed(aabb: &Aabb, back: DVec3) -> Vec<[i32; 3]> {
+    let inset = DVec3::splat(f64::from(1.0e-5_f32));
+    let length = back.length();
+    let steps = if length < f64::from(1.0e-5_f32) || length > 16.0 {
+        0
+    } else {
+        (length / 0.25).ceil() as usize
+    };
+    let mut cells = Vec::new();
+    for step in (0..=steps).rev() {
+        let offset = if steps == 0 {
+            DVec3::ZERO
+        } else {
+            back * (step as f64 / steps as f64)
+        };
+        let min = (aabb.min + offset + inset).floor().as_ivec3();
+        let max = (aabb.max + offset - inset).floor().as_ivec3();
+        for x in min.x..=max.x {
+            for y in min.y..=max.y {
+                for z in min.z..=max.z {
+                    if !cells.contains(&[x, y, z]) {
+                        cells.push([x, y, z]);
+                    }
+                }
+            }
+        }
+    }
+    cells
 }
 
 /// Vanilla `Entity.getOnPosLegacy`: the block a fifth of a block under the
@@ -2057,6 +2087,27 @@ mod tests {
         assert!((speed_after_fall_on("red_bed", -1.0, false) - f64::from(0.66_f32)).abs() < 1e-12);
         assert_eq!(speed_after_fall_on("red_bed", -1.0, true), 0.0);
         assert_eq!(speed_after_fall_on("slime_block", 0.3, false), 0.3);
+    }
+
+    /// A box that fell three blocks in a tick crossed every cell on the
+    /// way, each once and in order; one that didn't move, or jumped too far
+    /// to have moved there, only the cells it is in.
+    #[test]
+    fn a_fast_move_crosses_the_cells_between() {
+        let aabb = Aabb::new(dvec3(0.2, 10.0, 0.2), dvec3(0.8, 11.8, 0.8));
+        assert_eq!(cells_crossed(&aabb, DVec3::ZERO), [[0, 10, 0], [0, 11, 0]]);
+        let fell = cells_crossed(&aabb, dvec3(0.0, 3.0, 0.0));
+        assert_eq!(
+            fell,
+            [[0, 13, 0], [0, 14, 0], [0, 12, 0], [0, 11, 0], [0, 10, 0]]
+        );
+        assert_eq!(
+            cells_crossed(&aabb, dvec3(0.0, 300.0, 0.0)),
+            [[0, 10, 0], [0, 11, 0]]
+        );
+        // Sideways across a block edge: the cells of both columns.
+        let slid = cells_crossed(&aabb, dvec3(-1.0, 0.0, 0.0));
+        assert!(slid.contains(&[-1, 10, 0]) && slid.contains(&[0, 11, 0]));
     }
 
     /// A bubble column lifts faster at its open top than inside it, and

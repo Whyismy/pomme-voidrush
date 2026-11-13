@@ -1,0 +1,44 @@
+# The nether's lava pushes three times as hard as the overworld's
+# (`fast_lava`): standing in a channel of flowing lava there, the player
+# is carried well over a block in the time the overworld's current would
+# have moved it half of one.
+
+[[step]]
+chat = "/effect give @s minecraft:fire_resistance 600 0 true"
+
+[[step]]
+chat = "/execute in minecraft:the_nether run forceload add -16 -16 15 31"
+
+[[step]]
+wait_ms = 3000
+
+# A channel one block wide in a block of glass, a lava source at its head.
+[[step]]
+chat = "/execute in minecraft:the_nether run fill -2 99 -2 2 104 12 minecraft:glass"
+
+[[step]]
+chat = "/execute in minecraft:the_nether run fill 0 100 0 0 102 10 minecraft:air"
+
+[[step]]
+chat = "/execute in minecraft:the_nether run setblock 0 100 0 minecraft:lava"
+
+[[step]]
+chat = "/execute in minecraft:the_nether run tp @s 0.5 100 2.5 0 0"
+
+[[step]]
+expect = { player = { dimension = "the_nether" } }
+timeout_ms = 15000
+
+[[step]]
+wait_ms = 8000
+
+[[step]]
+expect = { player = { z_between = [3.6, 12.0] } }
+timeout_ms = 500
+
+[[step]]
+chat = "/execute in minecraft:overworld run tp @s 0.5 -60 0.5"
+
+[[step]]
+expect = { player = { dimension = "overworld" } }
+timeout_ms = 15000

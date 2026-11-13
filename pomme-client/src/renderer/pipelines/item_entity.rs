@@ -61,6 +61,32 @@ pub(crate) const GLINT_TEXTURE: &str = "minecraft/textures/misc/enchanted_glint_
 /// outline reads only the low 24).
 const WHITE_FLASH_BIT: u32 = 1 << 31;
 
+/// The instance's bit beside it that has the glint lie by the faces'
+/// places rather than by the sprite's UVs (vanilla `FoilType.SPECIAL`).
+const DECAL_GLINT_BIT: u32 = 1 << 30;
+
+/// Vanilla `BlockModelWrapper.hasSpecialAnimatedTexture`: a compass or a
+/// clock, whose sprite changes under its glint. `model` is the item's
+/// model key (`compass`, `compass_16`, `clock#...`).
+fn has_special_glint(model: &str) -> bool {
+    let name = model
+        .split(|c: char| !(c.is_ascii_lowercase() || c == '_'))
+        .next()
+        .unwrap_or_default()
+        .trim_end_matches('_');
+    matches!(name, "compass" | "recovery_compass" | "clock")
+}
+
+/// The instance flags for a copy of the item model `model`: its glint's
+/// kind, where it has foil.
+pub(super) fn glint_flags(model: &str, foil: bool) -> u32 {
+    if foil && has_special_glint(model) {
+        DECAL_GLINT_BIT
+    } else {
+        0
+    }
+}
+
 /// What the item-entity renderer needs to place a mesh: whether it baked from a
 /// 3D (block) model, plus its local-space bounding box used for the hover
 /// height and the 3D-vs-flat copy layout (vanilla reads these off
@@ -770,7 +796,8 @@ impl ItemEntityPipeline {
                 item.light.lane(),
                 &item.tints,
                 item.outline_color.unwrap_or(0)
-                    | if item.white_flash { WHITE_FLASH_BIT } else { 0 },
+                    | if item.white_flash { WHITE_FLASH_BIT } else { 0 }
+                    | glint_flags(&item.item_name, item.foil),
             );
         }
 
@@ -1398,6 +1425,29 @@ impl PreparedItemMesh {
 
 #[cfg(test)]
 mod tests {
+    /// Compasses and clocks, by whatever model key they are drawn with,
+    /// take the glint by their faces; only where they have foil.
+    #[test]
+    fn compasses_and_clocks_have_their_own_glint() {
+        for model in [
+            "compass",
+            "compass_16",
+            "recovery_compass_03",
+            "clock",
+            "clock#gui",
+        ] {
+            assert_eq!(
+                super::glint_flags(model, true),
+                super::DECAL_GLINT_BIT,
+                "{model}"
+            );
+            assert_eq!(super::glint_flags(model, false), 0, "{model}");
+        }
+        for model in ["diamond_sword", "clockwork", "compassion", "enchanted_book"] {
+            assert_eq!(super::glint_flags(model, true), 0, "{model}");
+        }
+    }
+
     use super::*;
 
     #[test]

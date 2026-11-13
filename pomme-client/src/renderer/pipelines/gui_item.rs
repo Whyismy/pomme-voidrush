@@ -87,7 +87,7 @@ impl GuiItemPipeline {
             proj::directx::orthographic(0.0, atlas_px, atlas_px, 0.0, -10000.0, 10000.0);
         self.shared.update_camera(
             frame,
-            &CameraUniform::with_view_proj(view_proj).with_glint(glint),
+            &CameraUniform::with_view_proj(view_proj).with_glint(glint, 0.5),
         );
     }
 
@@ -150,9 +150,14 @@ impl GuiItemPipeline {
             display,
         );
 
-        let instance =
-            self.shared
-                .push_item(frame, &model, Mat3::IDENTITY, UNLIT_LANE, item_tints, 0);
+        let instance = self.shared.push_item(
+            frame,
+            &model,
+            Mat3::IDENTITY,
+            UNLIT_LANE,
+            item_tints,
+            item_entity::glint_flags(item_name, foil),
+        );
         pass.set_vertex_buffer(0, buffer);
         pass.draw(vertex_count, 1, 0, instance);
         if foil {

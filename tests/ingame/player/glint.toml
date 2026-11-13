@@ -2,7 +2,8 @@
 # item frame shimmer, beside a plain one that does not; an enchanted golden
 # apple glints by its item's own component. A zombie in enchanted armor
 # glints (on the right); the one in plain armor does not. The
-# hotbar's and the inventory's icons glint as the items do.
+# hotbar's and the inventory's icons glint as the items do; a compass
+# that tracks a lodestone glints, beside a plain one that does not.
 
 [[step]]
 chat = "/tp @s 1900.5 -60 599.5 0 10"
@@ -36,6 +37,12 @@ chat = "/item replace entity @s hotbar.1 with minecraft:enchanted_book"
 
 [[step]]
 chat = "/item replace entity @s hotbar.2 with minecraft:diamond_sword"
+
+[[step]]
+chat = "/item replace entity @s hotbar.4 with minecraft:compass[minecraft:lodestone_tracker={target:{pos:[I;0,64,0],dimension:\"minecraft:overworld\"}}]"
+
+[[step]]
+chat = "/item replace entity @s hotbar.5 with minecraft:compass"
 
 [[step]]
 chat = "/item replace entity @s hotbar.3 with minecraft:diamond_pickaxe[minecraft:enchantments={\"minecraft:efficiency\":5}]"

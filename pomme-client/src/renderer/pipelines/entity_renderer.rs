@@ -1454,6 +1454,8 @@ pub struct EntityRenderer {
     player_skins: HashMap<uuid::Uuid, PlayerSkinTexture>,
     /// The capes of the players that have one, by profile id.
     player_capes: HashMap<uuid::Uuid, (rhi::backend::Texture, rhi::backend::BindGroup)>,
+    /// The elytra textures of the players that have their own.
+    player_elytras: HashMap<uuid::Uuid, (rhi::backend::Texture, rhi::backend::BindGroup)>,
     /// Vanilla's default skins ([`DEFAULT_SKINS`]), for players without
     /// one of their own.
     default_skins: Vec<PlayerSkinTexture>,
@@ -4026,6 +4028,7 @@ impl EntityRenderer {
             armor_meshes,
             player_skins: HashMap::new(),
             player_capes: HashMap::new(),
+            player_elytras: HashMap::new(),
             default_skins: DEFAULT_SKINS
                 .iter()
                 .map(|&(path, slim)| {
@@ -4149,13 +4152,13 @@ impl EntityRenderer {
             skin.width,
             skin.height
         );
-        self.set_player_cape(
-            device,
-            uuid,
-            skin.cape
+        fn view(texture: &Option<(Vec<u8>, u32, u32)>) -> Option<(&[u8], u32, u32)> {
+            texture
                 .as_ref()
-                .map(|(pixels, width, height)| (pixels.as_slice(), *width, *height)),
-        );
+                .map(|(pixels, width, height)| (pixels.as_slice(), *width, *height))
+        }
+        self.set_player_extra(device, uuid, false, view(&skin.cape));
+        self.set_player_extra(device, uuid, true, view(&skin.elytra));
     }
 
     /// Replaces the glint textures, the item's and the armor's, with a
@@ -4195,6 +4198,18 @@ impl EntityRenderer {
         uuid: &uuid::Uuid,
         cape: Option<(&[u8], u32, u32)>,
     ) {
+        self.set_player_extra(device, uuid, false, cape);
+    }
+
+    /// Sets, or with `None` takes away, the cape of the player `uuid`, or
+    /// (`wings`) its own elytra texture.
+    fn set_player_extra(
+        &mut self,
+        device: &rhi::backend::Device,
+        uuid: &uuid::Uuid,
+        wings: bool,
+        cape: Option<(&[u8], u32, u32)>,
+    ) {
         let cape = cape.map(|(pixels, width, height)| {
             let texture =
                 util::create_sampled_texture(device, "player_cape_texture", pixels, width, height);
@@ -4206,9 +4221,14 @@ impl EntityRenderer {
             );
             (texture, set)
         });
+        let kept = if wings {
+            &mut self.player_elytras
+        } else {
+            &mut self.player_capes
+        };
         let old = match cape {
-            Some(cape) => self.player_capes.insert(*uuid, cape),
-            None => self.player_capes.remove(uuid),
+            Some(cape) => kept.insert(*uuid, cape),
+            None => kept.remove(uuid),
         };
         if let Some((texture, set)) = old {
             texture.destroy(device);
@@ -4225,14 +4245,15 @@ impl EntityRenderer {
         if let Some(skin) = self.player_skins.remove(uuid) {
             free_player_skin_texture(device, skin);
         }
-        self.set_player_cape(device, uuid, None);
+        self.set_player_extra(device, uuid, false, None);
+        self.set_player_extra(device, uuid, true, None);
     }
 
     pub fn clear_player_skins(&mut self, device: &rhi::backend::Device) {
         for (_, skin) in self.player_skins.drain() {
             free_player_skin_texture(device, skin);
         }
-        for (_, (texture, set)) in self.player_capes.drain() {
+        for (_, (texture, set)) in self.player_capes.drain().chain(self.player_elytras.drain()) {
             texture.destroy(device);
             set.destroy(device);
         }
@@ -4429,11 +4450,17 @@ impl EntityRenderer {
                 );
             }
             // A baby wears the wings at half size (`elytra_baby`).
-            // TODO: the player's own elytra texture in the default's place.
             if let Some(chest) = &v.info.armor[1] {
-                // `WingsLayer.getPlayerElytraTexture`: a player with a cape
-                // wears its texture on the wings.
-                let cape_set = cape.map(|(_, set)| set);
+                // `WingsLayer.getPlayerElytraTexture`: a player's own
+                // elytra texture, else its cape's where it shows one, in
+                // the default's place.
+                let cape_set = v
+                    .info
+                    .player_uuid
+                    .as_ref()
+                    .and_then(|uuid| self.player_elytras.get(uuid))
+                    .map(|(_, set)| *set)
+                    .or(cape.map(|(_, set)| set));
                 let mut layers = self
                     .equipment_layers(chest, |asset| &asset.wings)
                     .map(|(set, tint)| (cape_set.unwrap_or(set), tint))

@@ -233,7 +233,7 @@ impl HeldItemPipeline {
     ) {
         let uniform = CameraUniform::with_view_proj(hand::projection(aspect, hud_fov) * bob)
             .with_cardinal_light(cardinal_light)
-            .with_glint(glint);
+            .with_glint(glint, 0.75);
         self.shared.update_camera(frame, &uniform);
 
         let tint_count = hands.iter().map(|hand| hand.item.item_tints.len()).sum();
@@ -280,7 +280,7 @@ impl HeldItemPipeline {
                 Mat3::from_mat4(hand_pose),
                 light.lane(),
                 &item.item_tints,
-                0,
+                item_entity::glint_flags(&item.name, item.foil),
             );
             pass.set_vertex_buffer(0, buffer);
             pass.draw(vertex_count, 1, 0, instance);
