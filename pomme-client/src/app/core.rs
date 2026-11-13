@@ -2293,6 +2293,7 @@ impl AppCore {
                         MenuKind::CartographyTable => Some(ContainerScreen::Cartography),
                         MenuKind::Smithing => Some(ContainerScreen::Smithing),
                         MenuKind::BrewingStand => Some(ContainerScreen::BrewingStand),
+                        MenuKind::Stonecutter => Some(ContainerScreen::Stonecutter),
                         MenuKind::Anvil => Some(ContainerScreen::Anvil),
                         MenuKind::Enchantment => Some(ContainerScreen::Enchantment),
                         _ => None,
@@ -2308,6 +2309,7 @@ impl AppCore {
                         game.inventory_open = false;
                         game.close_creative_inventory();
                         game.inv_drag = None;
+                        game.menu_list = Default::default();
                         game.inv_last_click = None;
                         game.open_container = Some(crate::app::phases::in_game::OpenContainer {
                             id: container_id,

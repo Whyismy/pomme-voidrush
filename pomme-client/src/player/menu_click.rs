@@ -36,6 +36,8 @@ pub enum ContainerKind {
     Smithing,
     /// Vanilla `BrewingStandMenu`: three bottles, the ingredient, the fuel.
     BrewingStand,
+    /// Vanilla `StonecutterMenu`: the input and what was picked from it.
+    Stonecutter,
     Anvil,
     Enchantment,
 }
@@ -51,7 +53,7 @@ impl ContainerKind {
             Self::Dispenser => 45,
             Self::Grindstone | Self::Cartography => 39,
             Self::Smithing => 40,
-            Self::Enchantment => 38,
+            Self::Enchantment | Self::Stonecutter => 38,
         }
     }
 
@@ -67,7 +69,7 @@ impl ContainerKind {
             Self::Dispenser => 9,
             Self::Grindstone | Self::Cartography => 3,
             Self::Smithing => 4,
-            Self::Enchantment => 2,
+            Self::Enchantment | Self::Stonecutter => 2,
         }
     }
 
@@ -82,6 +84,7 @@ impl ContainerKind {
             Self::Player | Self::CraftingTable => Some(0),
             Self::Anvil | Self::Grindstone | Self::Cartography => Some(2),
             Self::Smithing => Some(3),
+            Self::Stonecutter => Some(1),
             Self::Furnace
             | Self::Chest { .. }
             | Self::ShulkerBox
@@ -192,6 +195,11 @@ impl ContainerKind {
                 fuel: ItemStack::Empty,
                 player: SlotList::default(),
             },
+            Self::Stonecutter => Menu::Stonecutter {
+                input: ItemStack::Empty,
+                result: ItemStack::Empty,
+                player: SlotList::default(),
+            },
             Self::Anvil => Menu::Anvil {
                 first: ItemStack::Empty,
                 second: ItemStack::Empty,
@@ -221,7 +229,7 @@ impl ContainerKind {
         match (self, s) {
             (Self::Player | Self::CraftingTable, 0) => false,
             (Self::Furnace | Self::Anvil | Self::Grindstone | Self::Cartography, 2) => false,
-            (Self::Smithing, 3) => false,
+            (Self::Smithing, 3) | (Self::Stonecutter, 1) => false,
             (Self::Player, 5..=8) => {
                 let want = crate::player::inventory::ARMOR_EQUIPMENT
                     [s - crate::player::inventory::ARMOR_START];
@@ -684,7 +692,8 @@ fn quick_move(kind: ContainerKind, menu: &mut Menu, s: usize) {
             ContainerKind::Grindstone
             | ContainerKind::Cartography
             | ContainerKind::Smithing
-            | ContainerKind::BrewingStand => {
+            | ContainerKind::BrewingStand
+            | ContainerKind::Stonecutter => {
                 let split = kind.inv_start();
                 if s < split {
                     move_item_stack_to(kind, menu, s, split..menu.len(), true);

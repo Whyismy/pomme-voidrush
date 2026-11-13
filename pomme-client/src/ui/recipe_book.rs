@@ -1961,6 +1961,35 @@ impl VanillaDemoRandom {
 /// potion per level, so hostile data would otherwise exhaust memory.
 const MAX_RESOLVED_STACKS: usize = 4096;
 
+/// Vanilla `StonecutterMenu.setupRecipeList`: what the stonecutter makes of
+/// `input`, in the server's order, which is the order its buttons are
+/// numbered in. One that shows as nothing keeps its place.
+pub(crate) fn stonecutter_options(book: &RecipeBookState, input: &ItemStack) -> Vec<ItemStack> {
+    let ItemStack::Present(input) = input else {
+        return Vec::new();
+    };
+    let id = input.kind.to_u32();
+    book.data
+        .stonecutter_recipes
+        .iter()
+        .filter(|recipe| match &recipe.input {
+            Ingredient::Items(items) => items.contains(&id),
+            Ingredient::Tag(tag) => book
+                .item_tags()
+                .get(tag)
+                .is_some_and(|items| items.contains(&id)),
+        })
+        .map(|recipe| {
+            slot_stacks(&recipe.option_display, book)
+                .into_iter()
+                .next()
+                .map_or(ItemStack::Empty, |resolved| {
+                    ItemStack::Present(resolved.stack)
+                })
+        })
+        .collect()
+}
+
 fn slot_stacks(slot: &SlotDisplay, book: &RecipeBookState) -> Vec<ResolvedSlotStack> {
     let basic = |id: u32| {
         ItemKind::from_u32(id).map(|kind| ResolvedSlotStack::plain(ItemStackData::new(kind, 1)))

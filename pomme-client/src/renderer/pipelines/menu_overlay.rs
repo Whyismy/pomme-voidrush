@@ -2834,6 +2834,12 @@ pub enum SpriteId {
     BrewingBubbles,
     GrindstoneError,
     SmithingError,
+    StonecutterBackground,
+    StonecutterScroller,
+    StonecutterScrollerDisabled,
+    StonecutterRecipe,
+    StonecutterRecipeSelected,
+    StonecutterRecipeHighlighted,
     AnvilBackground,
     AnvilTextField,
     AnvilTextFieldDisabled,
@@ -3597,6 +3603,31 @@ fn build_sprite_atlas(
         (
             SpriteId::SmithingError,
             "minecraft/textures/gui/sprites/container/smithing/error.png",
+            0.0,
+        ),
+        (
+            SpriteId::StonecutterScroller,
+            "minecraft/textures/gui/sprites/container/stonecutter/scroller.png",
+            0.0,
+        ),
+        (
+            SpriteId::StonecutterScrollerDisabled,
+            "minecraft/textures/gui/sprites/container/stonecutter/scroller_disabled.png",
+            0.0,
+        ),
+        (
+            SpriteId::StonecutterRecipe,
+            "minecraft/textures/gui/sprites/container/stonecutter/recipe.png",
+            0.0,
+        ),
+        (
+            SpriteId::StonecutterRecipeSelected,
+            "minecraft/textures/gui/sprites/container/stonecutter/recipe_selected.png",
+            0.0,
+        ),
+        (
+            SpriteId::StonecutterRecipeHighlighted,
+            "minecraft/textures/gui/sprites/container/stonecutter/recipe_highlighted.png",
             0.0,
         ),
         (
@@ -4494,6 +4525,13 @@ fn build_sprite_atlas(
         (
             SpriteId::BrewingStandBackground,
             "minecraft/textures/gui/container/brewing_stand.png",
+            (0, 0),
+            INV_TEX_W,
+            166,
+        ),
+        (
+            SpriteId::StonecutterBackground,
+            "minecraft/textures/gui/container/stonecutter.png",
             (0, 0),
             INV_TEX_W,
             166,

@@ -107,6 +107,7 @@ pub enum ContainerScreen {
     Cartography,
     Smithing,
     BrewingStand,
+    Stonecutter,
     Anvil,
     Enchantment,
 }
@@ -125,6 +126,7 @@ impl ContainerScreen {
             Self::Cartography => ContainerKind::Cartography,
             Self::Smithing => ContainerKind::Smithing,
             Self::BrewingStand => ContainerKind::BrewingStand,
+            Self::Stonecutter => ContainerKind::Stonecutter,
             Self::Anvil => ContainerKind::Anvil,
             Self::Enchantment => ContainerKind::Enchantment,
         }
@@ -247,6 +249,8 @@ pub struct GameState {
     /// tags.
     pub recipe_book: crate::recipe::RecipeBookState,
     pub recipe_book_ui: crate::ui::recipe_book::RecipeBookUiState,
+    /// Where the open menu's own list (a stonecutter's recipes) is scrolled.
+    pub menu_list: crate::ui::stonecutter::ListState,
     pub chat: ChatState,
     pub server_dialog: Option<crate::ui::server_dialog::ServerDialogState>,
     pub server_links: Vec<crate::ui::server_dialog::ServerLink>,
@@ -679,6 +683,7 @@ impl GameState {
             block_registry,
             recipe_book: crate::recipe::RecipeBookState::default(),
             recipe_book_ui: crate::ui::recipe_book::RecipeBookUiState::new(),
+            menu_list: Default::default(),
             chat: {
                 let mut chat = ChatState::new();
                 chat.set_options(chat_options);
@@ -4129,6 +4134,33 @@ pub fn update_game(
                     &mut game.inv_last_click,
                     gs,
                 ),
+                ContainerScreen::Stonecutter => {
+                    let options = crate::ui::recipe_book::stonecutter_options(
+                        &game.recipe_book,
+                        container
+                            .slots
+                            .first()
+                            .unwrap_or(&azalea_inventory::ItemStack::Empty),
+                    );
+                    let wheel = core.input.consume_menu_scroll();
+                    crate::ui::stonecutter::build(
+                        &mut elements,
+                        sw,
+                        sh,
+                        core.input.cursor_pos(),
+                        &input,
+                        &container.slots,
+                        &container.data,
+                        &container.title,
+                        &options,
+                        &mut game.menu_list,
+                        wheel,
+                        &game.cursor_item,
+                        &mut game.inv_drag,
+                        &mut game.inv_last_click,
+                        gs,
+                    )
+                }
                 ContainerScreen::Grindstone
                 | ContainerScreen::Cartography
                 | ContainerScreen::Smithing
@@ -4211,6 +4243,10 @@ pub fn update_game(
             };
             if let Some(button_id) = result.button {
                 use azalea_protocol::packets::game::s_container_button_click::ServerboundContainerButtonClick;
+                if container.screen == ContainerScreen::Stonecutter {
+                    core.audio
+                        .play_ui_sound("ui.stonecutter.select_recipe", 1.0, 1.0);
+                }
                 connection
                     .packet_tx
                     .send(ServerboundGamePacket::ContainerButtonClick(
