@@ -2020,6 +2020,10 @@ impl AppCore {
                     }
                 }
                 NetworkEvent::WorldBorder(update) => game.world_border.apply(update),
+                NetworkEvent::TickingState { tick_rate, frozen } => {
+                    game.tick_rate.set_state(tick_rate, frozen);
+                }
+                NetworkEvent::TickingStep { steps } => game.tick_rate.set_steps(steps),
                 NetworkEvent::BlockDestruction { id, pos, progress } => {
                     game.block_breaking.set(id, pos, progress, game.tick_count);
                 }
@@ -3824,6 +3828,7 @@ impl AppCore {
                     game.block_breaking.clear();
                     // A level has its own border, which the server names anew.
                     game.world_border = Default::default();
+                    game.tick_rate = Default::default();
                     game.pot_wobbles.clear();
                     game.arrows.clear();
                     game.fishing_hooks.clear();
@@ -4051,7 +4056,11 @@ impl AppCore {
         // tick's travel.
         // TODO: a same-dimension `handleRespawn` re-adds it after them.
         self.tick_local_player(renderer, connection, game);
-        self.tick_remote_entities(game);
+        // `TickRateManager.isEntityFrozen`: in a frozen game only players
+        // tick. Remote players are held with the rest here.
+        if game.tick_rate.runs_normally() {
+            self.tick_remote_entities(game);
+        }
         // `FireworkParticles.Starter.tick`: a twinkling firework's last
         // sound, the far one from sixteen blocks off.
         let camera = renderer.camera_render_position();

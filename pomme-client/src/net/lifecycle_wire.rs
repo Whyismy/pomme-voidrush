@@ -166,6 +166,12 @@ fn handle(
                 relative,
             },
         ),
+        LifecyclePacket::TickingState { tick_rate, frozen } => {
+            send_ordered(event_tx, NetworkEvent::TickingState { tick_rate, frozen })
+        }
+        LifecyclePacket::TickingStep { steps } => {
+            send_ordered(event_tx, NetworkEvent::TickingStep { steps })
+        }
         LifecyclePacket::BorderInit {
             x,
             z,

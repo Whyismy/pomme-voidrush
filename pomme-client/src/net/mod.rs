@@ -180,6 +180,15 @@ pub enum NetworkEvent {
         x_rot: f32,
         relative_x: bool,
     },
+    /// `ClientboundTickingStatePacket`.
+    TickingState {
+        tick_rate: f32,
+        frozen: bool,
+    },
+    /// `ClientboundTickingStepPacket`.
+    TickingStep {
+        steps: u32,
+    },
     /// One of the world border's packets.
     WorldBorder(crate::world::border::BorderUpdate),
     /// `ClientboundPlayerLookAtPacket`: face a point, or an entity.

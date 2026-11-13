@@ -11,10 +11,10 @@ use azalea_registry::builtin::{BlockEntityKind, EntityKind};
 use glam::FloatExt as _;
 
 use crate::app::core::{AppCore, PlayerInputState};
+use crate::app::input;
 use crate::app::input::{Action, InputKey, KeyBindings};
 use crate::app::level_load::LevelLoadTracker;
 use crate::app::phases::Gfx;
-use crate::app::{TICK_RATE, input};
 use crate::audio::{CATEGORY_AMBIENT, CATEGORY_PLAYERS, SoundRef};
 use crate::benchmark::{
     BenchMode, Benchmark, BenchmarkResult, ChunkLoadBench, ChunkLoadResult, ChunkLoadStep,
@@ -276,6 +276,8 @@ pub struct GameState {
     /// How far the spyglass's scope has opened (vanilla `Hud.scopeScale`):
     /// from a half toward nine eighths while one is looked through.
     pub scope_scale: f32,
+    /// The rate the server ticks at, and whether it is frozen.
+    pub tick_rate: crate::world::tick_rate::TickRate,
     /// The level's border.
     pub world_border: crate::world::border::WorldBorder,
     /// The blocks others are breaking, and how far.
@@ -724,6 +726,7 @@ impl GameState {
             book_view: None,
             book_edit: None,
             scope_scale: 0.5,
+            tick_rate: Default::default(),
             world_border: Default::default(),
             block_breaking: Default::default(),
             tracking_emitters: Vec::new(),
@@ -2807,15 +2810,21 @@ pub fn update_game(
 
     game.drain_and_upload_meshes(&mut gfx.renderer);
 
+    // A server ticking slower than twenty a second slows the client's ticks
+    // with it (`Minecraft.getTickTargetMillis`).
+    let tick_len = game.tick_rate.seconds_per_tick();
     // Sky time ticks unconditionally so it keeps flowing in menus.
     core.time_tick_accumulator = (core.time_tick_accumulator + dt).min(1.0);
-    while core.time_tick_accumulator >= TICK_RATE {
-        game.sky_state.game_time = game.sky_state.game_time.wrapping_add(1);
-        game.clocks.tick(game.sky_state.game_time);
-        game.sync_day_time();
+    while core.time_tick_accumulator >= tick_len {
+        // `ClientLevel.tick`: time stands still in a frozen game.
+        if game.tick_rate.runs_normally() {
+            game.sky_state.game_time = game.sky_state.game_time.wrapping_add(1);
+            game.clocks.tick(game.sky_state.game_time);
+            game.sync_day_time();
+        }
         game.sample_biomes(gfx.renderer.camera_render_position());
         game.environment_probe.tick(game.resolve_environment());
-        core.time_tick_accumulator -= TICK_RATE;
+        core.time_tick_accumulator -= tick_len;
     }
 
     if game.input_live() && game.chunk_load_bench.is_none() {
@@ -2831,14 +2840,14 @@ pub fn update_game(
     // Menus never pause the simulation; tick_physics substitutes neutral input.
     // The whole frame counts, not the clamped `dt`, so a slow frame doesn't
     // lose ticks.
-    let ticks = advance_ticks(&mut core.tick_accumulator, raw_dt);
+    let ticks = advance_ticks(&mut core.tick_accumulator, raw_dt, tick_len);
     // Vanilla `Minecraft.runTick` ticks textures once per frame that runs any
-    // ticks, before them.
-    // TODO: vanilla also skips this while singleplayer is paused and under
-    // `/tick freeze` (`isLevelRunningNormally`); pomme tracks neither yet.
+    // ticks, before them, unless the game is frozen
+    // (`isLevelRunningNormally`).
+    // TODO: vanilla also skips this while singleplayer is paused.
     let ticked = ticks > 0;
     let ticks_start = std::time::Instant::now();
-    if ticked {
+    if ticked && game.tick_rate.runs_normally() {
         if game.deterministic {
             gfx.renderer.hold_texture_animations();
         } else {
@@ -2846,6 +2855,7 @@ pub fn update_game(
         }
     }
     for _ in 0..ticks {
+        game.tick_rate.tick();
         game.tick_count = game.tick_count.wrapping_add(1);
         // `LivingEntity.tick`: an elytra's wings ease toward their pose.
         let gliding = game.player.fall_flying.then(|| {
@@ -3109,7 +3119,7 @@ pub fn update_game(
         gfx.renderer.tick_lightmap(lightmap_info(
             game,
             core.menu.brightness,
-            sky_partial_tick(core),
+            sky_partial_tick(core, tick_len),
         ));
     }
 
@@ -3176,7 +3186,7 @@ pub fn update_game(
         game.pending_load_rescan = true;
     }
 
-    let partial_tick = core.tick_accumulator / TICK_RATE;
+    let partial_tick = core.tick_accumulator / tick_len;
 
     let enter = core.input.enter_pressed();
     let tab = core.input.tab_pressed();
@@ -5832,7 +5842,7 @@ pub fn update_game(
         });
     }
 
-    let clock_partial_tick = sky_partial_tick(core);
+    let clock_partial_tick = sky_partial_tick(core, game.tick_rate.seconds_per_tick());
     let min_y = game.chunk_store.min_y();
     // `ClientLevelData.getHorizonHeight`.
     let horizon = if game.flat { f64::from(min_y) } else { 63.0 };
@@ -11699,16 +11709,17 @@ const MAX_TICKS_PER_FRAME: u32 = 10;
 /// counts them: the frame's whole time joins the leftover fraction, every
 /// whole tick in it is taken out, and `Minecraft.runTick` runs at most
 /// [`MAX_TICKS_PER_FRAME`] of them (`Math.min(10, i)`), dropping the rest.
-fn advance_ticks(accumulator: &mut f32, frame_secs: f32) -> u32 {
+/// A tick is `tick_len` seconds long.
+fn advance_ticks(accumulator: &mut f32, frame_secs: f32, tick_len: f32) -> u32 {
     *accumulator += frame_secs.max(0.0);
-    let due = (*accumulator / TICK_RATE).floor();
-    *accumulator -= due * TICK_RATE;
+    let due = (*accumulator / tick_len).floor();
+    *accumulator -= due * tick_len;
     (due as u32).min(MAX_TICKS_PER_FRAME)
 }
 
 /// How far the clock is between its last tick and the next.
-fn sky_partial_tick(core: &AppCore) -> f32 {
-    (core.time_tick_accumulator / TICK_RATE).clamp(0.0, 1.0)
+fn sky_partial_tick(core: &AppCore, tick_len: f32) -> f32 {
+    (core.time_tick_accumulator / tick_len).clamp(0.0, 1.0)
 }
 
 /// Vanilla `LightmapRenderStateExtractor.extract`, which samples the
@@ -11769,38 +11780,38 @@ mod tests {
     fn ten_fps_runs_two_ticks_a_frame_and_keeps_the_fraction() {
         let mut accumulator = 0.0;
         let frames: Vec<u32> = (0..10)
-            .map(|_| advance_ticks(&mut accumulator, 0.1))
+            .map(|_| advance_ticks(&mut accumulator, 0.1, TICK_RATE))
             .collect();
         assert_eq!(frames, [2; 10]);
         assert!(accumulator.abs() < 1e-4);
 
         // A 130 ms frame runs its two ticks and carries 30 ms on.
         let mut accumulator = 0.0;
-        assert_eq!(advance_ticks(&mut accumulator, 0.13), 2);
+        assert_eq!(advance_ticks(&mut accumulator, 0.13, TICK_RATE), 2);
         assert!((accumulator - 0.03).abs() < 1e-4);
-        assert_eq!(advance_ticks(&mut accumulator, 0.025), 1);
+        assert_eq!(advance_ticks(&mut accumulator, 0.025, TICK_RATE), 1);
     }
 
     #[test]
     fn a_slow_frame_catches_up_at_most_ten_ticks() {
         // A 300 ms hitch is six ticks; a clamped frame time ran only two.
         let mut accumulator = 0.0;
-        assert_eq!(advance_ticks(&mut accumulator, 0.3), 6);
+        assert_eq!(advance_ticks(&mut accumulator, 0.3, TICK_RATE), 6);
 
         // Vanilla drops whatever is past ten, keeping only the fraction.
         let mut accumulator = 0.0;
         assert_eq!(
-            advance_ticks(&mut accumulator, 2.0 + TICK_RATE / 2.0),
+            advance_ticks(&mut accumulator, 2.0 + TICK_RATE / 2.0, TICK_RATE),
             MAX_TICKS_PER_FRAME
         );
         assert!((accumulator - TICK_RATE / 2.0).abs() < 1e-4);
-        assert_eq!(advance_ticks(&mut accumulator, 0.0), 0);
+        assert_eq!(advance_ticks(&mut accumulator, 0.0, TICK_RATE), 0);
     }
 
     #[test]
     fn an_unspent_tick_from_the_loading_screen_runs_in_the_first_frame() {
         let mut accumulator = TICK_RATE;
-        assert_eq!(advance_ticks(&mut accumulator, 0.001), 1);
+        assert_eq!(advance_ticks(&mut accumulator, 0.001, TICK_RATE), 1);
     }
 
     #[test]

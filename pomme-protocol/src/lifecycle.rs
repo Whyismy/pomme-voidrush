@@ -28,6 +28,16 @@ pub enum LifecyclePacket {
         x_rot: f32,
         relative_x: bool,
     },
+    /// `ClientboundTickingStatePacket`: the ticks a second the server runs
+    /// at, and whether it is frozen.
+    TickingState {
+        tick_rate: f32,
+        frozen: bool,
+    },
+    /// `ClientboundTickingStepPacket`: the ticks a frozen game steps on by.
+    TickingStep {
+        steps: u32,
+    },
     /// `ClientboundInitializeBorderPacket`: the world border whole.
     BorderInit {
         x: f64,
@@ -143,6 +153,15 @@ pub fn read(name: &str, r: &mut Reader) -> Option<DecodeResult<LifecyclePacket>>
                 relative: Relative::from_bits(r.i32()?),
             })
         },
+        // ClientboundTickingStatePacket.java:16
+        "ticking_state" => |r| {
+            Ok(LifecyclePacket::TickingState {
+                tick_rate: r.f32()?,
+                frozen: r.bool()?,
+            })
+        },
+        // ClientboundTickingStepPacket.java:15
+        "ticking_step" => |r| Ok(LifecyclePacket::TickingStep { steps: r.varint()? }),
         // ClientboundInitializeBorderPacket.java:27-36
         "initialize_border" => |r| {
             Ok(LifecyclePacket::BorderInit {

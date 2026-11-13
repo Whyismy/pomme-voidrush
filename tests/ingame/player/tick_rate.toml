@@ -1,0 +1,32 @@
+# A server ticking at a quarter speed slows the player's walk with it.
+
+[[step]]
+chat = "/tp @s 4500.5 -60 600.5 0 0"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+chat = "/tick rate 5"
+
+[[step]]
+wait_ms = 600
+
+[[step]]
+press = { action = "key.forward", hold = true }
+
+[[step]]
+wait_ms = 2000
+
+[[step]]
+press = { action = "key.forward", hold = false }
+
+[[step]]
+chat = "/tick rate 20"
+
+[[step]]
+wait_ms = 400
+
+# About two blocks in two seconds, where full speed would be over eight.
+[[step]]
+expect = { player = { z_between = [601.0, 604.5] } }
