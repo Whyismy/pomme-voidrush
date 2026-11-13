@@ -2,7 +2,8 @@
 //! large with its four lines, the one being written marked by a blinking
 //! cursor, and a Done button. Closing the screen, however it is closed,
 //! sends the lines (`ServerboundSignUpdatePacket`).
-// TODO: `TextFieldHelper`'s selection, with its copy and cut.
+// TODO: the selection inverts the text it covers in vanilla; here it is a
+// blue box behind it.
 
 use std::time::Instant;
 
@@ -38,6 +39,9 @@ pub struct SignEditState {
     line: usize,
     /// The cursor, in characters along that line.
     cursor: usize,
+    /// The selection's other end; the cursor's own place when nothing is
+    /// selected.
+    select: usize,
     color: [f32; 4],
     /// When the cursor's blink began.
     opened: Instant,
@@ -90,6 +94,7 @@ impl SignEditState {
             lines,
             line: 0,
             cursor,
+            select: cursor,
             color,
             opened: Instant::now(),
             done: false,
@@ -121,7 +126,19 @@ impl SignEditState {
             .map_or(line.len(), |(byte, _)| byte)
     }
 
-    /// Writes `text` at the cursor, where the line stays within the board
+    /// The selected stretch of the line, as character places: empty when
+    /// the cursor and the selection's other end are one.
+    fn selection(&self) -> (usize, usize) {
+        (self.cursor.min(self.select), self.cursor.max(self.select))
+    }
+
+    fn selected(&self) -> &str {
+        let (from, to) = self.selection();
+        &self.lines[self.line][self.byte_at(from)..self.byte_at(to)]
+    }
+
+    /// `TextFieldHelper.insertText`: `text` takes the selection's place, or
+    /// goes in at the cursor, where the line stays within the board
     /// (`width` in text pixels).
     fn insert(&mut self, text: &str, width: &dyn Fn(&str) -> f32) {
         let text: String = text
@@ -131,25 +148,90 @@ impl SignEditState {
         if text.is_empty() {
             return;
         }
-        let at = self.byte_at(self.cursor);
+        let (from, to) = self.selection();
         let mut line = self.lines[self.line].clone();
-        line.insert_str(at, &text);
+        line.replace_range(self.byte_at(from)..self.byte_at(to), &text);
         if width(&line) <= self.kind.max_line_width() as f32 {
             self.lines[self.line] = line;
-            self.cursor += text.chars().count();
+            self.cursor = from + text.chars().count();
+            self.select = self.cursor;
+        }
+    }
+
+    /// `TextFieldHelper.removeFromCursor`: the selection goes, or else what
+    /// lies between the cursor and `to`.
+    fn remove_to(&mut self, to: usize) {
+        if self.cursor == self.select {
+            self.select = to;
+        }
+        let (from, to) = self.selection();
+        let bytes = self.byte_at(from)..self.byte_at(to);
+        self.lines[self.line].replace_range(bytes, "");
+        self.cursor = from;
+        self.select = from;
+    }
+
+    /// The place a step from the cursor reaches: a character on, or with
+    /// `word` the start of the next word (the previous, going back).
+    fn step(&self, forward: bool, word: bool) -> usize {
+        let chars: Vec<char> = self.lines[self.line].chars().collect();
+        let mut at = self.cursor;
+        if !word {
+            return if forward {
+                (at + 1).min(chars.len())
+            } else {
+                at.saturating_sub(1)
+            };
+        }
+        if forward {
+            while at < chars.len() && chars[at] != ' ' {
+                at += 1;
+            }
+            while at < chars.len() && chars[at] == ' ' {
+                at += 1;
+            }
+        } else {
+            while at > 0 && chars[at - 1] == ' ' {
+                at -= 1;
+            }
+            while at > 0 && chars[at - 1] != ' ' {
+                at -= 1;
+            }
+        }
+        at
+    }
+
+    /// Moves the cursor; the selection's other end follows unless Shift
+    /// holds it.
+    fn move_cursor(&mut self, to: usize, selecting: bool) {
+        self.cursor = to;
+        if !selecting {
+            self.select = to;
         }
     }
 
     fn move_to_line(&mut self, line: usize) {
         self.line = line % 4;
         self.cursor = self.lines[self.line].chars().count();
+        self.select = self.cursor;
     }
 
     /// `AbstractSignEditScreen.keyPressed` and `charTyped`: up and down
-    /// (and Enter) change line, the rest writes on the line.
+    /// (and Enter) change line, the rest writes on the line as
+    /// `TextFieldHelper` does.
     pub fn handle_text_input(&mut self, events: &[TextInputEvent], width: &dyn Fn(&str) -> f32) {
+        self.handle_text_input_with(events, width, &mut SystemClipboard);
+    }
+
+    fn handle_text_input_with(
+        &mut self,
+        events: &[TextInputEvent],
+        width: &dyn Fn(&str) -> f32,
+        clipboard: &mut dyn ClipboardAccess,
+    ) {
         for event in events {
             self.opened = Instant::now();
+            let end = self.lines[self.line].chars().count();
             match event {
                 TextInputEvent::Char(c) => self.insert(c.encode_utf8(&mut [0; 4]), width),
                 TextInputEvent::Key { code, mods } => match code {
@@ -157,27 +239,29 @@ impl SignEditState {
                     KeyCode::ArrowDown | KeyCode::Enter | KeyCode::NumpadEnter => {
                         self.move_to_line(self.line + 1);
                     }
-                    KeyCode::Backspace if self.cursor > 0 => {
-                        let from = self.byte_at(self.cursor - 1);
-                        let to = self.byte_at(self.cursor);
-                        self.lines[self.line].replace_range(from..to, "");
-                        self.cursor -= 1;
+                    KeyCode::KeyA if mods.edit_shortcut() => {
+                        self.select = 0;
+                        self.cursor = end;
                     }
-                    KeyCode::Delete => {
-                        let from = self.byte_at(self.cursor);
-                        let to = self.byte_at(self.cursor + 1);
-                        self.lines[self.line].replace_range(from..to, "");
+                    KeyCode::KeyC if mods.edit_shortcut() => clipboard.set(self.selected()),
+                    KeyCode::KeyX if mods.edit_shortcut() => {
+                        clipboard.set(self.selected());
+                        self.remove_to(self.cursor);
                     }
-                    KeyCode::ArrowLeft => self.cursor = self.cursor.saturating_sub(1),
-                    KeyCode::ArrowRight => {
-                        self.cursor = (self.cursor + 1).min(self.lines[self.line].chars().count());
-                    }
-                    KeyCode::Home => self.cursor = 0,
-                    KeyCode::End => self.cursor = self.lines[self.line].chars().count(),
                     KeyCode::KeyV if mods.edit_shortcut() => {
-                        let pasted = SystemClipboard.get();
+                        let pasted = clipboard.get();
                         self.insert(&pasted, width);
                     }
+                    KeyCode::Backspace => self.remove_to(self.step(false, mods.edit_shortcut())),
+                    KeyCode::Delete => self.remove_to(self.step(true, mods.edit_shortcut())),
+                    KeyCode::ArrowLeft => {
+                        self.move_cursor(self.step(false, mods.edit_shortcut()), mods.shift);
+                    }
+                    KeyCode::ArrowRight => {
+                        self.move_cursor(self.step(true, mods.edit_shortcut()), mods.shift);
+                    }
+                    KeyCode::Home => self.move_cursor(0, mods.shift),
+                    KeyCode::End => self.move_cursor(end, mods.shift),
                     _ => {}
                 },
             }
@@ -263,20 +347,38 @@ pub fn build(
     for (index, line) in state.lines.iter().enumerate() {
         let y = middle * gs + (index as f32 * line_height - 2.0 * line_height) * unit;
         let left = centre - (width(line) / 2.0).floor() * unit;
-        if !line.is_empty() {
-            elements.push(MenuElement::TextFlat {
-                x: left,
-                y,
-                text: line.clone(),
-                scale,
-                color: state.color,
-            });
-        }
-        if index != state.line || !blink {
+        let written = (!line.is_empty()).then(|| MenuElement::TextFlat {
+            x: left,
+            y,
+            text: line.clone(),
+            scale,
+            color: state.color,
+        });
+        if index != state.line {
+            elements.extend(written);
             continue;
         }
-        let before: String = line.chars().take(state.cursor).collect();
-        let x = left + width(&before) * unit;
+        let along = |chars: usize| {
+            let before: String = line.chars().take(chars).collect();
+            left + width(&before) * unit
+        };
+        // The selection, behind what it covers.
+        let (from, to) = state.selection();
+        if from != to {
+            elements.push(MenuElement::Rect {
+                x: along(from),
+                y,
+                w: along(to) - along(from),
+                h: line_height * unit,
+                corner_radius: 0.0,
+                color: super::common::FIELD_SELECTION,
+            });
+        }
+        elements.extend(written);
+        if !blink {
+            continue;
+        }
+        let x = along(state.cursor);
         if state.cursor >= line.chars().count() {
             elements.push(MenuElement::TextFlat {
                 x,
@@ -377,5 +479,72 @@ mod tests {
         let mut edit = SignEditState::open(pos, false, "oak_hanging_sign", None).unwrap();
         edit.handle_text_input(&typed("0123456789abcdefgh"), &width);
         assert_eq!(edit.into_lines()[0], "0123456789");
+    }
+
+    /// Shift selects, typing and pasting replace what is selected, and
+    /// copy and cut take it to the clipboard.
+    #[test]
+    fn a_selection_is_copied_cut_and_written_over() {
+        struct Clipboard(String);
+        impl ClipboardAccess for Clipboard {
+            fn get(&mut self) -> String {
+                self.0.clone()
+            }
+            fn set(&mut self, text: &str) {
+                self.0 = text.to_owned();
+            }
+        }
+        let mods = |shift: bool, ctrl: bool| super::super::text_edit::KeyMods {
+            shift,
+            ctrl,
+            alt: false,
+            super_key: ctrl,
+        };
+        let press = |code, shift, ctrl| TextInputEvent::Key {
+            code,
+            mods: mods(shift, ctrl),
+        };
+        let mut clipboard = Clipboard(String::new());
+        let pos = BlockPos { x: 0, y: 0, z: 0 };
+        let mut edit = SignEditState::open(pos, true, "oak_sign", None).unwrap();
+        edit.handle_text_input_with(&typed("one two"), &width, &mut clipboard);
+        // Shift and Ctrl+Left: the last word is selected.
+        let back_a_word = [press(KeyCode::ArrowLeft, true, true)];
+        edit.handle_text_input_with(&back_a_word, &width, &mut clipboard);
+        assert_eq!(edit.selection(), (4, 7));
+        edit.handle_text_input_with(&[press(KeyCode::KeyC, false, true)], &width, &mut clipboard);
+        assert_eq!(clipboard.0, "two");
+        // Typing writes over it.
+        edit.handle_text_input_with(&typed("2"), &width, &mut clipboard);
+        assert_eq!(edit.lines[0], "one 2");
+        // All of it cut, and pasted back twice.
+        let all = [
+            press(KeyCode::KeyA, false, true),
+            press(KeyCode::KeyX, false, true),
+        ];
+        edit.handle_text_input_with(&all, &width, &mut clipboard);
+        assert_eq!(
+            (edit.lines[0].as_str(), clipboard.0.as_str()),
+            ("", "one 2")
+        );
+        let paste = [press(KeyCode::KeyV, false, true)];
+        edit.handle_text_input_with(&paste, &width, &mut clipboard);
+        edit.handle_text_input_with(&paste, &width, &mut clipboard);
+        assert_eq!(edit.lines[0], "one 2one 2");
+        // Backspace with a selection removes the selection alone.
+        let select_two = [
+            press(KeyCode::ArrowLeft, true, false),
+            press(KeyCode::ArrowLeft, true, false),
+            press(KeyCode::Backspace, false, false),
+        ];
+        edit.handle_text_input_with(&select_two, &width, &mut clipboard);
+        assert_eq!(edit.lines[0], "one 2one");
+        // And Ctrl+Backspace a word.
+        edit.handle_text_input_with(
+            &[press(KeyCode::Backspace, false, true)],
+            &width,
+            &mut clipboard,
+        );
+        assert_eq!(edit.lines[0], "one ");
     }
 }
