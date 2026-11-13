@@ -201,6 +201,17 @@ impl HeldItemPipeline {
         self.shared.rebind_atlas(device, atlas);
     }
 
+    /// Replaces the glint's texture, with a resource pack's own.
+    pub fn set_glint(
+        &mut self,
+        device: &rhi::backend::Device,
+        pixels: &[u8],
+        width: u32,
+        height: u32,
+    ) {
+        self.shared.set_glint(device, pixels, width, height);
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn update_and_draw(
         &mut self,

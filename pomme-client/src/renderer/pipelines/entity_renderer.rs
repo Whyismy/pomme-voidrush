@@ -69,9 +69,10 @@ pub struct ArmorRenderInfo {
 /// Vanilla `ItemFeatureRenderer.ENCHANTED_GLINT_ITEM`.
 const ITEM_GLINT_TEXTURE: &str = "minecraft/textures/misc/enchanted_glint_item.png";
 
-/// Vanilla `ItemFeatureRenderer.ENCHANTED_GLINT_ARMOR`.
-// TODO: a resource pack's own glint texture; this is the game's.
-const ARMOR_GLINT_TEXTURE: &str = "minecraft/textures/misc/enchanted_glint_armor.png";
+/// Vanilla `ItemFeatureRenderer.ENCHANTED_GLINT_ARMOR`. The game's own
+/// until an asset reload brings the pack stack's
+/// ([`EntityRenderer::set_glints`]).
+pub(crate) const ARMOR_GLINT_TEXTURE: &str = "minecraft/textures/misc/enchanted_glint_armor.png";
 
 /// A worn piece's trim, as its sprite names it: the pattern's asset id and
 /// the palette its material uses on this armour ([`crate::trim`]).
@@ -4152,6 +4153,36 @@ impl EntityRenderer {
                 .as_ref()
                 .map(|(pixels, width, height)| (pixels.as_slice(), *width, *height)),
         );
+    }
+
+    /// Replaces the glint textures, the item's and the armor's, with a
+    /// resource pack stack's own; one that isn't given stays.
+    pub fn set_glints(
+        &mut self,
+        device: &rhi::backend::Device,
+        item: Option<(&[u8], u32, u32)>,
+        armor: Option<(&[u8], u32, u32)>,
+    ) {
+        if let Some((pixels, width, height)) = item {
+            let texture =
+                util::create_sampled_texture(device, ITEM_GLINT_TEXTURE, pixels, width, height);
+            self.item_glint_set.replace(
+                device,
+                self.texture_layout,
+                &util::texture_binding(texture.handle(), self.glint_sampler),
+            );
+            std::mem::replace(&mut self.item_glint_texture, texture).destroy(device);
+        }
+        if let Some((pixels, width, height)) = armor {
+            let texture =
+                util::create_sampled_texture(device, ARMOR_GLINT_TEXTURE, pixels, width, height);
+            self.glint_set.replace(
+                device,
+                self.texture_layout,
+                &util::texture_binding(texture.handle(), self.glint_sampler),
+            );
+            std::mem::replace(&mut self.glint_texture, texture).destroy(device);
+        }
     }
 
     /// Sets, or with `None` takes away, the cape of the player `uuid`.

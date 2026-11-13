@@ -1848,6 +1848,7 @@ impl Renderer {
             fonts,
             font_options,
             item_meshes,
+            glints,
             prepare_laps,
         } = prepared;
 
@@ -1883,6 +1884,24 @@ impl Renderer {
         }
         self.entity_renderer
             .apply_armor_assets(&self.ctx.device, armor);
+        // The glint a pack may bring: on items, their icons, the hand's,
+        // and on armor.
+        let [item_glint, armor_glint] = &glints;
+        fn view(glint: &Option<(Vec<u8>, u32, u32)>) -> Option<(&[u8], u32, u32)> {
+            glint
+                .as_ref()
+                .map(|(pixels, width, height)| (pixels.as_slice(), *width, *height))
+        }
+        if let Some((pixels, width, height)) = view(item_glint) {
+            self.item_entity_pipeline
+                .set_glint(&self.ctx.device, pixels, width, height);
+            self.held_item_pipeline
+                .set_glint(&self.ctx.device, pixels, width, height);
+            self.gui_item_pipeline
+                .set_glint(&self.ctx.device, pixels, width, height);
+        }
+        self.entity_renderer
+            .set_glints(&self.ctx.device, view(item_glint), view(armor_glint));
         lap_done("armor");
         self.menu_pipeline
             .apply_sprite_atlas(&self.ctx.device, sprites);
@@ -3449,6 +3468,9 @@ struct PreparedAssets {
     fonts: Result<(crate::ui::font::GlyphMap, crate::ui::font::GlyphAtlasPixels), String>,
     font_options: FontOptions,
     item_meshes: Vec<pipelines::item_entity::PreparedItemMesh>,
+    /// The pack stack's enchantment glint textures, the item's and the
+    /// armor's: pixels, width and height.
+    glints: [Option<(Vec<u8>, u32, u32)>; 2],
     /// How long each part took, for the log.
     prepare_laps: String,
 }
@@ -3525,8 +3547,21 @@ fn prepare_assets(
                 ),
             })
             .collect();
+        let glints = [
+            pipelines::item_entity::GLINT_TEXTURE,
+            pipelines::entity_renderer::ARMOR_GLINT_TEXTURE,
+        ]
+        .map(|key| {
+            util::load_png(&crate::assets::resolve_asset_path_with_packs(
+                jar_assets_dir,
+                asset_index,
+                key,
+                Some(packs),
+            ))
+        });
         step(3);
         let prepared = PreparedAssets {
+            glints,
             custom_sky: custom_sky.join().expect("preparing the sky panicked"),
             celestial: celestial
                 .join()

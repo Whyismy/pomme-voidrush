@@ -53,9 +53,9 @@ pub struct ItemRenderInfo {
     pub foil: bool,
 }
 
-/// Vanilla `ItemRenderer.ENCHANTED_GLINT_ITEM`.
-// TODO: a resource pack's own glint texture; this is the game's.
-const GLINT_TEXTURE: &str = "minecraft/textures/misc/enchanted_glint_item.png";
+/// Vanilla `ItemRenderer.ENCHANTED_GLINT_ITEM`. The game's own until an
+/// asset reload brings the pack stack's ([`ItemPipelineShared::set_glint`]).
+pub(crate) const GLINT_TEXTURE: &str = "minecraft/textures/misc/enchanted_glint_item.png";
 
 /// The instance's outline-colour bit that asks for the white flash (the
 /// outline reads only the low 24).
@@ -412,6 +412,23 @@ impl ItemPipelineShared {
             ],
         );
         pass.set_vertex_buffer(1, self.instances.buffer(frame).handle());
+    }
+
+    /// Replaces the glint's texture, with a resource pack's own.
+    pub(super) fn set_glint(
+        &mut self,
+        device: &rhi::backend::Device,
+        pixels: &[u8],
+        width: u32,
+        height: u32,
+    ) {
+        let texture = util::create_sampled_texture(device, GLINT_TEXTURE, pixels, width, height);
+        self.glint_set.replace(
+            device,
+            self.atlas_layout,
+            &util::texture_binding(texture.handle(), self.glint_sampler),
+        );
+        std::mem::replace(&mut self.glint_texture, texture).destroy(device);
     }
 
     /// Binds the glint `pipeline` as [`Self::bind`] does, with the glint's
@@ -838,6 +855,17 @@ impl ItemEntityPipeline {
 
     pub fn rebind_atlas(&mut self, device: &rhi::backend::Device, atlas: &TextureAtlas) {
         self.shared.rebind_atlas(device, atlas);
+    }
+
+    /// Replaces the glint's texture, with a resource pack's own.
+    pub fn set_glint(
+        &mut self,
+        device: &rhi::backend::Device,
+        pixels: &[u8],
+        width: u32,
+        height: u32,
+    ) {
+        self.shared.set_glint(device, pixels, width, height);
     }
 
     pub fn clear_meshes(&mut self, device: &rhi::backend::Device) {

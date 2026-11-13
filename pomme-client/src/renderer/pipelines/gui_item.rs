@@ -95,6 +95,17 @@ impl GuiItemPipeline {
         self.shared.rebind_atlas(device, atlas);
     }
 
+    /// Replaces the glint's texture, with a resource pack's own.
+    pub fn set_glint(
+        &mut self,
+        device: &rhi::backend::Device,
+        pixels: &[u8],
+        width: u32,
+        height: u32,
+    ) {
+        self.shared.set_glint(device, pixels, width, height);
+    }
+
     /// Binds for `items` bakes with `colors` tints between them; `glint` is
     /// the enchantment glint's texture transform for the foil ones.
     pub fn bind_for_bake_pass(
