@@ -1,0 +1,67 @@
+# Text in a written book that links somewhere: a click on it turns to the
+# page it names, or runs its command with the book put away.
+
+# Another scene on this server may have turned the feedback off.
+[[step]]
+chat = "/gamerule send_command_feedback true"
+
+[[step]]
+chat = "/tp @s 5200.5 -60 1200.5 0 -60"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+chat = "/item replace entity @s weapon.mainhand with minecraft:written_book[minecraft:written_book_content={title:\"Links\",author:\"Void\",pages:[{text:\"Go to page two\",underlined:true,click_event:{action:\"change_page\",page:2}},{text:\"Run it\",underlined:true,click_event:{action:\"run_command\",command:\"/list\"}}]}]"
+
+[[step]]
+expect = { slot = 36, item = "written_book" }
+
+[[step]]
+mouse_down = "right"
+
+[[step]]
+wait_ms = 100
+
+[[step]]
+mouse_up = "right"
+
+[[step]]
+wait_ms = 700
+
+# The first line of the page, in GUI units at the harness's scale of three.
+[[step]]
+cursor = [160, 36]
+
+[[step]]
+mouse_down = "left"
+
+[[step]]
+wait_ms = 100
+
+[[step]]
+mouse_up = "left"
+
+[[step]]
+wait_ms = 300
+
+[[step]]
+screenshot = "second_page"
+
+[[step]]
+mouse_down = "left"
+
+[[step]]
+wait_ms = 100
+
+[[step]]
+mouse_up = "left"
+
+[[step]]
+expect = { chat = "players online" }
+
+[[step]]
+screenshot = "ran"
+
+[[step]]
+chat = "/clear @s"

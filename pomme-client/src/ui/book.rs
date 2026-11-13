@@ -12,8 +12,9 @@ use azalea_inventory::components::{WritableBookContent, WrittenBookContent};
 
 use super::common::{FONT_SIZE, hit_test, push_button};
 use super::container::push_transparent_background;
-use super::text::{TextSpan, format_text_spans};
+use super::text::{TextSpan, format_text_spans_with_clicks};
 use super::text_edit::{MultilineField, SystemClipboard, TextInputEvent};
+use crate::chat_component::ClickEvent;
 use crate::renderer::pipelines::menu_overlay::{MenuElement, SpriteId};
 
 const BLACK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
@@ -29,6 +30,15 @@ pub struct BookViewState {
 
 impl BookViewState {
     /// Turns the page as `button` asks; whether it turned.
+    /// `BookViewScreen.forcePage`: to a page by its number, as a link in
+    /// the text asks; whether that is another page than the one shown.
+    pub fn go_to(&mut self, page: i32) -> bool {
+        let page = page.clamp(0, self.pages.len().max(1) as i32 - 1) as usize;
+        let moved = page != self.page;
+        self.page = page;
+        moved
+    }
+
     pub fn turn(&mut self, button: BookButton) -> bool {
         let to = match button {
             BookButton::Back => self.page.checked_sub(1),
@@ -67,7 +77,7 @@ pub fn pages_of(stack: &ItemStackData) -> Option<Vec<Vec<TextSpan>>> {
         return Some(
             book.pages
                 .iter()
-                .map(|page| unshadowed(format_text_spans(&page.raw, BLACK)))
+                .map(|page| unshadowed(format_text_spans_with_clicks(&page.raw, BLACK)))
                 .collect(),
         );
     }
@@ -101,6 +111,38 @@ pub fn pressed(
 
 /// `Font.split`: a page's text as the lines it wraps to at a width.
 pub type SplitLines<'a> = &'a dyn Fn(&[TextSpan], i32) -> Vec<Vec<TextSpan>>;
+
+/// `BookViewScreen.getClickedComponentStyleAt`: what a click on the page's
+/// text under the cursor does, if it does anything.
+// TODO: a bold span is measured as plain text.
+pub fn link_at(
+    pages: &[Vec<TextSpan>],
+    page: usize,
+    screen_w: f32,
+    cursor: (f32, f32),
+    gs: f32,
+    split: SplitLines<'_>,
+    text_width: &dyn Fn(&str, f32) -> f32,
+) -> Option<ClickEvent> {
+    let left = ((screen_w / gs - 192.0) / 2.0).floor() * gs + 36.0 * gs;
+    let top = (2.0 + 30.0) * gs;
+    if cursor.0 < left || cursor.1 < top {
+        return None;
+    }
+    let row = ((cursor.1 - top) / (9.0 * gs)) as usize;
+    let line = split(pages.get(page)?, TEXT_WIDTH)
+        .into_iter()
+        .take(LINES)
+        .nth(row)?;
+    let mut x = left;
+    for span in &line {
+        x += text_width(&span.text, FONT_SIZE * gs);
+        if cursor.0 < x {
+            return span.component_style.as_ref()?.click_event.clone();
+        }
+    }
+    None
+}
 
 /// Builds the screen at `page` of `pages`; `take_book` is a lectern's,
 /// and whether the player may take the book from it. The button under the
@@ -632,5 +674,36 @@ mod tests {
                 title: None,
             })
         );
+    }
+
+    /// A click on a page's text finds the span under it, and what that
+    /// span links to; a link's page is kept within the book.
+    #[test]
+    fn a_link_is_found_under_the_cursor() {
+        use std::sync::Arc;
+
+        use crate::chat_component::ResolvedStyle;
+        let mut link = TextSpan::new("next".into(), BLACK);
+        link.component_style = Some(Arc::new(ResolvedStyle {
+            click_event: Some(ClickEvent::ChangePage(2)),
+            ..ResolvedStyle::default()
+        }));
+        let pages = vec![vec![TextSpan::new("Go ".into(), BLACK), link], Vec::new()];
+        let split = |spans: &[TextSpan], _: i32| vec![spans.to_vec()];
+        let width = |text: &str, _: f32| text.len() as f32 * 6.0;
+        // A 400-wide screen at scale one: the text starts 140 along, 32 down.
+        let at = |x: f32, y: f32| link_at(&pages, 0, 400.0, (x, y), 1.0, &split, &width);
+        assert_eq!(at(141.0, 33.0), None);
+        assert_eq!(at(159.0, 33.0), Some(ClickEvent::ChangePage(2)));
+        assert_eq!(at(183.0, 33.0), None);
+        assert_eq!(at(159.0, 20.0), None);
+        assert_eq!(at(159.0, 45.0), None);
+
+        let mut view = BookViewState { pages, page: 0 };
+        assert!(view.go_to(1));
+        assert!(!view.go_to(7));
+        assert_eq!(view.page, 1);
+        assert!(view.go_to(-3));
+        assert_eq!(view.page, 0);
     }
 }

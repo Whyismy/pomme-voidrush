@@ -3838,6 +3838,16 @@ pub fn update_game(
     // Where the Hud ends and the screens begin: the closed chat and the
     // titles are part of the Hud, and are moved here once built.
     let hud_end = elements.len();
+    // One of the screens built from here was up as the frame began: it
+    // takes the frame's clicks, which otherwise last until the next tick
+    // (and so would press a button once a frame, or reach the world behind
+    // a screen they closed).
+    let screen_takes_clicks = game.advancements_ui.is_some()
+        || game.stats_ui.is_some()
+        || game.game_master_ui.is_some()
+        || game.book_view.is_some()
+        || game.book_edit.is_some()
+        || game.sign_edit.is_some();
     if let Some(ui) = &mut game.advancements_ui {
         let r = &gfx.renderer;
         let done = crate::ui::advancements::build(
@@ -4069,6 +4079,26 @@ pub fn update_game(
             },
             &|text, size| r.menu_text_width(text, size),
         );
+        // A click on the page's own text follows what the text links to.
+        let link = (clicked && over.is_none())
+            .then(|| {
+                crate::ui::book::link_at(
+                    &view.pages,
+                    view.page,
+                    sw,
+                    core.input.cursor_pos(),
+                    gs,
+                    &|spans, width| {
+                        r.layout_display_text(spans, width)
+                            .lines
+                            .into_iter()
+                            .map(|(line, _)| line)
+                            .collect()
+                    },
+                    &|text, size| r.menu_text_width(text, size),
+                )
+            })
+            .flatten();
         match crate::ui::book::pressed(over, clicked, page_up, page_down) {
             Some(BookButton::Done) => {
                 core.audio.play_ui_click();
@@ -4077,6 +4107,27 @@ pub fn update_game(
             }
             Some(button) if view.turn(button) => {
                 core.audio.play_ui_sound("item.book.page_turn", 1.0, 1.0);
+            }
+            _ => {}
+        }
+        // `BookViewScreen.handleClickEvent`: to a page, or a command run
+        // with the book put away.
+        // TODO: a link that opens a URL or a dialog, as chat's does.
+        use crate::chat_component::ClickEvent;
+        match link {
+            Some(ClickEvent::ChangePage(page)) => {
+                if let Some(view) = &mut game.book_view {
+                    view.go_to(page - 1);
+                }
+            }
+            Some(ClickEvent::RunCommand(command)) => {
+                game.book_view = None;
+                handle_unattended_command(&command, connection, game);
+                core.apply_cursor_grab(&gfx.window, Some(game));
+            }
+            Some(ClickEvent::CopyToClipboard(text)) => {
+                use crate::ui::text_edit::ClipboardAccess;
+                crate::ui::text_edit::SystemClipboard.set(&text);
             }
             _ => {}
         }
@@ -4113,6 +4164,10 @@ pub fn update_game(
                 lines: edit.into_lines(),
             }));
         core.apply_cursor_grab(&gfx.window, Some(game));
+    }
+
+    if screen_takes_clicks {
+        core.input.clear_just_pressed_actions();
     }
 
     if let Some(switcher) = &mut game.game_mode_switcher {
@@ -4694,6 +4749,27 @@ pub fn update_game(
                         },
                         &|text, size| r.menu_text_width(text, size),
                     );
+                    // `LecternScreen.forcePage`: a link to a page asks the
+                    // server for it, by the button a hundred past its number.
+                    let linked = (input.left_pressed && over.is_none())
+                        .then(|| {
+                            crate::ui::book::link_at(
+                                &pages,
+                                container.data[0].max(0) as usize,
+                                sw,
+                                core.input.cursor_pos(),
+                                gs,
+                                &|spans, width| {
+                                    r.layout_display_text(spans, width)
+                                        .lines
+                                        .into_iter()
+                                        .map(|(line, _)| line)
+                                        .collect()
+                                },
+                                &|text, size| r.menu_text_width(text, size),
+                            )
+                        })
+                        .flatten();
                     let button = match crate::ui::book::pressed(
                         over,
                         input.left_pressed,
@@ -4711,7 +4787,13 @@ pub fn update_game(
                             core.audio.play_ui_click();
                             Some(3)
                         }
-                        None => None,
+                        None => match linked {
+                            Some(crate::chat_component::ClickEvent::ChangePage(page)) => {
+                                let most = pages.len().max(1) as i32 - 1;
+                                Some(100 + (page - 1).clamp(0, most) as u32)
+                            }
+                            _ => None,
+                        },
                     };
                     crate::ui::container::ContainerResult {
                         clicked_outside: false,

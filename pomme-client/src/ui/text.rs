@@ -250,6 +250,60 @@ pub fn format_component_spans_with_parent_and_bindings(
 ///
 /// `base_color` applies wherever the component carries no explicit color,
 /// mirroring vanilla `drawString`'s color argument.
+/// [`format_text_spans`], with what a click on each span does kept beside
+/// it, for text that can be clicked where it is shown (a book's pages).
+pub fn format_text_spans_with_clicks(text: &FormattedText, base_color: [f32; 4]) -> Vec<TextSpan> {
+    use azalea_chat::click_event::ClickEvent as Wire;
+
+    use crate::chat_component::{ClickEvent, ResolvedStyle};
+    let mut spans = format_text_spans(text, base_color);
+    // The same walk as the spans were made by: a click for each piece of
+    // text that is not empty.
+    let clicks: RefCell<Vec<Option<ClickEvent>>> = RefCell::new(Vec::new());
+    let current: RefCell<Option<Wire>> = RefCell::new(None);
+    text.to_custom_format(
+        |_running, new| {
+            *current.borrow_mut() = new.click_event.clone();
+            (String::new(), String::new())
+        },
+        |piece| {
+            if !piece.is_empty() {
+                clicks
+                    .borrow_mut()
+                    .push(current.borrow().as_ref().and_then(|click| match click {
+                        Wire::OpenUrl { url } => Some(ClickEvent::OpenUrl(url.clone())),
+                        Wire::RunCommand { command } => {
+                            Some(ClickEvent::RunCommand(command.clone()))
+                        }
+                        Wire::SuggestCommand { command } => {
+                            Some(ClickEvent::SuggestCommand(command.clone()))
+                        }
+                        Wire::ChangePage { page } => Some(ClickEvent::ChangePage(*page)),
+                        Wire::CopyToClipboard { value } => {
+                            Some(ClickEvent::CopyToClipboard(value.clone()))
+                        }
+                        _ => None,
+                    }));
+            }
+            String::new()
+        },
+        |_| String::new(),
+        &Style::default(),
+    );
+    let clicks = clicks.into_inner();
+    if clicks.len() == spans.len() {
+        for (span, click) in spans.iter_mut().zip(clicks) {
+            if click.is_some() {
+                span.component_style = Some(Arc::new(ResolvedStyle {
+                    click_event: click,
+                    ..ResolvedStyle::default()
+                }));
+            }
+        }
+    }
+    spans
+}
+
 pub fn format_text_spans(text: &FormattedText, base_color: [f32; 4]) -> Vec<TextSpan> {
     let spans: RefCell<Vec<TextSpan>> = RefCell::new(Vec::new());
     let current_style: RefCell<Option<Style>> = RefCell::new(None);
