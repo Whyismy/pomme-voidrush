@@ -4192,6 +4192,7 @@ impl EntityRenderer {
     }
 
     /// Sets, or with `None` takes away, the cape of the player `uuid`.
+    #[cfg(feature = "test-harness")]
     pub fn set_player_cape(
         &mut self,
         device: &rhi::backend::Device,
