@@ -668,8 +668,9 @@ struct ArmorMeshes {
     /// `PiglinModel.createArmorMeshSet`'s layers (`piglin#helmet`...), which
     /// the brute and the zombified piglin share; then a baby's.
     piglin: [[ArmorMesh; 4]; 2],
-    /// `ElytraModel`: the two wings.
-    elytra: ArmorMesh,
+    /// `ElytraModel`: the two wings, then a baby's (`elytra_baby`), the
+    /// same at half the size.
+    elytra: [ArmorMesh; 2],
 }
 
 impl MobEntry {
@@ -1303,10 +1304,12 @@ fn build_armor_meshes(device: &rhi::backend::Device) -> ArmorMeshes {
                 set.map(|layer| build_armor_mesh(device, entity_model::bake_exported(layer)))
             })
         },
-        elytra: build_armor_mesh(
-            device,
-            entity_model::bake_exported(entity_model::exported_data::ELYTRA),
-        ),
+        elytra: {
+            let wings = entity_model::exported_data::ELYTRA;
+            let grown = entity_model::bake_exported(wings);
+            let baby = entity_model::bake_exported_scaled(wings, 0.5);
+            [grown, baby].map(|model| build_armor_mesh(device, model))
+        },
     }
 }
 
@@ -4280,20 +4283,20 @@ impl EntityRenderer {
             }
             // Vanilla `WingsLayer`: what is worn on the chest, where its
             // equipment has `wings` layers, an elytra's, on the wing model.
-            // TODO: a baby's wings (`elytra_baby`), and the player's own
-            // elytra or cape texture in the default's place.
-            if !v.info.is_baby
-                && let Some(chest) = &v.info.armor[1]
-            {
+            // A baby wears the wings at half size (`elytra_baby`).
+            // TODO: the player's own elytra or cape texture in the
+            // default's place.
+            if let Some(chest) = &v.info.armor[1] {
                 let mut layers = self
                     .equipment_layers(chest, |asset| &asset.wings)
                     .peekable();
                 if layers.peek().is_some() {
-                    let mesh = &self.armor_meshes.elytra;
+                    let mesh = &self.armor_meshes.elytra[usize::from(v.info.is_baby)];
                     let anim = entity_model::compute_elytra_anim(
                         &mesh.model,
                         v.info.elytra_rot,
                         v.info.is_crouching,
+                        if v.info.is_baby { 4.0 } else { 2.0 },
                     );
                     let foil = chest.foil.then_some(&mut glint);
                     self.push_posed_draws(
@@ -5248,7 +5251,7 @@ impl EntityRenderer {
             .chain([&mut self.armor_meshes.baby_llama_decor])
             .chain(self.armor_meshes.armor_stand.iter_mut().flatten())
             .chain(self.armor_meshes.piglin.iter_mut().flatten())
-            .chain([&mut self.armor_meshes.elytra])
+            .chain(self.armor_meshes.elytra.iter_mut())
         {
             std::mem::take(&mut mesh.vertex_buffer).destroy(device);
         }

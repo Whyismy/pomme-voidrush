@@ -123,6 +123,37 @@ pub(crate) fn bake_exported_like(
     model
 }
 
+/// [`bake_exported`] under the root vanilla's `MeshTransformer.scaling`
+/// gives a layer, which the export leaves out: every part hangs from a root
+/// scaled by `factor` about the model's feet.
+pub(crate) fn bake_exported_scaled(parts: &[ExportedPart], factor: f32) -> BakedEntityModel {
+    let root = ExportedPart {
+        name: "root",
+        parent: None,
+        pose: [
+            0.0,
+            24.016 * (1.0 - factor),
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            factor,
+            factor,
+            factor,
+        ],
+        quads: &[],
+    };
+    let all: Vec<ExportedPart> = std::iter::once(root)
+        .chain(parts.iter().map(|part| ExportedPart {
+            name: part.name,
+            parent: Some(part.parent.map_or(0, |parent| parent + 1)),
+            pose: part.pose,
+            quads: part.quads,
+        }))
+        .collect();
+    bake_exported(&all)
+}
+
 pub(crate) fn bake_exported_hiding(parts: &[ExportedPart], hidden: &[&str]) -> BakedEntityModel {
     let mut entity_parts = Vec::with_capacity(parts.len());
     let mut vertices = Vec::new();

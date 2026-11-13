@@ -29,7 +29,9 @@ pub use axolotl::*;
 pub(crate) use beam::{BEAM_LENGTHS, bake_beam, beam_pieces};
 pub use bee::*;
 pub use dolphin::*;
-pub(crate) use exported::{ExportedPart, bake_exported, bake_exported_hiding, bake_exported_like};
+pub(crate) use exported::{
+    ExportedPart, bake_exported, bake_exported_hiding, bake_exported_like, bake_exported_scaled,
+};
 pub use fox::*;
 pub use goat::*;
 pub use llama::*;
@@ -4252,12 +4254,18 @@ pub fn compute_armor_stand_anim(model: &BakedEntityModel, pose: &[[f32; 3]; 6]) 
 }
 
 /// Vanilla `ElytraModel.setupAnim` under `WingsLayer`'s pose: the left wing
-/// at `rot` (x, y, z), the right its mirror, both two pixels behind the
-/// wearer's back and three lower on one that crouches.
-pub fn compute_elytra_anim(model: &BakedEntityModel, rot: [f32; 3], crouching: bool) -> PartAnim {
+/// at `rot` (x, y, z), the right its mirror, both `back` pixels of the
+/// model behind the wearer's back (two of the world's: twice as many on a
+/// baby's half-size wings) and three lower on one that crouches.
+pub fn compute_elytra_anim(
+    model: &BakedEntityModel,
+    rot: [f32; 3],
+    crouching: bool,
+    back: f32,
+) -> PartAnim {
     let mut anim = PartAnim::default();
     let [x, y, z] = rot;
-    let moved = Vec3::new(0.0, if crouching { 3.0 } else { 0.0 }, 2.0);
+    let moved = Vec3::new(0.0, if crouching { 3.0 } else { 0.0 }, back);
     for (i, part) in model.parts.iter().enumerate() {
         let side = match part.name.as_str() {
             "left_wing" => 1.0,

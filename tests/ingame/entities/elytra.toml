@@ -1,6 +1,6 @@
 # Worn elytra (`WingsLayer`): folded on the back of an armor stand and of
-# a zombie (seen from behind), and on the player's own back in third
-# person.
+# a zombie (seen from behind), at half size on a small stand and a baby
+# zombie, and on the player's own back in third person.
 
 [[step]]
 chat = "/tp @s 2200.5 -60 600.5 0 5"
@@ -16,6 +16,12 @@ chat = "/summon minecraft:zombie 2200.5 -60 604.5 {NoAI:1b,Silent:1b,Persistence
 
 [[step]]
 chat = "/summon minecraft:armor_stand 2198.5 -60 604.5 {Rotation:[90f,0f],equipment:{chest:{id:\"minecraft:elytra\",count:1}}}"
+
+[[step]]
+chat = "/summon minecraft:armor_stand 2204.5 -60 604.5 {Rotation:[0f,0f],Small:1b,equipment:{chest:{id:\"minecraft:elytra\",count:1}}}"
+
+[[step]]
+chat = "/summon minecraft:zombie 2196.5 -60 604.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,IsBaby:1b,Rotation:[0f,0f],equipment:{head:{id:\"minecraft:leather_helmet\",count:1},chest:{id:\"minecraft:elytra\",count:1}}}"
 
 [[step]]
 chat = "/item replace entity @s armor.chest with minecraft:elytra"
