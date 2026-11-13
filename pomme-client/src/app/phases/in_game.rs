@@ -103,6 +103,10 @@ pub enum ContainerScreen {
     ShulkerBox,
     Hopper,
     Dispenser,
+    Grindstone,
+    Cartography,
+    Smithing,
+    BrewingStand,
     Anvil,
     Enchantment,
 }
@@ -117,6 +121,10 @@ impl ContainerScreen {
             Self::ShulkerBox => ContainerKind::ShulkerBox,
             Self::Hopper => ContainerKind::Hopper,
             Self::Dispenser => ContainerKind::Dispenser,
+            Self::Grindstone => ContainerKind::Grindstone,
+            Self::Cartography => ContainerKind::Cartography,
+            Self::Smithing => ContainerKind::Smithing,
+            Self::BrewingStand => ContainerKind::BrewingStand,
             Self::Anvil => ContainerKind::Anvil,
             Self::Enchantment => ContainerKind::Enchantment,
         }
@@ -4120,6 +4128,25 @@ pub fn update_game(
                     &mut game.inv_drag,
                     &mut game.inv_last_click,
                     gs,
+                ),
+                ContainerScreen::Grindstone
+                | ContainerScreen::Cartography
+                | ContainerScreen::Smithing
+                | ContainerScreen::BrewingStand => crate::ui::workstations::build(
+                    &mut elements,
+                    sw,
+                    sh,
+                    core.input.cursor_pos(),
+                    &input,
+                    container.screen.click_kind(),
+                    &container.slots,
+                    &container.data,
+                    &container.title,
+                    &game.cursor_item,
+                    &mut game.inv_drag,
+                    &mut game.inv_last_click,
+                    gs,
+                    &|t, s| gfx.renderer.menu_text_width(t, s),
                 ),
                 ContainerScreen::Dispenser => crate::ui::chest::build_dispenser(
                     &mut elements,

@@ -241,7 +241,7 @@ fn build_contents(
 /// The contents slots, each where `place` puts it (GUI units), the player
 /// rows at `main_y`, and the shared gesture tail.
 #[allow(clippy::too_many_arguments)]
-fn build_slots(
+pub(super) fn build_slots(
     elements: &mut Vec<MenuElement>,
     panel: &Panel,
     cursor: (f32, f32),

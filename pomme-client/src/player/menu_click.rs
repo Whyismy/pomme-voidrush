@@ -28,6 +28,14 @@ pub enum ContainerKind {
     Hopper,
     /// Vanilla `DispenserMenu` (a dispenser's or a dropper's): nine.
     Dispenser,
+    /// Vanilla `GrindstoneMenu`: two inputs and the result.
+    Grindstone,
+    /// Vanilla `CartographyTableMenu`: the map, what is added, the result.
+    Cartography,
+    /// Vanilla `SmithingMenu`: template, base, addition and the result.
+    Smithing,
+    /// Vanilla `BrewingStandMenu`: three bottles, the ingredient, the fuel.
+    BrewingStand,
     Anvil,
     Enchantment,
 }
@@ -39,8 +47,10 @@ impl ContainerKind {
             Self::Furnace | Self::Anvil => 39,
             Self::Chest { rows } => rows as usize * 9 + 36,
             Self::ShulkerBox => 63,
-            Self::Hopper => 41,
+            Self::Hopper | Self::BrewingStand => 41,
             Self::Dispenser => 45,
+            Self::Grindstone | Self::Cartography => 39,
+            Self::Smithing => 40,
             Self::Enchantment => 38,
         }
     }
@@ -53,8 +63,10 @@ impl ContainerKind {
             Self::Furnace | Self::Anvil => 3,
             Self::Chest { rows } => rows as usize * 9,
             Self::ShulkerBox => 27,
-            Self::Hopper => 5,
+            Self::Hopper | Self::BrewingStand => 5,
             Self::Dispenser => 9,
+            Self::Grindstone | Self::Cartography => 3,
+            Self::Smithing => 4,
             Self::Enchantment => 2,
         }
     }
@@ -68,12 +80,14 @@ impl ContainerKind {
     fn crafting_result_slot(self) -> Option<usize> {
         match self {
             Self::Player | Self::CraftingTable => Some(0),
-            Self::Anvil => Some(2),
+            Self::Anvil | Self::Grindstone | Self::Cartography => Some(2),
+            Self::Smithing => Some(3),
             Self::Furnace
             | Self::Chest { .. }
             | Self::ShulkerBox
             | Self::Hopper
             | Self::Dispenser
+            | Self::BrewingStand
             | Self::Enchantment => None,
         }
     }
@@ -153,6 +167,31 @@ impl ContainerKind {
                 contents: SlotList::default(),
                 player: SlotList::default(),
             },
+            Self::Grindstone => Menu::Grindstone {
+                input: ItemStack::Empty,
+                additional: ItemStack::Empty,
+                result: ItemStack::Empty,
+                player: SlotList::default(),
+            },
+            Self::Cartography => Menu::CartographyTable {
+                map: ItemStack::Empty,
+                additional: ItemStack::Empty,
+                result: ItemStack::Empty,
+                player: SlotList::default(),
+            },
+            Self::Smithing => Menu::Smithing {
+                template: ItemStack::Empty,
+                base: ItemStack::Empty,
+                additional: ItemStack::Empty,
+                result: ItemStack::Empty,
+                player: SlotList::default(),
+            },
+            Self::BrewingStand => Menu::BrewingStand {
+                bottles: SlotList::default(),
+                ingredient: ItemStack::Empty,
+                fuel: ItemStack::Empty,
+                player: SlotList::default(),
+            },
             Self::Anvil => Menu::Anvil {
                 first: ItemStack::Empty,
                 second: ItemStack::Empty,
@@ -181,7 +220,8 @@ impl ContainerKind {
     fn may_place(self, s: usize, item: &ItemStackData) -> bool {
         match (self, s) {
             (Self::Player | Self::CraftingTable, 0) => false,
-            (Self::Furnace | Self::Anvil, 2) => false,
+            (Self::Furnace | Self::Anvil | Self::Grindstone | Self::Cartography, 2) => false,
+            (Self::Smithing, 3) => false,
             (Self::Player, 5..=8) => {
                 let want = crate::player::inventory::ARMOR_EQUIPMENT
                     [s - crate::player::inventory::ARMOR_START];
@@ -636,6 +676,21 @@ fn quick_move(kind: ContainerKind, menu: &mut Menu, s: usize) {
                     move_item_stack_to(kind, menu, s, split..menu.len(), true);
                 } else {
                     move_item_stack_to(kind, menu, s, 0..split, false);
+                }
+            }
+            // The workstations: out to the inventory, or in to the inputs.
+            // Which input takes what is the server's to say; a wrong guess
+            // here is put right by its answer.
+            ContainerKind::Grindstone
+            | ContainerKind::Cartography
+            | ContainerKind::Smithing
+            | ContainerKind::BrewingStand => {
+                let split = kind.inv_start();
+                if s < split {
+                    move_item_stack_to(kind, menu, s, split..menu.len(), true);
+                } else {
+                    let inputs = kind.crafting_result_slot().unwrap_or(split);
+                    move_item_stack_to(kind, menu, s, 0..inputs, false);
                 }
             }
             ContainerKind::Anvil => {
