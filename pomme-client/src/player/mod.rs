@@ -280,6 +280,9 @@ pub struct LocalPlayer {
     /// Vanilla `isInLava`, and `getFluidHeight(LAVA)`.
     pub in_lava: bool,
     pub lava_height: f64,
+    /// The dimension's `fast_lava` (the nether): lava pushes three times
+    /// as hard there.
+    pub fast_lava: bool,
     pub eyes_in_water: bool,
     /// Vanilla `LocalPlayer.wasUnderwater`, a tick behind eye contact.
     pub under_water: bool,
@@ -403,6 +406,7 @@ impl LocalPlayer {
             fluid_height: 0.0,
             in_lava: false,
             lava_height: 0.0,
+            fast_lava: false,
             eyes_in_water: false,
             under_water: false,
             swimming: false,
@@ -752,14 +756,17 @@ impl LocalPlayer {
         chunks: &crate::world::chunk::ChunkStore,
         block_state_table: BlockStateTable,
     ) {
-        // Lava's push is a sixth of water's.
-        // TODO: three times that where the dimension has fast lava (the
-        // nether).
+        // Lava's push is a sixth of water's, or half of it where the
+        // dimension's lava is fast.
         let (lava_height, lava_push) = self.fluid_contact(
             chunks,
             block_state_table,
             FluidKind::Lava,
-            0.002_333_333_333_333_333_5,
+            if self.fast_lava {
+                0.007
+            } else {
+                0.002_333_333_333_333_333_5
+            },
         );
         self.lava_height = lava_height;
         self.in_lava = lava_height > 0.0;

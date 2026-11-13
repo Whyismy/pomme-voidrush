@@ -329,8 +329,10 @@ pub struct EntityRenderInfo {
     pub foil: bool,
     /// A player's cape, where it shows one: its flap and two leans
     /// (`crate::entity::CapeAnim::pose`). Drawn once its texture is here.
-    // TODO: the skin customization's cape part; every player shows its own.
     pub cape: Option<[f32; 3]>,
+    /// A player's shown skin parts (`PlayerModelPart`'s bits): its outer
+    /// layers that are switched off aren't drawn.
+    pub skin_parts: u8,
 }
 
 /// A gliding avatar's pose inputs (vanilla `AvatarRenderer.extractFlightData`).
@@ -398,6 +400,7 @@ impl Default for EntityRenderInfo {
             fall_flying: None,
             foil: false,
             cape: None,
+            skin_parts: 0x7f,
             position: Position::new(0.0, 0.0, 0.0),
             head_x_rot_deg: 0.0,
             head_y_rot_deg: 0.0,
@@ -4572,6 +4575,7 @@ impl EntityRenderer {
         if info.head_only && info.entity_kind == EntityKind::Piglin {
             entity_model::pose_piglin_head_ears(model, &mut anim, info.age_in_ticks);
         }
+        entity_model::hide_skin_parts(model, &mut anim, info.skin_parts);
         if info.head_only {
             // Children follow their parent's scale, so hiding the other roots
             // hides everything but the head and its hat.

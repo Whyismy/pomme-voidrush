@@ -648,6 +648,25 @@ pub struct SkinOptions {
     pub main_hand_right: bool,
 }
 
+impl SkinOptions {
+    /// The shown parts as `PlayerModelPart`'s bits, the byte the server
+    /// syncs to everyone (`DATA_PLAYER_MODE_CUSTOMISATION`).
+    pub fn parts(&self) -> u8 {
+        [
+            self.cape,
+            self.jacket,
+            self.left_sleeve,
+            self.right_sleeve,
+            self.left_pants,
+            self.right_pants,
+            self.hat,
+        ]
+        .iter()
+        .enumerate()
+        .fold(0, |bits, (bit, shown)| bits | (u8::from(*shown) << bit))
+    }
+}
+
 impl Default for SkinOptions {
     fn default() -> Self {
         Self {

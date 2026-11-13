@@ -2780,6 +2780,9 @@ pub fn update_game(
                 .map_or(0.0, |direction| direction.y)
         });
         game.player.elytra.tick(gliding, game.player.crouching);
+        // TODO: a custom dimension type's own `fast_lava`; this is the
+        // nether's.
+        game.player.fast_lava = game.dimension.ends_with("the_nether");
         // `Avatar.tick`: the cape trails after the player.
         let at = glam::DVec3::from(game.player.position);
         game.player.cape.tick(
@@ -4646,20 +4649,30 @@ pub fn update_game(
                     armor: e.armor.clone(),
                     elytra_rot: e.elytra.at(partial_tick),
                     foil: false,
-                    cape: (e.entity_type == EntityKind::Player).then(|| {
-                        e.cape.pose(
-                            partial_tick,
-                            glam::DVec3::from(e.prev_position)
-                                .lerp(glam::DVec3::from(e.position), f64::from(partial_tick)),
-                            lerp_angle(e.prev_body_y_rot_deg, e.body_y_rot_deg, partial_tick),
-                            if e.is_fall_flying {
-                                ((e.fall_fly_ticks as f32 + partial_tick).powi(2) / 100.0)
-                                    .clamp(0.0, 1.0)
-                            } else {
-                                0.0
-                            },
-                        )
-                    }),
+                    skin_parts: if matches!(
+                        e.entity_type,
+                        EntityKind::Player | EntityKind::Mannequin
+                    ) {
+                        e.skin_parts
+                    } else {
+                        0x7f
+                    },
+                    cape: (e.entity_type == EntityKind::Player && e.skin_parts & 1 != 0).then(
+                        || {
+                            e.cape.pose(
+                                partial_tick,
+                                glam::DVec3::from(e.prev_position)
+                                    .lerp(glam::DVec3::from(e.position), f64::from(partial_tick)),
+                                lerp_angle(e.prev_body_y_rot_deg, e.body_y_rot_deg, partial_tick),
+                                if e.is_fall_flying {
+                                    ((e.fall_fly_ticks as f32 + partial_tick).powi(2) / 100.0)
+                                        .clamp(0.0, 1.0)
+                                } else {
+                                    0.0
+                                },
+                            )
+                        },
+                    ),
                     // `AvatarRenderer`: only players lie along their glide.
                     fall_flying: (e.is_fall_flying
                         && matches!(e.entity_type, EntityKind::Player | EntityKind::Mannequin))
@@ -5168,24 +5181,27 @@ pub fn update_game(
             light: player_light,
             armor: armor_render_infos(game.player.inventory.armor_slots()),
             elytra_rot: game.player.elytra.at(partial_tick),
-            cape: Some(game.player.cape.pose(
-                partial_tick,
-                glam::DVec3::from(game.player.prev_position).lerp(
-                    glam::DVec3::from(game.player.position),
-                    f64::from(partial_tick),
-                ),
-                lerp_angle(
-                    game.player_prev_body_y_rot,
-                    game.player_body_y_rot,
+            skin_parts: game.last_skin_options.parts(),
+            cape: game.last_skin_options.cape.then(|| {
+                game.player.cape.pose(
                     partial_tick,
-                ),
-                if game.player.fall_flying {
-                    ((game.player.fall_fly_ticks as f32 + partial_tick).powi(2) / 100.0)
-                        .clamp(0.0, 1.0)
-                } else {
-                    0.0
-                },
-            )),
+                    glam::DVec3::from(game.player.prev_position).lerp(
+                        glam::DVec3::from(game.player.position),
+                        f64::from(partial_tick),
+                    ),
+                    lerp_angle(
+                        game.player_prev_body_y_rot,
+                        game.player_body_y_rot,
+                        partial_tick,
+                    ),
+                    if game.player.fall_flying {
+                        ((game.player.fall_fly_ticks as f32 + partial_tick).powi(2) / 100.0)
+                            .clamp(0.0, 1.0)
+                    } else {
+                        0.0
+                    },
+                )
+            }),
             fall_flying: game.player.fall_flying.then(|| {
                 let look = gfx.renderer.camera_look_dir();
                 FallFlying::new(

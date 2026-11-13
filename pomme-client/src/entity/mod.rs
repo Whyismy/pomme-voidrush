@@ -977,6 +977,9 @@ pub struct LivingEntity {
     pub elytra: ElytraAnim,
     /// A player's cape.
     pub cape: CapeAnim,
+    /// A player's shown skin parts (`DATA_PLAYER_MODE_CUSTOMISATION`,
+    /// `PlayerModelPart`'s bits): none until the server says.
+    pub skin_parts: u8,
     /// Vanilla LivingEntity SLEEPING_POS metadata.
     pub sleeping_pos: Option<BlockPos>,
     pub on_ground: bool,
@@ -1415,6 +1418,7 @@ impl LivingEntity {
             fall_fly_ticks: 0,
             elytra: ElytraAnim::default(),
             cape: CapeAnim::default(),
+            skin_parts: 0,
             sleeping_pos: None,
             // Spawn grounded: on_ground is packet-driven and a stationary
             // entity gets no movement packet for up to 60 ticks.
@@ -2472,6 +2476,9 @@ impl EntityStore {
                 entity.is_fall_flying = f & 0x80 != 0;
                 entity.is_invisible = shared_flags_invisible(f);
                 entity.is_glowing = shared_flags_glowing(f);
+            }
+            (EntityKind::Player | EntityKind::Mannequin, 16, Byte(parts)) => {
+                entity.skin_parts = parts;
             }
             (_, 8, Byte(f)) => {
                 let using_hand = (f & 0x01 != 0).then_some(u8::from(f & 0x02 != 0));

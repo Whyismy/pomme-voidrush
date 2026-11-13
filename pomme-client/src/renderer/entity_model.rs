@@ -492,33 +492,42 @@ pub fn bake_baby_pig_model() -> BakedEntityModel {
 
 /// `slim` is the 3px-wide-arm (Alex) layout; same texture offsets and pivots,
 /// only the arm boxes differ.
-// TODO: jacket/sleeve/pants overlay layers (only the hat is modeled here).
+/// The skin's outer layer (vanilla `PlayerModel.createMesh`) hangs off the
+/// six parts as children, after them: the hat, jacket, sleeves and trouser
+/// legs, each a part of its own so it can be hidden
+/// ([`hide_skin_parts`]).
 // TODO: default-skin-by-UUID selection for players without a fetched skin.
 pub fn bake_player_model(slim: bool) -> BakedEntityModel {
     let arm_w = if slim { 3.0 } else { 4.0 };
     let right_arm_ox = if slim { -2.0 } else { -3.0 };
+    let outer =
+        |name: &str, parent: usize, origin: Vec3, size: Vec3, tex_offset, deformation| EntityPart {
+            name: name.into(),
+            offset: Vec3::ZERO,
+            default_rotation: Vec3::ZERO,
+            cubes: vec![ModelCube {
+                origin,
+                size,
+                tex_offset,
+                deformation,
+                mirror: false,
+            }],
+            parent: Some(parent),
+        };
+    let limb = Vec3::new(4.0, 12.0, 4.0);
+    let arm = Vec3::new(arm_w, 12.0, 4.0);
     let parts = vec![
         EntityPart {
             name: "head".into(),
             offset: Vec3::new(0.0, 0.0, 0.0),
             default_rotation: Vec3::ZERO,
-            cubes: vec![
-                ModelCube {
-                    origin: Vec3::new(-4.0, -8.0, -4.0),
-                    size: Vec3::new(8.0, 8.0, 8.0),
-                    tex_offset: (0, 0),
-                    deformation: 0.0,
-                    mirror: false,
-                },
-                // Hat / headwear outer layer.
-                ModelCube {
-                    origin: Vec3::new(-4.0, -8.0, -4.0),
-                    size: Vec3::new(8.0, 8.0, 8.0),
-                    tex_offset: (32, 0),
-                    deformation: 0.5,
-                    mirror: false,
-                },
-            ],
+            cubes: vec![ModelCube {
+                origin: Vec3::new(-4.0, -8.0, -4.0),
+                size: Vec3::new(8.0, 8.0, 8.0),
+                tex_offset: (0, 0),
+                deformation: 0.0,
+                mirror: false,
+            }],
             parent: None,
         },
         EntityPart {
@@ -586,9 +595,80 @@ pub fn bake_player_model(slim: bool) -> BakedEntityModel {
             }],
             parent: None,
         },
+        outer(
+            "hat",
+            0,
+            Vec3::new(-4.0, -8.0, -4.0),
+            Vec3::splat(8.0),
+            (32, 0),
+            0.5,
+        ),
+        outer(
+            "jacket",
+            1,
+            Vec3::new(-4.0, 0.0, -2.0),
+            Vec3::new(8.0, 12.0, 4.0),
+            (16, 32),
+            0.25,
+        ),
+        outer(
+            "right_sleeve",
+            2,
+            Vec3::new(right_arm_ox, -2.0, -2.0),
+            arm,
+            (40, 32),
+            0.25,
+        ),
+        outer(
+            "left_sleeve",
+            3,
+            Vec3::new(-1.0, -2.0, -2.0),
+            arm,
+            (48, 48),
+            0.25,
+        ),
+        outer(
+            "right_pants",
+            4,
+            Vec3::new(-2.0, 0.0, -2.0),
+            limb,
+            (0, 32),
+            0.25,
+        ),
+        outer(
+            "left_pants",
+            5,
+            Vec3::new(-2.0, 0.0, -2.0),
+            limb,
+            (0, 48),
+            0.25,
+        ),
     ];
 
     bake_model(parts, 64, 64)
+}
+
+/// Vanilla `PlayerModel.setupAnim`'s visibility: the outer layers a player
+/// has switched off (`PlayerModelPart`'s bits in `shown`) are not drawn.
+/// Only the player's own model has them; others pass through.
+pub fn hide_skin_parts(model: &BakedEntityModel, anim: &mut PartAnim, shown: u8) {
+    if find_part(&model.parts, "jacket").is_none() {
+        return;
+    }
+    for (i, part) in model.parts.iter().enumerate() {
+        let bit = match part.name.as_str() {
+            "jacket" => 1,
+            "left_sleeve" => 2,
+            "right_sleeve" => 3,
+            "left_pants" => 4,
+            "right_pants" => 5,
+            "hat" => 6,
+            _ => continue,
+        };
+        if shown & (1 << bit) == 0 {
+            anim.scale.push((i, Vec3::ZERO));
+        }
+    }
 }
 
 /// Legacy single-arm humanoid layout (head/body/right_arm/left_arm/right_leg/
@@ -6562,6 +6642,45 @@ pub(crate) fn generate_cube_vertices_faces(
 
 #[cfg(test)]
 mod tests {
+    /// The player's outer skin layers are parts of their own, after the
+    /// six they hang from, and a switched-off one is scaled away; a model
+    /// without them is left alone.
+    #[test]
+    fn switched_off_skin_layers_are_hidden() {
+        let model = super::bake_player_model(false);
+        let names: Vec<&str> = model.parts.iter().map(|part| part.name.as_str()).collect();
+        assert_eq!(
+            names[6..],
+            [
+                "hat",
+                "jacket",
+                "right_sleeve",
+                "left_sleeve",
+                "right_pants",
+                "left_pants"
+            ]
+        );
+        let hidden = |shown: u8| {
+            let mut anim = super::PartAnim::default();
+            super::hide_skin_parts(&model, &mut anim, shown);
+            anim.scale
+                .iter()
+                .map(|(part, _)| names[*part])
+                .collect::<Vec<_>>()
+        };
+        assert!(hidden(0x7f).is_empty());
+        // The cape's bit is not a layer of the model.
+        assert!(hidden(0x7e).is_empty());
+        assert_eq!(hidden(0x3f), ["hat"]);
+        assert_eq!(hidden(0x7f & !0x0a), ["jacket", "right_sleeve"]);
+
+        let zombie = super::bake_zombie_model();
+        let mut anim = super::PartAnim::default();
+        super::hide_skin_parts(&zombie, &mut anim, 0);
+        assert!(anim.scale.is_empty());
+        assert_eq!(crate::ui::menu::SkinOptions::default().parts(), 0x7f);
+    }
+
     use super::*;
 
     /// Every face's normal points from the cube's centre to the face's, in
