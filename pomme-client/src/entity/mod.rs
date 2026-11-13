@@ -107,6 +107,72 @@ impl ElytraAnim {
     }
 }
 
+/// Vanilla `ClientAvatarState`'s cloak: a point that trails after the
+/// player, which its cape leans and flaps toward, with the walk's bob.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct CapeAnim {
+    cloak: DVec3,
+    prev_cloak: DVec3,
+    bob: f32,
+    prev_bob: f32,
+    walk: f32,
+    prev_walk: f32,
+}
+
+impl CapeAnim {
+    /// One tick: the cloak comes a quarter of the way to the player at
+    /// `at` (and jumps there from more than ten blocks off on an axis,
+    /// before the same step, as vanilla does); `moved` is the tick's
+    /// movement, which bobs the cape of a player walking (`bobbing`: on the
+    /// ground, alive, not swimming).
+    pub fn tick(&mut self, at: DVec3, moved: DVec3, bobbing: bool) {
+        self.prev_cloak = self.cloak;
+        let (at, mut cloak, mut prev) =
+            (at.to_array(), self.cloak.to_array(), self.cloak.to_array());
+        for axis in 0..3 {
+            let off = at[axis] - cloak[axis];
+            if !(-10.0..=10.0).contains(&off) {
+                cloak[axis] = at[axis];
+                prev[axis] = cloak[axis];
+            }
+            cloak[axis] += off * 0.25;
+        }
+        self.cloak = DVec3::from_array(cloak);
+        self.prev_cloak = DVec3::from_array(prev);
+
+        let horizontal = (moved.x * moved.x + moved.z * moved.z).sqrt() as f32;
+        self.prev_walk = self.walk;
+        self.walk += horizontal * 0.6;
+        self.prev_bob = self.bob;
+        let target = if bobbing { horizontal.min(0.1) } else { 0.0 };
+        self.bob += (target - self.bob) * 0.4;
+    }
+
+    /// Vanilla `AvatarRenderer.extractCapeState`: the cape's flap and its
+    /// two leans, in degrees, for a player drawn at `at` with its body
+    /// turned `body_y_rot_deg`; a glide (`glide_scale`, 0 to 1) lays the
+    /// cape flat.
+    pub fn pose(
+        &self,
+        partial_tick: f32,
+        at: DVec3,
+        body_y_rot_deg: f32,
+        glide_scale: f32,
+    ) -> [f32; 3] {
+        let off = self.prev_cloak.lerp(self.cloak, f64::from(partial_tick)) - at;
+        let turn = f64::from(body_y_rot_deg).to_radians();
+        let (sin, cos) = (turn.sin(), -turn.cos());
+        let mut flap = ((off.y as f32) * 10.0).clamp(-6.0, 32.0);
+        let lean =
+            (((off.x * sin + off.z * cos) as f32) * 100.0 * (1.0 - glide_scale)).clamp(0.0, 150.0);
+        let lean2 = (((off.x * cos - off.z * sin) as f32) * 100.0).clamp(-20.0, 20.0);
+        let bob = self.prev_bob + (self.bob - self.prev_bob) * partial_tick;
+        let walk = self.prev_walk + (self.walk - self.prev_walk) * partial_tick;
+        flap += (walk * 6.0).sin() * 32.0 * bob;
+        [flap, lean, lean2]
+    }
+}
+
 pub fn shared_flags_on_fire(flags: u8) -> bool {
     flags & SHARED_FLAG_ON_FIRE != 0
 }
@@ -909,6 +975,8 @@ pub struct LivingEntity {
     pub fall_fly_ticks: u32,
     /// The wings of the elytra it may wear.
     pub elytra: ElytraAnim,
+    /// A player's cape.
+    pub cape: CapeAnim,
     /// Vanilla LivingEntity SLEEPING_POS metadata.
     pub sleeping_pos: Option<BlockPos>,
     pub on_ground: bool,
@@ -1346,6 +1414,7 @@ impl LivingEntity {
             is_fall_flying: false,
             fall_fly_ticks: 0,
             elytra: ElytraAnim::default(),
+            cape: CapeAnim::default(),
             sleeping_pos: None,
             // Spawn grounded: on_ground is packet-driven and a stationary
             // entity gets no movement packet for up to 60 ticks.
@@ -2898,6 +2967,15 @@ impl EntityStore {
             } else {
                 0
             };
+            // `Avatar.tick`: a player's cape trails after it.
+            if entity.entity_type == EntityKind::Player {
+                let at = DVec3::from(entity.position);
+                entity.cape.tick(
+                    at,
+                    at - DVec3::from(entity.prev_position),
+                    entity.on_ground && entity.health > 0.0,
+                );
+            }
             let dx = entity.position.x - entity.prev_position.x;
             let dz = entity.position.z - entity.prev_position.z;
             let dy = if omnidirectional_air_mover(entity.entity_type) {
@@ -3165,6 +3243,39 @@ fn probes_water(kind: &EntityKind) -> bool {
 
 #[cfg(test)]
 mod tests {
+    /// A cape hangs still on a player standing still, streams out behind
+    /// one running forward, and lifts on one falling.
+    #[test]
+    fn a_cape_trails_after_its_player() {
+        use super::CapeAnim;
+        let settle = |step: DVec3| {
+            let mut cape = CapeAnim::default();
+            let mut at = DVec3::new(100.0, 64.0, 100.0);
+            for _ in 0..60 {
+                at += step;
+                cape.tick(at, step, false);
+            }
+            cape.pose(1.0, at, 0.0, 0.0)
+        };
+        let still = settle(DVec3::ZERO);
+        assert!(still.iter().all(|angle| angle.abs() < 1e-3), "{still:?}");
+        // Body yaw 0 faces south (+z): running that way leans the cape out.
+        let [_, lean, lean2] = settle(DVec3::new(0.0, 0.0, 0.2));
+        assert!(lean > 30.0 && lean2.abs() < 1e-3, "{lean} {lean2}");
+        // Running backward can't lean it through the body.
+        assert_eq!(settle(DVec3::new(0.0, 0.0, -0.2))[1], 0.0);
+        // Falling lifts it, to its limit.
+        assert_eq!(settle(DVec3::new(0.0, -1.5, 0.0))[0], 32.0);
+        // A glide lays it flat.
+        let mut cape = CapeAnim::default();
+        let mut at = DVec3::new(0.0, 64.0, 0.0);
+        for _ in 0..60 {
+            at.z += 0.5;
+            cape.tick(at, DVec3::new(0.0, 0.0, 0.5), false);
+        }
+        assert_eq!(cape.pose(1.0, at, 0.0, 1.0)[1], 0.0);
+    }
+
     /// An elytra's wings fold at rest, spread in level flight, fold again
     /// in a dive, and lift and open a little on a crouching wearer; each
     /// tick goes three tenths of the way.

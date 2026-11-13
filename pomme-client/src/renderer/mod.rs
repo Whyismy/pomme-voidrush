@@ -2000,6 +2000,25 @@ impl Renderer {
             .update_player_skin(&self.ctx.device, uuid, skin);
     }
 
+    /// Gives the player `uuid` a cape of plain colours, for a harness scene.
+    #[cfg(feature = "test-harness")]
+    pub fn set_test_cape(&mut self, uuid: &uuid::Uuid) {
+        // The cape's faces on its 64 by 32 sheet: the outside (the back
+        // of the cape as worn) red, the lining gold, the edges dark.
+        let mut pixels = [40u8, 20, 20, 255].repeat(64 * 32);
+        let mut fill = |x0: usize, x1: usize, color: [u8; 4]| {
+            for y in 1..17 {
+                for x in x0..x1 {
+                    pixels[(y * 64 + x) * 4..][..4].copy_from_slice(&color);
+                }
+            }
+        };
+        fill(1, 11, [200, 30, 40, 255]);
+        fill(12, 22, [230, 180, 60, 255]);
+        self.entity_renderer
+            .set_player_cape(&self.ctx.device, uuid, Some((&pixels, 64, 32)));
+    }
+
     pub fn remove_player_entity_skin(&mut self, uuid: &uuid::Uuid) {
         self.entity_renderer
             .remove_player_skin(&self.ctx.device, uuid);
@@ -3541,6 +3560,8 @@ pub(crate) struct SkinData {
     pub width: u32,
     pub height: u32,
     pub slim: bool,
+    /// The profile's cape, where it has one: its pixels, width and height.
+    pub cape: Option<(Vec<u8>, u32, u32)>,
 }
 
 pub(crate) async fn fetch_skin_texture_by_name(name: &str) -> Result<SkinData, String> {
@@ -3621,17 +3642,47 @@ pub(crate) async fn fetch_skin_texture(uuid: &str) -> Result<SkinData, String> {
 pub(crate) async fn fetch_skin_texture_from_profile_property(
     value: &str,
 ) -> Result<SkinData, String> {
-    let (skin_url, slim) = skin_url_from_texture_property(value)?;
+    let (skin_url, slim, cape_url) = texture_urls(value)?;
     let (pixels, width, height) = fetch_skin_image(&skin_url).await?;
+    // A cape that won't load leaves the player without one.
+    let cape = match cape_url {
+        Some(url) => fetch_cape_image(&url).await.ok(),
+        None => None,
+    };
     Ok(SkinData {
         pixels,
         width,
         height,
         slim,
+        cape,
     })
 }
 
+/// A cape's texture, as it is (`SkinManager` doesn't touch capes).
+async fn fetch_cape_image(url: &str) -> Result<(Vec<u8>, u32, u32), String> {
+    let bytes = crate::net::http::get(url)
+        .await
+        .map_err(pomme_auth::error_chain)?
+        .error_for_status()
+        .map_err(pomme_auth::error_chain)?
+        .bytes()
+        .await
+        .map_err(pomme_auth::error_chain)?;
+    let rgba = image::load_from_memory(&bytes)
+        .map_err(pomme_auth::error_chain)?
+        .to_rgba8();
+    let (width, height) = (rgba.width(), rgba.height());
+    Ok((rgba.into_raw(), width, height))
+}
+
+#[cfg(test)]
 fn skin_url_from_texture_property(value: &str) -> Result<(String, bool), String> {
+    texture_urls(value).map(|(skin, slim, _)| (skin, slim))
+}
+
+/// The skin's URL and whether it is slim, and the cape's URL, from a
+/// profile's `textures` property.
+fn texture_urls(value: &str) -> Result<(String, bool, Option<String>), String> {
     #[derive(serde::Deserialize)]
     struct TexturesPayload {
         textures: Textures,
@@ -3693,18 +3744,22 @@ fn skin_url_from_texture_property(value: &str) -> Result<(String, bool), String>
     // textures property isn't SIGNED (`PlayerInfo.createSkinLookup`); pomme
     // doesn't verify the signature yet.
     let mut skin = None;
+    let mut cape = None;
     for (key, texture) in payload.textures.0 {
         match texture.url {
             Some(url) if is_allowed_texture_url(&url) => {
                 if key == "SKIN" {
                     let slim = texture.metadata.and_then(|m| m.model).as_deref() == Some("slim");
                     skin = Some((url, slim));
+                } else if key == "CAPE" {
+                    cape = Some(url);
                 }
             }
             url => return Err(format!("texture url not allowed: {url:?}")),
         }
     }
-    skin.ok_or_else(|| "No skin texture".to_string())
+    let (skin, slim) = skin.ok_or_else(|| "No skin texture".to_string())?;
+    Ok((skin, slim, cape))
 }
 
 /// authlib's `TextureUrlChecker.isAllowedTextureDomain`: a `java.net.URI`

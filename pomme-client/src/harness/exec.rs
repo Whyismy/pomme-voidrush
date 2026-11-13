@@ -87,6 +87,10 @@ pub fn run(command: &Command, core: &mut AppCore, phase: &mut AppPhase) -> Outco
             );
             Ok(Value::Null)
         }
+        Command::Cape => {
+            gfx.renderer.set_test_cape(&core.user.uuid);
+            Ok(Value::Null)
+        }
         Command::Deterministic => {
             game.deterministic = true;
             game.block_light_flicker = 0.0;

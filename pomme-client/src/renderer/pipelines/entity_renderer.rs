@@ -326,6 +326,10 @@ pub struct EntityRenderInfo {
     pub fall_flying: Option<FallFlying>,
     /// The model itself glints (an enchanted thrown trident).
     pub foil: bool,
+    /// A player's cape, where it shows one: its flap and two leans
+    /// (`crate::entity::CapeAnim::pose`). Drawn once its texture is here.
+    // TODO: the skin customization's cape part; every player shows its own.
+    pub cape: Option<[f32; 3]>,
 }
 
 /// A gliding avatar's pose inputs (vanilla `AvatarRenderer.extractFlightData`).
@@ -392,6 +396,7 @@ impl Default for EntityRenderInfo {
             elytra_rot: crate::entity::ElytraAnim::REST,
             fall_flying: None,
             foil: false,
+            cape: None,
             position: Position::new(0.0, 0.0, 0.0),
             head_x_rot_deg: 0.0,
             head_y_rot_deg: 0.0,
@@ -677,6 +682,9 @@ struct ArmorMeshes {
     /// `ElytraModel`: the two wings, then a baby's (`elytra_baby`), the
     /// same at half the size.
     elytra: [ArmorMesh; 2],
+    /// `PlayerCapeModel`: the player's parts, bare, with the cape on its
+    /// body.
+    cape: ArmorMesh,
 }
 
 impl MobEntry {
@@ -1316,6 +1324,10 @@ fn build_armor_meshes(device: &rhi::backend::Device) -> ArmorMeshes {
             let baby = entity_model::bake_exported_scaled(wings, 0.5);
             [grown, baby].map(|model| build_armor_mesh(device, model))
         },
+        cape: build_armor_mesh(
+            device,
+            entity_model::bake_exported(entity_model::exported_data::PLAYER_CAPE),
+        ),
     }
 }
 
@@ -1436,6 +1448,8 @@ pub struct EntityRenderer {
     trim_layers: HashMap<String, Option<ArmorTextureLayer>>,
     armor_meshes: ArmorMeshes,
     player_skins: HashMap<uuid::Uuid, PlayerSkinTexture>,
+    /// The capes of the players that have one, by profile id.
+    player_capes: HashMap<uuid::Uuid, (rhi::backend::Texture, rhi::backend::BindGroup)>,
     /// Vanilla's default skins ([`DEFAULT_SKINS`]), for players without
     /// one of their own.
     default_skins: Vec<PlayerSkinTexture>,
@@ -4007,6 +4021,7 @@ impl EntityRenderer {
             trim_layers: HashMap::new(),
             armor_meshes,
             player_skins: HashMap::new(),
+            player_capes: HashMap::new(),
             default_skins: DEFAULT_SKINS
                 .iter()
                 .map(|&(path, slim)| {
@@ -4130,6 +4145,41 @@ impl EntityRenderer {
             skin.width,
             skin.height
         );
+        self.set_player_cape(
+            device,
+            uuid,
+            skin.cape
+                .as_ref()
+                .map(|(pixels, width, height)| (pixels.as_slice(), *width, *height)),
+        );
+    }
+
+    /// Sets, or with `None` takes away, the cape of the player `uuid`.
+    pub fn set_player_cape(
+        &mut self,
+        device: &rhi::backend::Device,
+        uuid: &uuid::Uuid,
+        cape: Option<(&[u8], u32, u32)>,
+    ) {
+        let cape = cape.map(|(pixels, width, height)| {
+            let texture =
+                util::create_sampled_texture(device, "player_cape_texture", pixels, width, height);
+            let set = util::create_texture_group(
+                device,
+                self.texture_layout,
+                texture.handle(),
+                self.texture_sampler,
+            );
+            (texture, set)
+        });
+        let old = match cape {
+            Some(cape) => self.player_capes.insert(*uuid, cape),
+            None => self.player_capes.remove(uuid),
+        };
+        if let Some((texture, set)) = old {
+            texture.destroy(device);
+            set.destroy(device);
+        }
     }
 
     /// The texture group of the skin kept under `uuid`, once it's loaded.
@@ -4141,11 +4191,16 @@ impl EntityRenderer {
         if let Some(skin) = self.player_skins.remove(uuid) {
             free_player_skin_texture(device, skin);
         }
+        self.set_player_cape(device, uuid, None);
     }
 
     pub fn clear_player_skins(&mut self, device: &rhi::backend::Device) {
         for (_, skin) in self.player_skins.drain() {
             free_player_skin_texture(device, skin);
+        }
+        for (_, (texture, set)) in self.player_capes.drain() {
+            texture.destroy(device);
+            set.destroy(device);
         }
     }
 
@@ -4306,12 +4361,48 @@ impl EntityRenderer {
             }
             // Vanilla `WingsLayer`: what is worn on the chest, where its
             // equipment has `wings` layers, an elytra's, on the wing model.
+            // The cape of a player who shows one, once it is here.
+            let cape = v.info.cape.and_then(|pose| {
+                let uuid = v.info.player_uuid.as_ref()?;
+                Some((pose, self.player_capes.get(uuid)?.1))
+            });
+            let chest_asset = v.info.armor[1]
+                .as_ref()
+                .and_then(|chest| self.armor_assets.get(&*chest.asset_id));
+            // Vanilla `CapeLayer`: on the visible, unless wings are worn
+            // (which take the cape's texture instead).
+            if let Some((pose, set)) = cape
+                && matches!(v.info.visibility, Visibility::Visible)
+                && chest_asset.is_none_or(|asset| asset.wings.is_empty())
+            {
+                let mesh = &self.armor_meshes.cape;
+                let mut anim = self.compute_anim(v.entry.anim, &mesh.model, v.info);
+                entity_model::pose_cape(
+                    &mesh.model,
+                    &mut anim,
+                    pose,
+                    chest_asset.is_some_and(|asset| !asset.humanoid.is_empty()),
+                );
+                self.push_posed_draws(
+                    vi,
+                    v,
+                    mesh,
+                    &anim,
+                    std::iter::once((set, [1.0; 4])),
+                    instances,
+                    &mut records,
+                    None,
+                );
+            }
             // A baby wears the wings at half size (`elytra_baby`).
-            // TODO: the player's own elytra or cape texture in the
-            // default's place.
+            // TODO: the player's own elytra texture in the default's place.
             if let Some(chest) = &v.info.armor[1] {
+                // `WingsLayer.getPlayerElytraTexture`: a player with a cape
+                // wears its texture on the wings.
+                let cape_set = cape.map(|(_, set)| set);
                 let mut layers = self
                     .equipment_layers(chest, |asset| &asset.wings)
+                    .map(|(set, tint)| (cape_set.unwrap_or(set), tint))
                     .peekable();
                 if layers.peek().is_some() {
                     let mesh = &self.armor_meshes.elytra[usize::from(v.info.is_baby)];
@@ -5306,6 +5397,7 @@ impl EntityRenderer {
             .chain(self.armor_meshes.armor_stand.iter_mut().flatten())
             .chain(self.armor_meshes.piglin.iter_mut().flatten())
             .chain(self.armor_meshes.elytra.iter_mut())
+            .chain([&mut self.armor_meshes.cape])
         {
             std::mem::take(&mut mesh.vertex_buffer).destroy(device);
         }

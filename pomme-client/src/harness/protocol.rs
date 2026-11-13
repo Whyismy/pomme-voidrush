@@ -75,6 +75,9 @@ pub enum Command {
     Screenshot {
         path: PathBuf,
     },
+    /// Gives the player a cape of plain colours (the offline test player
+    /// has no profile to bring one).
+    Cape,
     /// Has the client fetch and load the resource pack at `url`, whose
     /// SHA-1 is `sha1`, as a server pushing one in play would.
     ResourcePack {

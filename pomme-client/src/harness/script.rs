@@ -49,6 +49,7 @@ struct StepFile {
     option: Option<protocol::OptionSet>,
     deterministic: Option<bool>,
     resource_pack: Option<ResourcePack>,
+    cape: Option<bool>,
     hover: Option<protocol::Hover>,
     cursor: Option<[f32; 2]>,
     scroll: Option<f32>,
@@ -318,6 +319,9 @@ impl StepFile {
         }
         if self.deterministic == Some(true) {
             steps.push(Step::Run(Command::Deterministic));
+        }
+        if self.cape == Some(true) {
+            steps.push(Step::Run(Command::Cape));
         }
         if let Some(ResourcePack { url, sha1 }) = self.resource_pack {
             steps.push(Step::Run(Command::ResourcePack { url, sha1 }));

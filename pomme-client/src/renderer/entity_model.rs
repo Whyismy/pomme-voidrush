@@ -4253,6 +4253,36 @@ pub fn compute_armor_stand_anim(model: &BakedEntityModel, pose: &[[f32; 3]; 6]) 
     anim
 }
 
+/// Vanilla `PlayerCapeModel.setupAnim`: the cape swung from where it hangs
+/// by its flap and its two leans (degrees), on top of the body's pose in
+/// `anim`. Over chest armor (`CapeLayer`) it sits a little up and back.
+pub fn pose_cape(
+    model: &BakedEntityModel,
+    anim: &mut PartAnim,
+    [flap, lean, lean2]: [f32; 3],
+    over_armor: bool,
+) {
+    use std::f32::consts::PI;
+    let Some(cape) = find_part(&model.parts, "cape") else {
+        return;
+    };
+    let swing = glam::Quat::from_rotation_y(-PI)
+        * glam::Quat::from_rotation_x((6.0 + lean / 2.0 + flap).to_radians())
+        * glam::Quat::from_rotation_z((lean2 / 2.0).to_radians())
+        * glam::Quat::from_rotation_y((180.0 - lean2 / 2.0).to_radians());
+    // `ModelPart.rotateBy`: after the part's own rotation (z, y, then x),
+    // and back to angles.
+    let rest = model.parts[cape].default_rotation;
+    let turned = glam::Quat::from_euler(glam::EulerRot::ZYX, rest.z, rest.y, rest.x) * swing;
+    let (z, y, x) = turned.to_euler(glam::EulerRot::ZYX);
+    anim.rotation.retain(|(part, _)| *part != cape);
+    anim.rotation.push((cape, Vec3::new(x, y, z)));
+    if over_armor {
+        // 0.053125 of a block up and 0.06875 back, in model pixels.
+        anim.translation.push((cape, Vec3::new(0.0, -0.85, 1.1)));
+    }
+}
+
 /// Vanilla `ElytraModel.setupAnim` under `WingsLayer`'s pose: the left wing
 /// at `rot` (x, y, z), the right its mirror, both `back` pixels of the
 /// model behind the wearer's back (two of the world's: twice as many on a

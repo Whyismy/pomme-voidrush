@@ -62071,3 +62071,140 @@ pub(crate) static ELYTRA: &[ExportedPart] = &[
         ],
     },
 ];
+
+/// `minecraft:player#cape`.
+pub(crate) static PLAYER_CAPE: &[ExportedPart] = &[
+    ExportedPart {
+        name: "head",
+        parent: None,
+        pose: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+        quads: &[],
+    },
+    ExportedPart {
+        name: "hat",
+        parent: Some(0),
+        pose: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+        quads: &[],
+    },
+    ExportedPart {
+        name: "right_arm",
+        parent: None,
+        pose: [-5.0, 2.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+        quads: &[],
+    },
+    ExportedPart {
+        name: "right_sleeve",
+        parent: Some(2),
+        pose: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+        quads: &[],
+    },
+    ExportedPart {
+        name: "left_leg",
+        parent: None,
+        pose: [1.9, 12.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+        quads: &[],
+    },
+    ExportedPart {
+        name: "left_pants",
+        parent: Some(4),
+        pose: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+        quads: &[],
+    },
+    ExportedPart {
+        name: "left_arm",
+        parent: None,
+        pose: [5.0, 2.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+        quads: &[],
+    },
+    ExportedPart {
+        name: "left_sleeve",
+        parent: Some(6),
+        pose: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+        quads: &[],
+    },
+    ExportedPart {
+        name: "right_leg",
+        parent: None,
+        pose: [-1.9, 12.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+        quads: &[],
+    },
+    ExportedPart {
+        name: "right_pants",
+        parent: Some(8),
+        pose: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+        quads: &[],
+    },
+    ExportedPart {
+        name: "body",
+        parent: None,
+        pose: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+        quads: &[],
+    },
+    ExportedPart {
+        name: "jacket",
+        parent: Some(10),
+        pose: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+        quads: &[],
+    },
+    ExportedPart {
+        name: "cape",
+        parent: Some(10),
+        pose: [0.0, 0.0, 2.0, 0.0, 3.1415927, 0.0, 1.0, 1.0, 1.0],
+        quads: &[
+            ExportedQuad {
+                normal: [0.0, -1.0, 0.0],
+                corners: [
+                    [5.0, 0.0, 0.0, 0.171875, 0.0],
+                    [-5.0, 0.0, 0.0, 0.015625, 0.0],
+                    [-5.0, 0.0, -1.0, 0.015625, 0.03125],
+                    [5.0, 0.0, -1.0, 0.171875, 0.03125],
+                ],
+            },
+            ExportedQuad {
+                normal: [0.0, 1.0, 0.0],
+                corners: [
+                    [5.0, 16.0, -1.0, 0.328125, 0.03125],
+                    [-5.0, 16.0, -1.0, 0.171875, 0.03125],
+                    [-5.0, 16.0, 0.0, 0.171875, 0.0],
+                    [5.0, 16.0, 0.0, 0.328125, 0.0],
+                ],
+            },
+            ExportedQuad {
+                normal: [-1.0, 0.0, 0.0],
+                corners: [
+                    [-5.0, 0.0, -1.0, 0.015625, 0.03125],
+                    [-5.0, 0.0, 0.0, 0.0, 0.03125],
+                    [-5.0, 16.0, 0.0, 0.0, 0.53125],
+                    [-5.0, 16.0, -1.0, 0.015625, 0.53125],
+                ],
+            },
+            ExportedQuad {
+                normal: [0.0, 0.0, -1.0],
+                corners: [
+                    [5.0, 0.0, -1.0, 0.171875, 0.03125],
+                    [-5.0, 0.0, -1.0, 0.015625, 0.03125],
+                    [-5.0, 16.0, -1.0, 0.015625, 0.53125],
+                    [5.0, 16.0, -1.0, 0.171875, 0.53125],
+                ],
+            },
+            ExportedQuad {
+                normal: [1.0, 0.0, 0.0],
+                corners: [
+                    [5.0, 0.0, 0.0, 0.1875, 0.03125],
+                    [5.0, 0.0, -1.0, 0.171875, 0.03125],
+                    [5.0, 16.0, -1.0, 0.171875, 0.53125],
+                    [5.0, 16.0, 0.0, 0.1875, 0.53125],
+                ],
+            },
+            ExportedQuad {
+                normal: [0.0, 0.0, 1.0],
+                corners: [
+                    [-5.0, 0.0, 0.0, 0.34375, 0.03125],
+                    [5.0, 0.0, 0.0, 0.1875, 0.03125],
+                    [5.0, 16.0, 0.0, 0.1875, 0.53125],
+                    [-5.0, 16.0, 0.0, 0.34375, 0.53125],
+                ],
+            },
+        ],
+    },
+];

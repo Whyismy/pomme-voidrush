@@ -1,0 +1,51 @@
+# A cape (`CapeLayer`): hanging down the player's back when it stands, and
+# streaming out behind it when it runs. With an elytra on, the cape is put
+# away and the wings wear its colours.
+
+[[step]]
+chat = "/tp @s 2700.5 -60 600.5 0 10"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+cape = true
+
+[[step]]
+press = { action = "key.toggleGui" }
+
+[[step]]
+press = { action = "key.togglePerspective" }
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "standing"
+
+[[step]]
+press = { action = "key.sprint", hold = true }
+
+[[step]]
+press = { action = "key.forward", hold = true }
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "running"
+
+[[step]]
+press = { action = "key.forward", hold = false }
+
+[[step]]
+press = { action = "key.sprint", hold = false }
+
+[[step]]
+chat = "/item replace entity @s armor.chest with minecraft:elytra"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+screenshot = "with_elytra"

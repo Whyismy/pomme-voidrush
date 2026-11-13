@@ -222,6 +222,8 @@ pub struct LocalPlayer {
     pub crouching: bool,
     /// The wings of the elytra the player may wear.
     pub elytra: crate::entity::ElytraAnim,
+    /// The player's cape.
+    pub cape: crate::entity::CapeAnim,
     /// Vanilla `fallFlyTicks`: how long the player has glided.
     pub fall_fly_ticks: u32,
     /// Vanilla `stuckSpeedMultiplier`: what the block the player is stuck
@@ -365,6 +367,7 @@ impl LocalPlayer {
             sprinting: false,
             crouching: false,
             elytra: crate::entity::ElytraAnim::default(),
+            cape: crate::entity::CapeAnim::default(),
             fall_fly_ticks: 0,
             stuck_speed: glam::DVec3::ZERO,
             start_fall_flying: false,
