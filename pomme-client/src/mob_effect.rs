@@ -29,6 +29,7 @@ pub const SLOW_FALLING: u32 = 27;
 pub const CONDUIT_POWER: u32 = 28;
 pub const DOLPHINS_GRACE: u32 = 29;
 pub const DARKNESS: u32 = 32;
+pub const WEAVING: u32 = 36;
 /// `MobEffects.DARKNESS`'s `setBlendDuration(22)`.
 const DARKNESS_BLEND_TICKS: i32 = 22;
 

@@ -215,6 +215,7 @@ pub fn tick(
     travel(
         player, input, world, tags, forward, strafe, sin_y_rot, cos_y_rot,
     );
+    apply_effects_from_blocks(player, input, world);
 
     player.tick_air_supply();
     stop_flying_on_ground(player);
@@ -347,7 +348,6 @@ fn fall_flying_movement(movement: DVec3, x_rot_deg: f32, y_rot_deg: f32, gravity
 
 /// Vanilla `LivingEntity.travelFallFlying`: the glide, then the move. On
 /// something climbable the glide ends in an ordinary tick of air travel.
-// TODO: a firework rocket's boost (`FireworkRocketEntity.tick`).
 #[allow(clippy::too_many_arguments)]
 fn tick_fall_flying(
     player: &mut LocalPlayer,
@@ -840,7 +840,15 @@ fn apply_collision(
     let aabb = player.bounding_box();
     let shift_down = input.performing_action(input::Action::Sneak);
     let ctx = collision_context(player, shift_down);
-    let delta = back_off_from_edge(world, player, *player.velocity, shift_down, &ctx);
+    // `Entity.move`: a block the player is stuck in scales this move, and
+    // leaves the player with no speed of its own.
+    let mut movement = *player.velocity;
+    if player.stuck_speed.length_squared() > 1.0e-7 {
+        movement *= player.stuck_speed;
+        player.stuck_speed = DVec3::ZERO;
+        *player.velocity = DVec3::ZERO;
+    }
+    let delta = back_off_from_edge(world, player, movement, shift_down, &ctx);
     let (resolved, on_ground) = resolve_collision(
         world,
         aabb,
@@ -853,13 +861,14 @@ fn apply_collision(
     let collided = collided_axes(delta, resolved);
     let horizontal_collision = collided[0] || collided[2];
 
-    // TODO: `Entity.move`'s stuck speed (cobweb, berry bush, powder snow) and
-    // its skip of sub-1e-7 moves.
+    // TODO: `Entity.move`'s skip of sub-1e-7 moves.
     player.position += resolved;
     player.horizontal_collision = horizontal_collision;
     player.minor_horizontal_collision = horizontal_collision
         && is_minor_horizontal_collision(forward, strafe, sin_y_rot, cos_y_rot, resolved);
-    settle_after_move(player, world, resolved, on_ground, collided, &ctx);
+    settle_after_move(
+        player, world, resolved, on_ground, collided, &ctx, shift_down,
+    );
 }
 
 /// Which axes `Entity.move`'s collision shortened `delta` on.
@@ -874,9 +883,29 @@ fn collided_axes(delta: DVec3, resolved: DVec3) -> [bool; 3] {
     ]
 }
 
+/// Vanilla `Block.updateEntityMovementAfterFallOn`: the vertical speed left
+/// after a vertical collision over the block `id`. Most blocks stop it; a
+/// slime block throws a falling player back up as fast as it came, and a
+/// bed two thirds as fast, unless the player sneaks (`isSuppressingBounce`).
+/// A rising player keeps its speed over either, vanilla's own quirk.
+fn speed_after_fall_on(id: &str, velocity_y: f64, sneaking: bool) -> f64 {
+    let bounce = match id {
+        "slime_block" => 1.0,
+        id if id.ends_with("_bed") => f64::from(0.66_f32),
+        _ => return 0.0,
+    };
+    if sneaking {
+        0.0
+    } else if velocity_y < 0.0 {
+        -velocity_y * bounce
+    } else {
+        velocity_y
+    }
+}
+
 /// The rest of vanilla `Entity.move` once the move is applied: ground and
-/// supporting block, fluid contact, fall distance, and stopping on the
-/// collided axes.
+/// supporting block, fluid contact, fall distance, and stopping (or
+/// bouncing) on the collided axes. `sneaking` holds a bounce down.
 fn settle_after_move(
     player: &mut LocalPlayer,
     world: CollisionWorld<'_>,
@@ -884,6 +913,7 @@ fn settle_after_move(
     on_ground: bool,
     collided: [bool; 3],
     ctx: &CollisionContext,
+    sneaking: bool,
 ) {
     player.on_ground = on_ground;
     update_supporting_block(player, world, on_ground, resolved, ctx);
@@ -901,7 +931,6 @@ fn settle_after_move(
         player.fall_distance = 0.0;
     }
 
-    // TODO: slime/bed bounce (`restituteMovementAfterCollisions`).
     let [x, y, z] = collided;
     if x {
         player.velocity.x = 0.0;
@@ -910,7 +939,142 @@ fn settle_after_move(
         player.velocity.z = 0.0;
     }
     if y {
-        player.velocity.y = 0.0;
+        let under = world
+            .block_state_table
+            .block_state_data(block_on_pos_legacy(player, world))
+            .id();
+        player.velocity.y = speed_after_fall_on(under, player.velocity.y, sneaking);
+    }
+}
+
+/// Vanilla `Player.makeStuckInBlock`: the block scales the next move, and
+/// the fall so far is forgotten. A flying player is never stuck.
+fn make_stuck(player: &mut LocalPlayer, multiplier: DVec3) {
+    if !player.flying {
+        player.fall_distance = 0.0;
+        player.stuck_speed = multiplier;
+    }
+}
+
+/// Vanilla `Entity.handleOnAboveBubbleColumn` and
+/// `handleOnInsideBubbleColumn`: a column's push on the vertical speed, up
+/// or (`drag_down`) down, stronger at its open top than inside it.
+fn bubble_column_speed(velocity_y: f64, drag_down: bool, open_above: bool) -> f64 {
+    match (open_above, drag_down) {
+        (true, true) => (velocity_y - 0.03).max(-0.9),
+        (true, false) => (velocity_y + 0.1).min(1.8),
+        (false, true) => (velocity_y - 0.03).max(-0.3),
+        (false, false) => (velocity_y + 0.06).min(0.7),
+    }
+}
+
+/// Vanilla `HoneyBlock.isSlidingDown` and `doSlideMovement`: a player
+/// falling against the side of a honey block (at `block`) slides down it at
+/// a twentieth of a block a tick. Returns the new velocity, if it slides.
+fn honey_slide(player: &LocalPlayer, block: BlockPos) -> Option<DVec3> {
+    // The speed before this tick's gravity and drag, and back again.
+    let drag = f64::from(0.98_f32);
+    let old_y = player.velocity.y / drag + 0.08;
+    let new_y = (-0.05 - 0.08) * drag;
+    if player.on_ground
+        || player.position.y > f64::from(block.y) + 0.9375 - 1.0e-7
+        || old_y >= -0.08
+    {
+        return None;
+    }
+    let reach = 0.4375 + PLAYER_HALF_WIDTH;
+    let dx = (f64::from(block.x) + 0.5 - player.position.x).abs();
+    let dz = (f64::from(block.z) + 0.5 - player.position.z).abs();
+    if dx + 1.0e-7 <= reach && dz + 1.0e-7 <= reach {
+        return None;
+    }
+    Some(if old_y < -0.13 {
+        let slow = -0.05 / old_y;
+        dvec3(player.velocity.x * slow, new_y, player.velocity.z * slow)
+    } else {
+        dvec3(player.velocity.x, new_y, player.velocity.z)
+    })
+}
+
+/// Vanilla `Entity.applyEffectsFromBlocks`, for the blocks that act on how
+/// the player moves: slime slows whoever walks on it (`stepOn`); cobwebs,
+/// sweet berry bushes and powder snow hold the player back; bubble columns
+/// push it up or pull it down; honey lets it slide down its side.
+// TODO: vanilla visits every block crossed along the tick's moves
+// (`checkInsideBlocks`); these are the ones the player ends the tick in.
+fn apply_effects_from_blocks(
+    player: &mut LocalPlayer,
+    input: &InputState,
+    world: CollisionWorld<'_>,
+) {
+    let table = world.block_state_table;
+    if player.on_ground {
+        let under = table
+            .block_state_data(block_on_pos_legacy(player, world))
+            .id();
+        let speed_y = player.velocity.y.abs();
+        if under == "slime_block" && speed_y < 0.1 && !input.performing_action(input::Action::Sneak)
+        {
+            let slow = 0.4 + speed_y * 0.2;
+            player.velocity.x *= slow;
+            player.velocity.z *= slow;
+        }
+    }
+
+    let aabb = player.bounding_box();
+    let inset = f64::from(1.0e-5_f32);
+    let min = (aabb.min + DVec3::splat(inset)).floor().as_ivec3();
+    let max = (aabb.max - DVec3::splat(inset)).floor().as_ivec3();
+    let feet = table
+        .block_state_data(block_state_at_player_position(player, world.chunks))
+        .id();
+    for x in min.x..=max.x {
+        for y in min.y..=max.y {
+            for z in min.z..=max.z {
+                let data = table.block_state_data(world.chunks.get_block_state(x, y, z));
+                match data.id() {
+                    "cobweb" => {
+                        let weaving = player.effects.amplifier(mob_effect::WEAVING).is_some();
+                        make_stuck(
+                            player,
+                            if weaving {
+                                dvec3(0.5, 0.25, 0.5)
+                            } else {
+                                dvec3(0.25, f64::from(0.05_f32), 0.25)
+                            },
+                        );
+                    }
+                    "sweet_berry_bush" => {
+                        make_stuck(player, dvec3(f64::from(0.8_f32), 0.75, f64::from(0.8_f32)))
+                    }
+                    // `getInBlockState`: only with the feet in it.
+                    "powder_snow" if feet == "powder_snow" => {
+                        make_stuck(player, dvec3(f64::from(0.9_f32), 1.5, f64::from(0.9_f32)))
+                    }
+                    // `Player.onAboveBubbleColumn`: not while flying.
+                    "bubble_column" if !player.flying => {
+                        let above =
+                            table.block_state_data(world.chunks.get_block_state(x, y + 1, z));
+                        let open_above = (!above.has_collision()
+                            || above.collision_boxes().is_some_and(<[_]>::is_empty))
+                            && above.fluid().amount == 0;
+                        let drag_down = data.properties().get("drag") == Some("true");
+                        player.velocity.y =
+                            bubble_column_speed(player.velocity.y, drag_down, open_above);
+                        if !open_above {
+                            player.fall_distance = 0.0;
+                        }
+                    }
+                    "honey_block" => {
+                        if let Some(slid) = honey_slide(player, BlockPos { x, y, z }) {
+                            *player.velocity = slid;
+                            player.fall_distance = 0.0;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
     }
 }
 
@@ -1253,6 +1417,32 @@ fn block_state_at_player_position(
     )
 }
 
+/// Vanilla `Entity.getOnPosLegacy`: the block a fifth of a block under the
+/// feet, or the fence, wall or gate the player stands on itself.
+fn block_on_pos_legacy(
+    player: &LocalPlayer,
+    world: CollisionWorld<'_>,
+) -> azalea_block::BlockState {
+    let chunk_store = world.chunks;
+    let y = (player.position.y - f64::from(0.2_f32)).floor() as i32;
+    if let Some(support) = player.main_supporting_block_pos {
+        let support_state = chunk_store.get_block_state(support.x, support.y, support.z);
+        let support_id = world.block_state_table.block_state_data(support_state).id();
+        if support_id.ends_with("_fence")
+            || support_id.ends_with("_wall")
+            || support_id.ends_with("_fence_gate")
+        {
+            return support_state;
+        }
+        return chunk_store.get_block_state(support.x, y, support.z);
+    }
+    chunk_store.get_block_state(
+        player.position.x.floor() as i32,
+        y,
+        player.position.z.floor() as i32,
+    )
+}
+
 fn block_below_affecting_movement(
     player: &LocalPlayer,
     world: CollisionWorld<'_>,
@@ -1588,7 +1778,15 @@ fn move_by_piston(player: &mut LocalPlayer, mv: PistonMove<'_>, delta: DVec3) {
             cos_y_rot,
             resolved,
         );
-    settle_after_move(player, mv.world, resolved, on_ground, collided, &ctx);
+    settle_after_move(
+        player,
+        mv.world,
+        resolved,
+        on_ground,
+        collided,
+        &ctx,
+        mv.descending,
+    );
     let speed_factor = f64::from(block_speed_factor(player, mv.world));
     player.velocity.x *= speed_factor;
     player.velocity.z *= speed_factor;
@@ -1789,6 +1987,32 @@ mod tests {
         assert!(glided.x.abs() < 1e-12);
         assert!((glided.y - (-0.02 + 0.002) * drag_y).abs() < 1e-12);
         assert!((glided.z - (1.002 + (1.0 - 1.002) * 0.1) * drag).abs() < 1e-12);
+    }
+
+    /// A fall onto slime comes back up as fast, onto a bed two thirds as
+    /// fast, and onto anything else stops; sneaking holds a bounce down, and
+    /// a rise under a ceiling over slime keeps its speed.
+    #[test]
+    fn slime_and_beds_bounce_a_fall() {
+        assert_eq!(speed_after_fall_on("stone", -0.9, false), 0.0);
+        assert_eq!(speed_after_fall_on("slime_block", -0.9, false), 0.9);
+        assert_eq!(speed_after_fall_on("slime_block", -0.9, true), 0.0);
+        assert!((speed_after_fall_on("red_bed", -1.0, false) - f64::from(0.66_f32)).abs() < 1e-12);
+        assert_eq!(speed_after_fall_on("red_bed", -1.0, true), 0.0);
+        assert_eq!(speed_after_fall_on("slime_block", 0.3, false), 0.3);
+    }
+
+    /// A bubble column lifts faster at its open top than inside it, and
+    /// drags down more gently than it lifts; each has its limit.
+    #[test]
+    fn bubble_columns_push_and_pull_to_their_limits() {
+        assert!((bubble_column_speed(0.0, false, false) - 0.06).abs() < 1e-12);
+        assert!((bubble_column_speed(0.0, false, true) - 0.1).abs() < 1e-12);
+        assert!((bubble_column_speed(0.0, true, false) + 0.03).abs() < 1e-12);
+        assert_eq!(bubble_column_speed(0.69, false, false), 0.7);
+        assert_eq!(bubble_column_speed(1.75, false, true), 1.8);
+        assert_eq!(bubble_column_speed(-0.29, true, false), -0.3);
+        assert_eq!(bubble_column_speed(-0.89, true, true), -0.9);
     }
 
     /// A rocket takes a still glider to 0.85 of a block a tick along its

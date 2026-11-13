@@ -224,6 +224,9 @@ pub struct LocalPlayer {
     pub elytra: crate::entity::ElytraAnim,
     /// Vanilla `fallFlyTicks`: how long the player has glided.
     pub fall_fly_ticks: u32,
+    /// Vanilla `stuckSpeedMultiplier`: what the block the player is stuck
+    /// in (a cobweb) scales its next move by; zero when in none.
+    pub stuck_speed: glam::DVec3,
     /// The player opened its elytra this tick: the server is still to be
     /// told (`START_FALL_FLYING`).
     pub start_fall_flying: bool,
@@ -360,6 +363,7 @@ impl LocalPlayer {
             crouching: false,
             elytra: crate::entity::ElytraAnim::default(),
             fall_fly_ticks: 0,
+            stuck_speed: glam::DVec3::ZERO,
             start_fall_flying: false,
             movement_crouching: false,
             flying: false,

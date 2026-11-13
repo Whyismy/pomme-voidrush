@@ -1,0 +1,66 @@
+# Blocks that act on how the player moves. A fall onto a slime block
+# bounces back up; a fall into a cobweb is held to a crawl; and a bubble
+# column over soul sand lifts the player up through the water.
+
+[[step]]
+chat = "/tp @s 2400.5 -60 600.5 0 0"
+
+[[step]]
+wait_ms = 1500
+
+# Slime: dropped from ten blocks up, a second and a bit later the player is
+# well clear of the ground again.
+[[step]]
+chat = "/setblock 2400 -61 610 minecraft:slime_block"
+
+[[step]]
+chat = "/tp @s 2400.5 -50 610.5 0 0"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+expect = { player = { y_between = [-57.0, -45.0] } }
+timeout_ms = 2500
+
+# A cobweb: dropped from ten blocks above it, the player is still in it two
+# seconds on, where the fall alone would long have reached the ground.
+[[step]]
+chat = "/setblock 2400 -55 620 minecraft:cobweb"
+
+[[step]]
+chat = "/tp @s 2400.5 -45 620.5 0 0"
+
+[[step]]
+wait_ms = 2500
+
+[[step]]
+expect = { player = { y_between = [-56.0, -53.9] } }
+timeout_ms = 500
+
+# A bubble column: a pillar of water in glass over soul sand lifts the
+# player from its foot to its top.
+[[step]]
+chat = "/fill 2399 -60 629 2401 -45 631 minecraft:glass hollow"
+
+[[step]]
+chat = "/fill 2400 -59 630 2400 -46 630 minecraft:water"
+
+[[step]]
+chat = "/setblock 2400 -60 630 minecraft:soul_sand"
+
+[[step]]
+chat = "/setblock 2400 -45 630 minecraft:air"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+chat = "/tp @s 2400.5 -58.5 630.5 0 0"
+
+[[step]]
+expect = { player = { y_between = [-48.0, -40.0] } }
+timeout_ms = 6000
+
+[[step]]
+screenshot = "column_top"
