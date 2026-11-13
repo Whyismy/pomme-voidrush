@@ -164,6 +164,9 @@ pub struct InteractionState {
     destroy_delay: u32,
     miss_time: u32,
     use_delay: u32,
+    /// A book and quill was just used in this hand: the client opens it to
+    /// write in (`WritableBookItem.use`), which the frame takes up.
+    pub open_book_edit: Option<InteractionHand>,
     using_item: Option<ActiveUse>,
     swinging: bool,
     swinging_arm: InteractionHand,
@@ -208,6 +211,7 @@ impl InteractionState {
             destroy_delay: 0,
             miss_time: 0,
             use_delay: 0,
+            open_book_edit: None,
             using_item: None,
             swinging: false,
             swinging_arm: InteractionHand::MainHand,
@@ -1023,6 +1027,9 @@ impl InteractionState {
         }));
         if self.on_cooldown[usize::from(hand == InteractionHand::OffHand)] {
             return UseResult::Pass;
+        }
+        if stack.kind == ItemKind::WritableBook {
+            self.open_book_edit = Some(hand);
         }
 
         // `BundleItem`: a 200-tick use. Its BUNDLE animation is the plain

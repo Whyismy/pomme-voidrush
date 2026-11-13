@@ -263,6 +263,8 @@ pub struct GameState {
     pub sign_edit: Option<crate::ui::sign_edit::SignEditState>,
     /// The book being read, while its screen is up.
     pub book_view: Option<crate::ui::book::BookViewState>,
+    /// The book and quill being written in, while its screen is up.
+    pub book_edit: Option<crate::ui::book::BookEditState>,
     /// How far the spyglass's scope has opened (vanilla `Hud.scopeScale`):
     /// from a half toward nine eighths while one is looked through.
     pub scope_scale: f32,
@@ -710,6 +712,7 @@ impl GameState {
             merchant: Default::default(),
             sign_edit: None,
             book_view: None,
+            book_edit: None,
             scope_scale: 0.5,
             world_border: Default::default(),
             block_breaking: Default::default(),
@@ -913,6 +916,7 @@ impl GameState {
             || self.game_mode_switcher.is_some()
             || self.sign_edit.is_some()
             || self.book_view.is_some()
+            || self.book_edit.is_some()
     }
 
     /// The container menu the player currently has open (0 = survival
@@ -1071,7 +1075,7 @@ impl GameState {
     /// hotkeys. The anvil field is editable only while its input slot is
     /// filled, matching vanilla.
     pub fn wants_text_input(&self) -> bool {
-        if self.sign_edit.is_some() {
+        if self.sign_edit.is_some() || self.book_edit.is_some() {
             return true;
         }
         if self
@@ -3184,6 +3188,12 @@ pub fn update_game(
             r.menu_text_width(text, common::FONT_SIZE)
         });
     }
+    if let Some(edit) = &mut game.book_edit {
+        let r = &gfx.renderer;
+        edit.handle_text_input(&text_events, &|text| {
+            r.menu_text_width(text, common::FONT_SIZE)
+        });
+    }
     let text_sw = gfx.renderer.screen_width() as f32;
     let text_gs = core
         .menu
@@ -3724,6 +3734,72 @@ pub fn update_game(
                 true,
             );
         }
+    }
+
+    // `LocalPlayer.openItemGui`: a book and quill just used opens for
+    // writing, from what the hand holds.
+    if let Some(hand) = game.interaction.open_book_edit.take() {
+        let main = hand == crate::player::interaction::InteractionHand::MainHand;
+        let selected = core.input.selected_slot();
+        let stack = if main {
+            game.player.inventory.held_stack(selected)
+        } else {
+            game.player.inventory.offhand().as_present()
+        };
+        if let Some(pages) = stack.and_then(crate::ui::book::writable_pages) {
+            // `ServerboundEditBookPacket`'s slot: the hotbar slot, or 40
+            // for the other hand.
+            let slot = if main { u32::from(selected) } else { 40 };
+            game.book_edit = Some(crate::ui::book::BookEditState::new(
+                pages,
+                slot,
+                core.user.username.clone(),
+            ));
+            core.apply_cursor_grab(&gfx.window, Some(game));
+        }
+    }
+    if let Some(edit) = &mut game.book_edit {
+        use crate::ui::book::EditButton;
+        let r = &gfx.renderer;
+        let over = crate::ui::book::build_edit(
+            &mut elements,
+            edit,
+            sw,
+            sh,
+            core.input.cursor_pos(),
+            gs,
+            &|spans, width| {
+                r.layout_display_text(spans, width)
+                    .lines
+                    .into_iter()
+                    .map(|(line, _)| line)
+                    .collect()
+            },
+            &|text, size| r.menu_text_width(text, size),
+        );
+        if core.input.left_just_pressed()
+            && let Some(button) = over
+        {
+            if matches!(button, EditButton::Back | EditButton::Forward) {
+                core.audio.play_ui_sound("item.book.page_turn", 1.0, 1.0);
+            } else {
+                core.audio.play_ui_click();
+            }
+            edit.press(button);
+        }
+    }
+    // A button closed it: what was written is sent.
+    if let Some(written) = game.book_edit.as_mut().and_then(|edit| edit.take_result()) {
+        use azalea_protocol::packets::game::s_edit_book::ServerboundEditBook;
+        connection
+            .packet_tx
+            .send(ServerboundGamePacket::EditBook(ServerboundEditBook {
+                slot: written.slot,
+                pages: written.pages,
+                title: written.title,
+            }));
+        game.book_edit = None;
+        core.apply_cursor_grab(&gfx.window, Some(game));
     }
 
     if let Some(view) = &mut game.book_view {

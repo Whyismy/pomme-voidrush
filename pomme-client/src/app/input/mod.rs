@@ -280,6 +280,7 @@ impl InputState {
                         && game.game_mode_switcher.is_none()
                         && game.sign_edit.is_none()
                         && game.book_view.is_none()
+                        && game.book_edit.is_none()
                     {
                         game.open_inventory();
                         should_apply_cursor_grab = true;
@@ -293,8 +294,11 @@ impl InputState {
                         // pause action: link confirmation, then suggestions,
                         // then the chat screen itself.
                         should_apply_cursor_grab = game.escape_chat();
-                    } else if game.book_view.is_some() {
+                    } else if game.book_view.is_some() || game.book_edit.is_some() {
+                        // Esc leaves a book; one being written is left as
+                        // it was.
                         game.book_view = None;
+                        game.book_edit = None;
                         should_apply_cursor_grab = true;
                     } else if let Some(edit) = &mut game.sign_edit {
                         // Esc closes a sign's editor, which sends what was

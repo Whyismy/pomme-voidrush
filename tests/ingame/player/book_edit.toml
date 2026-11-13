@@ -1,0 +1,60 @@
+# Writing in a book and quill: using it opens it, what is typed is on the
+# page, and Done sends it to the book.
+
+[[step]]
+chat = "/gamerule send_command_feedback true"
+
+[[step]]
+chat = "/tp @s 4200.5 -60 600.5 0 -60"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+chat = "/item replace entity @s weapon.mainhand with minecraft:writable_book"
+
+[[step]]
+expect = { slot = 36, item = "writable_book" }
+
+[[step]]
+mouse_down = "right"
+
+[[step]]
+wait_ms = 100
+
+[[step]]
+mouse_up = "right"
+
+[[step]]
+wait_ms = 600
+
+[[step]]
+text = "The void hums beneath the island."
+
+[[step]]
+wait_ms = 300
+
+[[step]]
+screenshot = "written"
+
+# Done, in GUI units at the harness's scale of three.
+[[step]]
+cursor = [264.0, 206.0]
+
+[[step]]
+mouse_down = "left"
+
+[[step]]
+wait_ms = 100
+
+[[step]]
+mouse_up = "left"
+
+[[step]]
+wait_ms = 600
+
+[[step]]
+chat = "/data get entity @s SelectedItem.components"
+
+[[step]]
+expect = { chat = "The void hums beneath the island." }

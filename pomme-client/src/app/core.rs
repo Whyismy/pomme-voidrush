@@ -1383,6 +1383,7 @@ impl AppCore {
         game.game_mode_switcher = None;
         game.sign_edit = None;
         game.book_view = None;
+        game.book_edit = None;
         game.tracking_emitters.clear();
         game.item_activation = None;
         game.server_dialog = None;
