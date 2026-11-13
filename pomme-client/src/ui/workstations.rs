@@ -4,12 +4,13 @@
 //! the brewing stand (`BrewingStandScreen`, with its fuel and its
 //! progress). What each makes is the server's to work out; its result slot
 //! shows what the server put there.
-// TODO: the cartography table's map preview, and the smithing table's armor
-// stand.
+// TODO: the markers on the cartography table's map preview, and the
+// smithing table's armor stand.
 
 use std::time::Instant;
 
 use azalea_inventory::ItemStack;
+use azalea_registry::builtin::ItemKind;
 
 use super::chest::build_slots;
 use super::common::FONT_SIZE;
@@ -37,6 +38,77 @@ fn slot_at(kind: ContainerKind, slot: u16) -> (f32, f32) {
     places[usize::from(slot).min(places.len() - 1)]
 }
 
+/// The dynamic atlas's key for the map a cartography table shows.
+pub const MAP_PREVIEW_KEY: &str = "pomme:cartography_map";
+
+/// The map in a cartography table's first slot, as the client knows it.
+#[derive(Clone, Copy)]
+pub struct MapView {
+    pub scale: i8,
+    pub locked: bool,
+    /// Its picture is in the atlas, under [`MAP_PREVIEW_KEY`].
+    pub drawn: bool,
+}
+
+/// What the cartography table will make of its map and the item beside it
+/// (`CartographyTableScreen.extractBackground`): which picture frames the
+/// preview, where the map goes in it and how large, and whether the arrow
+/// is crossed out.
+#[derive(Debug, PartialEq)]
+struct CartographyPreview {
+    frames: Vec<MapFrame>,
+    locked: bool,
+    error: bool,
+}
+
+/// One of the preview's pictures: its sprite and box, then where the map
+/// is drawn over it and at what scale.
+#[derive(Debug, PartialEq)]
+struct MapFrame {
+    sprite: SpriteId,
+    at: [f32; 4],
+    map_at: (f32, f32),
+    scale: f32,
+}
+
+fn cartography_preview(map: Option<MapView>, addition: Option<ItemKind>) -> CartographyPreview {
+    let frame = |sprite, at, map_at, scale| MapFrame {
+        sprite,
+        at,
+        map_at,
+        scale,
+    };
+    let paper = addition == Some(ItemKind::Paper);
+    let pane = addition == Some(ItemKind::GlassPane);
+    let copy = addition == Some(ItemKind::Map);
+    // A locked map takes nothing more, nor does one zoomed out all the way.
+    let locked_map = map.is_some_and(|map| map.locked);
+    let full = locked_map || (paper && map.is_some_and(|map| map.scale >= 4));
+    let error = (locked_map && (paper || pane)) || (paper && map.is_some_and(|map| map.scale >= 4));
+    let whole = [67.0, 13.0, 66.0, 66.0];
+    let frames = if paper && !full {
+        vec![frame(
+            SpriteId::CartographyScaledMap,
+            whole,
+            (85.0, 31.0),
+            0.226,
+        )]
+    } else if copy {
+        let sprite = SpriteId::CartographyDuplicatedMap;
+        vec![
+            frame(sprite, [83.0, 13.0, 50.0, 66.0], (86.0, 16.0), 0.34),
+            frame(sprite, [67.0, 29.0, 50.0, 66.0], (70.0, 32.0), 0.34),
+        ]
+    } else {
+        vec![frame(SpriteId::CartographyMap, whole, (71.0, 17.0), 0.45)]
+    };
+    CartographyPreview {
+        frames,
+        locked: pane,
+        error,
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn build(
     elements: &mut Vec<MenuElement>,
@@ -46,6 +118,7 @@ pub fn build(
     input: &ContainerInput,
     kind: ContainerKind,
     slots: &[ItemStack],
+    map: Option<MapView>,
     data: &[i16],
     title: &str,
     cursor_item: &ItemStack,
@@ -76,7 +149,41 @@ pub fn build(
             }
             panel.label(elements, 44.0, 15.0, title);
         }
-        ContainerKind::Cartography => panel.label(elements, 8.0, 4.0, title),
+        ContainerKind::Cartography => {
+            let addition = slots.get(1).and_then(ItemStack::as_present);
+            let preview = cartography_preview(map, addition.map(|stack| stack.kind));
+            if preview.error {
+                panel.image(elements, SpriteId::CartographyError, 35.0, 31.0, 28.0, 21.0);
+            }
+            for MapFrame {
+                sprite,
+                at: [x, y, w, h],
+                map_at: at,
+                scale,
+            } in preview.frames
+            {
+                panel.image(elements, sprite, x, y, w, h);
+                if map.is_some_and(|map| map.drawn) {
+                    elements.push(MenuElement::Favicon {
+                        x: panel.ox + at.0 * panel.scale,
+                        y: panel.oy + at.1 * panel.scale,
+                        size: 128.0 * scale * panel.scale,
+                        address: MAP_PREVIEW_KEY.to_owned(),
+                    });
+                }
+            }
+            if preview.locked {
+                panel.image(
+                    elements,
+                    SpriteId::CartographyLocked,
+                    118.0,
+                    60.0,
+                    10.0,
+                    14.0,
+                );
+            }
+            panel.label(elements, 8.0, 4.0, title);
+        }
         _ => {
             push_brewing_progress(elements, &panel, data);
             let title_w = text_width(title, FONT_SIZE * panel.scale) / panel.scale;
@@ -185,5 +292,50 @@ mod tests {
         assert_eq!(slot_at(ContainerKind::Smithing, 3), (98.0, 48.0));
         assert_eq!(slot_at(ContainerKind::BrewingStand, 3), (79.0, 17.0));
         assert_eq!(slot_at(ContainerKind::BrewingStand, 4), (17.0, 17.0));
+    }
+
+    /// What the cartography table shows of a map and the item beside it:
+    /// zoomed out with paper, twice over with an empty map, locked with a
+    /// pane, and the arrow crossed out where the map takes no more.
+    #[test]
+    fn the_cartography_table_previews_its_result() {
+        let map = |scale: i8, locked: bool| {
+            Some(MapView {
+                scale,
+                locked,
+                drawn: true,
+            })
+        };
+        let plain = cartography_preview(map(0, false), None);
+        assert_eq!(plain.frames.len(), 1);
+        assert_eq!(plain.frames[0].sprite, SpriteId::CartographyMap);
+        assert_eq!(
+            (plain.frames[0].map_at, plain.frames[0].scale),
+            ((71.0, 17.0), 0.45)
+        );
+        assert!(!plain.locked && !plain.error);
+
+        let scaled = cartography_preview(map(0, false), Some(ItemKind::Paper));
+        assert_eq!(scaled.frames[0].sprite, SpriteId::CartographyScaledMap);
+        assert_eq!(scaled.frames[0].scale, 0.226);
+        assert!(!scaled.error);
+
+        let copied = cartography_preview(map(2, false), Some(ItemKind::Map));
+        assert_eq!(copied.frames.len(), 2);
+        assert_eq!(copied.frames[1].map_at, (70.0, 32.0));
+
+        let locking = cartography_preview(map(0, false), Some(ItemKind::GlassPane));
+        assert!(locking.locked && !locking.error);
+
+        // A map zoomed out four times takes no more paper, and a locked
+        // map neither paper nor a pane; either shows as it is.
+        let full = cartography_preview(map(4, false), Some(ItemKind::Paper));
+        assert!(full.error);
+        assert_eq!(full.frames[0].sprite, SpriteId::CartographyMap);
+        assert!(cartography_preview(map(0, true), Some(ItemKind::GlassPane)).error);
+        assert!(cartography_preview(map(0, true), Some(ItemKind::Paper)).error);
+        assert!(!cartography_preview(map(0, true), Some(ItemKind::Map)).error);
+        // No map: the empty frame, and nothing wrong.
+        assert!(!cartography_preview(None, Some(ItemKind::Paper)).error);
     }
 }

@@ -1,0 +1,93 @@
+# The cartography table shows the map it is given, and what it will make
+# of it with the item beside it.
+
+[[step]]
+chat = "/tp @s 5300.5 -60 1300.5 0 30"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+chat = "/clear @s"
+
+# An empty map, used, is a map of here.
+[[step]]
+chat = "/item replace entity @s weapon.mainhand with minecraft:map"
+
+[[step]]
+expect = { slot = 36, item = "map" }
+
+[[step]]
+look_at = [5300.5, -40.0, 1310.5]
+
+[[step]]
+mouse_down = "right"
+
+[[step]]
+wait_ms = 100
+
+[[step]]
+mouse_up = "right"
+
+[[step]]
+expect = { slot = 36, item = "filled_map" }
+
+# Its picture comes while it is held.
+[[step]]
+wait_ms = 2500
+
+[[step]]
+chat = "/setblock 5300 -60 1302 minecraft:cartography_table"
+
+[[step]]
+look_at = [5300.5, -59.5, 1302.5]
+
+[[step]]
+wait_ms = 400
+
+[[step]]
+mouse_down = "right"
+
+[[step]]
+wait_ms = 100
+
+[[step]]
+mouse_up = "right"
+
+[[step]]
+wait_ms = 700
+
+# The map, from the first hotbar slot into the table.
+[[step]]
+click = { slot = 30, op = "quick_move" }
+
+[[step]]
+wait_ms = 600
+
+[[step]]
+screenshot = "map"
+
+# Paper beside it zooms it out.
+[[step]]
+chat = "/give @s minecraft:paper"
+
+[[step]]
+wait_ms = 500
+
+[[step]]
+click = { slot = 30, op = "quick_move" }
+
+[[step]]
+wait_ms = 600
+
+[[step]]
+screenshot = "scaled"
+
+[[step]]
+close_menu = true
+
+[[step]]
+chat = "/setblock 5300 -60 1302 minecraft:air"
+
+[[step]]
+chat = "/clear @s"

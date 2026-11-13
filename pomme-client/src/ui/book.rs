@@ -5,7 +5,8 @@
 //!
 //! `BookEditScreen` is the same book with a page that can be written on,
 //! and `BookSignScreen` names it and closes it for good.
-// TODO: a page's click events.
+// TODO: a link in a page that opens a URL or a dialog, and what its
+// text shows when hovered.
 
 use azalea_inventory::ItemStackData;
 use azalea_inventory::components::{WritableBookContent, WrittenBookContent};

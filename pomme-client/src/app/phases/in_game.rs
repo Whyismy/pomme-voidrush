@@ -973,6 +973,22 @@ impl GameState {
             && !self.chat.is_open()
     }
 
+    /// The map a cartography table has in its first slot, where the client
+    /// has that map: its id, and its picture's revision.
+    pub fn previewed_map(&self) -> Option<(i32, u64)> {
+        let container = self.open_container.as_ref()?;
+        if !matches!(container.screen, ContainerScreen::Cartography) {
+            return None;
+        }
+        let id = container
+            .slots
+            .first()?
+            .as_present()?
+            .get_component::<azalea_inventory::components::MapId>()?
+            .id;
+        Some((id, self.maps.get(id)?.revision))
+    }
+
     pub fn gui_open(&self) -> bool {
         self.inventory_open
             || self.creative_inventory_open
@@ -4452,6 +4468,8 @@ pub fn update_game(
         core.input.clear_just_pressed_actions();
     }
 
+    // Read before the open container is borrowed for its screen.
+    let previewed_map = game.previewed_map();
     let mut player_preview = None;
     let mut book_preview = None;
     if (game.inventory_open || game.open_container.is_some()) && !dialog_open {
@@ -4947,6 +4965,14 @@ pub fn update_game(
                     &input,
                     container.screen.click_kind(),
                     &container.slots,
+                    previewed_map.and_then(|(id, _)| {
+                        let map = game.maps.get(id)?;
+                        Some(crate::ui::workstations::MapView {
+                            scale: map.scale,
+                            locked: map.locked,
+                            drawn: core.preview_map_is_packed(id),
+                        })
+                    }),
                     &container.data,
                     &container.title,
                     &game.cursor_item,

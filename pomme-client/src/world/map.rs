@@ -107,6 +107,10 @@ pub struct SavedMap {
     /// `MAP_SIZE` rows of packed colours.
     pub colors: Box<[u8]>,
     pub decorations: Vec<MapDecoration>,
+    /// How far the map is zoomed out, none to four times.
+    pub scale: i8,
+    /// A locked map no longer follows the world.
+    pub locked: bool,
     /// Changes whenever `colors` does, for whoever caches its picture.
     pub revision: u64,
 }
@@ -144,8 +148,12 @@ impl MapStore {
         let map = self.maps.entry(data.id).or_insert_with(|| SavedMap {
             colors: vec![0; MAP_SIZE * MAP_SIZE].into(),
             decorations: Vec::new(),
+            scale: data.scale,
+            locked: data.locked,
             revision,
         });
+        map.scale = data.scale;
+        map.locked = data.locked;
         if let Some(decorations) = data.decorations {
             map.decorations = decorations
                 .into_iter()

@@ -1041,6 +1041,9 @@ pub struct AppCore {
     player_faces_packed: bool,
     /// The inline-object keys currently packed.
     game_dynamic_atlas_keys: HashSet<String>,
+    /// The map packed into that atlas for a cartography table to show, by
+    /// its id and its picture's revision.
+    preview_map_packed: Option<(i32, u64)>,
 }
 
 /// Folds the credits roll's keys into a `CREDITS_KEY_*` mask. Both control
@@ -1203,6 +1206,7 @@ impl AppCore {
             inline_atlas_dirty: false,
             player_faces_packed: false,
             game_dynamic_atlas_keys: HashSet::new(),
+            preview_map_packed: None,
         }
     }
 
@@ -1508,6 +1512,13 @@ impl AppCore {
     /// rebuilds it when its contents change. Player faces (spectator menu,
     /// tab list) share the same texture binding, so they are packed alongside
     /// while `faces_shown`.
+    /// The dynamic atlas holds map `id`'s picture for a cartography table
+    /// (as it last was, while a newer one waits for the next sync).
+    pub fn preview_map_is_packed(&self, id: i32) -> bool {
+        self.preview_map_packed
+            .is_some_and(|(packed, _)| packed == id)
+    }
+
     pub fn sync_game_dynamic_atlas(
         &mut self,
         game: &GameState,
@@ -1575,9 +1586,22 @@ impl AppCore {
                 .iter()
                 .any(|(key, entry)| packable(entry) && !self.game_dynamic_atlas_keys.contains(key))
             || faces_shown != self.player_faces_packed
-            || (faces_shown && self.player_faces_dirty);
+            || (faces_shown && self.player_faces_dirty)
+            || game.previewed_map() != self.preview_map_packed;
         if rebuild {
             let mut entries = Vec::<(String, Vec<u8>, u32)>::new();
+            // The map a cartography table works on, under its own key.
+            self.preview_map_packed = game.previewed_map();
+            if let Some(map) = self
+                .preview_map_packed
+                .and_then(|(id, _)| game.maps.get(id))
+            {
+                entries.push((
+                    crate::ui::workstations::MAP_PREVIEW_KEY.to_owned(),
+                    map.rgba(),
+                    pomme_protocol::map::MAP_SIZE as u32,
+                ));
+            }
             if faces_shown {
                 entries.extend(
                     self.player_faces

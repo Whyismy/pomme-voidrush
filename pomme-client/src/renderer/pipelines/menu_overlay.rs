@@ -1941,7 +1941,13 @@ impl MenuOverlayPipeline {
             return;
         }
 
-        let icon_size = 64u32;
+        // A cell holds the largest picture whole, up to a map's 128.
+        let icon_size = favicons
+            .iter()
+            .map(|(_, _, size)| *size)
+            .max()
+            .unwrap_or(64)
+            .clamp(64, 128);
         let cols = (favicons.len() as f32).sqrt().ceil() as u32;
         let rows = (favicons.len() as u32).div_ceil(cols);
         let atlas_w = cols * icon_size;
@@ -2890,6 +2896,13 @@ pub enum SpriteId {
     DispenserBackground,
     GrindstoneBackground,
     CartographyBackground,
+    /// The cartography table's pictures of what it will make: a map, one
+    /// zoomed out, one of two copies, the lock, and the arrow crossed out.
+    CartographyMap,
+    CartographyScaledMap,
+    CartographyDuplicatedMap,
+    CartographyLocked,
+    CartographyError,
     SmithingBackground,
     BrewingStandBackground,
     BrewingFuelLength,
@@ -3792,6 +3805,31 @@ fn build_sprite_atlas(
         (
             SpriteId::GrindstoneError,
             "minecraft/textures/gui/sprites/container/grindstone/error.png",
+            0.0,
+        ),
+        (
+            SpriteId::CartographyMap,
+            "minecraft/textures/gui/sprites/container/cartography_table/map.png",
+            0.0,
+        ),
+        (
+            SpriteId::CartographyScaledMap,
+            "minecraft/textures/gui/sprites/container/cartography_table/scaled_map.png",
+            0.0,
+        ),
+        (
+            SpriteId::CartographyDuplicatedMap,
+            "minecraft/textures/gui/sprites/container/cartography_table/duplicated_map.png",
+            0.0,
+        ),
+        (
+            SpriteId::CartographyLocked,
+            "minecraft/textures/gui/sprites/container/cartography_table/locked.png",
+            0.0,
+        ),
+        (
+            SpriteId::CartographyError,
+            "minecraft/textures/gui/sprites/container/cartography_table/error.png",
             0.0,
         ),
         (
