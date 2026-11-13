@@ -89,6 +89,7 @@ fn event(packet: ContainerPacket) -> Option<NetworkEvent> {
             value: value as u16,
         },
         ContainerPacket::Close { .. } => NetworkEvent::ContainerClosed,
+        ContainerPacket::OpenBook { off_hand } => NetworkEvent::OpenBook { off_hand },
         ContainerPacket::MerchantOffers {
             container_id,
             offers,

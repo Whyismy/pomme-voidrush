@@ -2851,6 +2851,15 @@ pub enum SpriteId {
     MerchantArrow,
     MerchantArrowOutOfStock,
     MerchantDiscount,
+    BookBackground,
+    PageForward,
+    PageForwardHighlighted,
+    PageBackward,
+    PageBackwardHighlighted,
+    CrafterBackground,
+    CrafterDisabledSlot,
+    CrafterPowered,
+    CrafterUnpowered,
     StonecutterBackground,
     StonecutterScroller,
     StonecutterScrollerDisabled,
@@ -3671,6 +3680,41 @@ fn build_sprite_atlas(
         (
             SpriteId::MerchantDiscount,
             "minecraft/textures/gui/sprites/container/villager/discount_strikethrough.png",
+            0.0,
+        ),
+        (
+            SpriteId::PageForward,
+            "minecraft/textures/gui/sprites/widget/page_forward.png",
+            0.0,
+        ),
+        (
+            SpriteId::PageForwardHighlighted,
+            "minecraft/textures/gui/sprites/widget/page_forward_highlighted.png",
+            0.0,
+        ),
+        (
+            SpriteId::PageBackward,
+            "minecraft/textures/gui/sprites/widget/page_backward.png",
+            0.0,
+        ),
+        (
+            SpriteId::PageBackwardHighlighted,
+            "minecraft/textures/gui/sprites/widget/page_backward_highlighted.png",
+            0.0,
+        ),
+        (
+            SpriteId::CrafterDisabledSlot,
+            "minecraft/textures/gui/sprites/container/crafter/disabled_slot.png",
+            0.0,
+        ),
+        (
+            SpriteId::CrafterPowered,
+            "minecraft/textures/gui/sprites/container/crafter/powered_redstone.png",
+            0.0,
+        ),
+        (
+            SpriteId::CrafterUnpowered,
+            "minecraft/textures/gui/sprites/container/crafter/unpowered_redstone.png",
             0.0,
         ),
         (
@@ -4603,6 +4647,20 @@ fn build_sprite_atlas(
             (0, 0),
             INV_TEX_W,
             166,
+        ),
+        (
+            SpriteId::CrafterBackground,
+            "minecraft/textures/gui/container/crafter.png",
+            (0, 0),
+            INV_TEX_W,
+            166,
+        ),
+        (
+            SpriteId::BookBackground,
+            "minecraft/textures/gui/book.png",
+            (0, 0),
+            192,
+            192,
         ),
         // 276 by 166 of a 512 by 256 sheet.
         (

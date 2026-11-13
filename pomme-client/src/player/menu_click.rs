@@ -40,6 +40,12 @@ pub enum ContainerKind {
     Stonecutter,
     /// Vanilla `MerchantMenu`: two payments and what they buy.
     Merchant,
+    /// Vanilla `CrafterMenu`: its nine slots, and after the inventory a
+    /// result that is only shown.
+    Crafter,
+    /// Vanilla `LecternMenu`: the book alone. The inventory's slots are
+    /// kept after it only so slot arithmetic holds; none is shown.
+    Lectern,
     Anvil,
     Enchantment,
 }
@@ -47,7 +53,7 @@ pub enum ContainerKind {
 impl ContainerKind {
     pub fn slot_count(self) -> usize {
         match self {
-            Self::Player | Self::CraftingTable => 46,
+            Self::Player | Self::CraftingTable | Self::Crafter => 46,
             Self::Furnace | Self::Anvil => 39,
             Self::Chest { rows } => rows as usize * 9 + 36,
             Self::ShulkerBox => 63,
@@ -55,6 +61,7 @@ impl ContainerKind {
             Self::Dispenser => 45,
             Self::Grindstone | Self::Cartography | Self::Merchant => 39,
             Self::Smithing => 40,
+            Self::Lectern => 37,
             Self::Enchantment | Self::Stonecutter => 38,
         }
     }
@@ -68,9 +75,10 @@ impl ContainerKind {
             Self::Chest { rows } => rows as usize * 9,
             Self::ShulkerBox => 27,
             Self::Hopper | Self::BrewingStand => 5,
-            Self::Dispenser => 9,
+            Self::Dispenser | Self::Crafter => 9,
             Self::Grindstone | Self::Cartography | Self::Merchant => 3,
             Self::Smithing => 4,
+            Self::Lectern => 1,
             Self::Enchantment | Self::Stonecutter => 2,
         }
     }
@@ -93,6 +101,8 @@ impl ContainerKind {
             | Self::Hopper
             | Self::Dispenser
             | Self::BrewingStand
+            | Self::Crafter
+            | Self::Lectern
             | Self::Enchantment => None,
         }
     }
@@ -195,6 +205,14 @@ impl ContainerKind {
                 bottles: SlotList::default(),
                 ingredient: ItemStack::Empty,
                 fuel: ItemStack::Empty,
+                player: SlotList::default(),
+            },
+            Self::Lectern => Menu::Lectern {
+                book: ItemStack::Empty,
+                player: SlotList::default(),
+            },
+            Self::Crafter => Menu::Crafter3x3 {
+                contents: SlotList::default(),
                 player: SlotList::default(),
             },
             Self::Merchant => Menu::Merchant {
@@ -700,7 +718,9 @@ fn quick_move(kind: ContainerKind, menu: &mut Menu, s: usize) {
             | ContainerKind::Cartography
             | ContainerKind::Smithing
             | ContainerKind::BrewingStand
-            | ContainerKind::Stonecutter => {
+            | ContainerKind::Stonecutter
+            | ContainerKind::Crafter
+            | ContainerKind::Lectern => {
                 let split = kind.inv_start();
                 if s < split {
                     move_item_stack_to(kind, menu, s, split..menu.len(), true);

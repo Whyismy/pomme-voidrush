@@ -971,8 +971,6 @@ impl InteractionState {
             },
             seq: self.seq,
         }));
-        // TODO: other interactive blocks (brewing stand, dispenser, ...)
-        // should consume the click here too once their menus render.
         if hand == InteractionHand::MainHand && !suppress_block_use {
             let target = chunks.get_block_state(hit.block_pos.x, hit.block_pos.y, hit.block_pos.z);
             if opens_menu(block_registry.block_state_data(target).id()) {
@@ -1717,8 +1715,9 @@ fn equip_swap_result(equippable: &Equippable, stack: &ItemStackData, worn: Worn)
     UseResult::Success { swing: true }
 }
 
-/// Whether right-clicking this block opens a menu we render (so the use
-/// click is consumed: no block placement, no item use).
+/// Whether right-clicking this block is the block's own to answer (its
+/// `useWithoutItem` succeeds or consumes): it opens a menu or a screen, so
+/// the click places no block and uses no item.
 fn opens_menu(id: &str) -> bool {
     matches!(
         id,
@@ -1730,9 +1729,23 @@ fn opens_menu(id: &str) -> bool {
             | "trapped_chest"
             | "ender_chest"
             | "barrel"
+            | "hopper"
+            | "dispenser"
+            | "dropper"
+            | "crafter"
+            | "enchanting_table"
+            | "grindstone"
+            | "cartography_table"
+            | "smithing_table"
+            | "brewing_stand"
+            | "stonecutter"
+            | "loom"
+            | "beacon"
+            | "lectern"
     ) || id.ends_with("shulker_box")
         || id.ends_with("copper_chest")
         || id.ends_with("anvil")
+        || id.ends_with("_sign")
 }
 
 /// Vanilla `BlockBehaviour.getDestroyProgress` with `Player.getDestroySpeed`
@@ -2041,6 +2054,21 @@ pub fn raycast(
     block_state_table: BlockStateTable,
     held_item: Option<&str>,
 ) -> Option<BlockHitResult> {
+    raycast_shapes(origin, dir, max_dist, chunks, block_state_table, &|data| {
+        block_shape::outline_shape_holding_data(data, held_item)
+    })
+}
+
+/// The first block along the ray whose shape, as `shape_of` gives it, the
+/// ray enters (vanilla `BlockGetter.clip` under a `ClipContext.Block`).
+pub fn raycast_shapes(
+    origin: DVec3,
+    dir: Vec3,
+    max_dist: f32,
+    chunks: &ChunkStore,
+    block_state_table: BlockStateTable,
+    shape_of: &dyn Fn(&crate::world::block::BlockStateData) -> &'static [LocalBox],
+) -> Option<BlockHitResult> {
     let dir = dir.as_dvec3();
     let mut bx = origin.x.floor() as i32;
     let mut by = origin.y.floor() as i32;
@@ -2093,7 +2121,7 @@ pub fn raycast(
                 y: by,
                 z: bz,
             };
-            let outline = block_shape::outline_shape_holding_data(block_state_data, held_item);
+            let outline = shape_of(block_state_data);
             let shape_offset = block_state_data.outline_shape_position(bx, by, bz);
             if let Some((hit_point, face)) = clip_shape(origin, reach_end, shape_offset, outline) {
                 return Some(BlockHitResult {

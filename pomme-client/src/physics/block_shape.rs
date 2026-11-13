@@ -127,6 +127,28 @@ pub fn is_collision_shape_full_block(block_state_data: &BlockStateData) -> bool 
     collision_shape(block_state_data, 0, &CollisionContext::EMPTY).is_none()
 }
 
+/// Vanilla `getVisualShape`, which the third-person camera stops at: the
+/// collision shape, but glass, bars and powder snow let the camera through
+/// (`TransparentBlock`, `IronBarsBlock`, `PowderSnowBlock`), a fence and
+/// snow are their outlines, and mud and soul sand are whole blocks.
+pub fn visual_shape(block_state_data: &BlockStateData) -> &'static [LocalBox] {
+    let id = block_state_data.id();
+    let see_through = matches!(id, "glass" | "tinted_glass" | "iron_bars" | "powder_snow")
+        || id.ends_with("stained_glass")
+        || id.ends_with("glass_pane")
+        || id.ends_with("copper_grate")
+        || id.ends_with("copper_bars");
+    if see_through {
+        &[]
+    } else if matches!(id, "mud" | "soul_sand") {
+        FULL_CUBE_SHAPE
+    } else if id == "snow" || id.ends_with("_fence") {
+        outline_shape(block_state_data)
+    } else {
+        collision_shape(block_state_data, 0, &CollisionContext::EMPTY).unwrap_or(FULL_CUBE_SHAPE)
+    }
+}
+
 /// Boxes the interaction raycast clips against (vanilla `getShape`). Unlike
 /// `partial_shape` the full-cube case is already resolved, so an empty slice
 /// means "not targetable" rather than "no collision".
@@ -152,6 +174,33 @@ pub(crate) fn outline_shape_holding_data(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The camera passes glass and plants, and stops at a slab's own
+    /// height, a fence's outline and the whole of a block of mud.
+    #[test]
+    fn the_camera_stops_at_visual_shapes() {
+        let table = crate::world::block::BlockStateTable::native();
+        let shape = |name: &str, props: &[(&str, &str)]| {
+            visual_shape(table.block_state_data(table.find_state(name, props)))
+        };
+        assert!(shape("glass", &[]).is_empty());
+        assert!(shape("red_stained_glass", &[]).is_empty());
+        assert!(shape("glass_pane", &[]).is_empty());
+        assert!(shape("iron_bars", &[]).is_empty());
+        assert!(shape("powder_snow", &[]).is_empty());
+        assert!(shape("short_grass", &[]).is_empty());
+        assert_eq!(shape("stone", &[]), FULL_CUBE_SHAPE);
+        assert_eq!(shape("mud", &[]), FULL_CUBE_SHAPE);
+        assert_eq!(shape("soul_sand", &[]), FULL_CUBE_SHAPE);
+        assert_eq!(shape("oak_leaves", &[]), FULL_CUBE_SHAPE);
+        let slab = shape("oak_slab", &[("type", "bottom")]);
+        assert_eq!(slab.len(), 1);
+        assert!(slab != FULL_CUBE_SHAPE);
+        // A fence's outline is a block tall, where its collision is one and
+        // a half.
+        let fence = table.block_state_data(table.find_state("oak_fence", &[]));
+        assert_eq!(visual_shape(fence), outline_shape(fence));
+    }
 
     #[test]
     fn held_item_fills_light_and_scaffolding_outlines() {

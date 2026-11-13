@@ -245,6 +245,10 @@ pub enum NetworkEvent {
         id: u16,
         value: u16,
     },
+    /// `ClientboundOpenBookPacket`: read the book in that hand.
+    OpenBook {
+        off_hand: bool,
+    },
     /// The open merchant menu's trades (`ClientboundMerchantOffersPacket`).
     MerchantOffers {
         container_id: i32,

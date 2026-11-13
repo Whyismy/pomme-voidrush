@@ -109,6 +109,8 @@ pub enum ContainerScreen {
     BrewingStand,
     Stonecutter,
     Merchant,
+    Crafter,
+    Lectern,
     Anvil,
     Enchantment,
 }
@@ -129,6 +131,8 @@ impl ContainerScreen {
             Self::BrewingStand => ContainerKind::BrewingStand,
             Self::Stonecutter => ContainerKind::Stonecutter,
             Self::Merchant => ContainerKind::Merchant,
+            Self::Crafter => ContainerKind::Crafter,
+            Self::Lectern => ContainerKind::Lectern,
             Self::Anvil => ContainerKind::Anvil,
             Self::Enchantment => ContainerKind::Enchantment,
         }
@@ -257,6 +261,8 @@ pub struct GameState {
     pub merchant: crate::ui::merchant::MerchantState,
     /// The sign being written on, while its editing screen is up.
     pub sign_edit: Option<crate::ui::sign_edit::SignEditState>,
+    /// The book being read, while its screen is up.
+    pub book_view: Option<crate::ui::book::BookViewState>,
     pub chat: ChatState,
     pub server_dialog: Option<crate::ui::server_dialog::ServerDialogState>,
     pub server_links: Vec<crate::ui::server_dialog::ServerLink>,
@@ -692,6 +698,7 @@ impl GameState {
             menu_list: Default::default(),
             merchant: Default::default(),
             sign_edit: None,
+            book_view: None,
             chat: {
                 let mut chat = ChatState::new();
                 chat.set_options(chat_options);
@@ -889,6 +896,7 @@ impl GameState {
             || self.dialog_open()
             || self.game_mode_switcher.is_some()
             || self.sign_edit.is_some()
+            || self.book_view.is_some()
     }
 
     /// The container menu the player currently has open (0 = survival
@@ -922,8 +930,10 @@ impl GameState {
                     return;
                 };
                 *s = item.clone();
+                // The inventory's thirty-six; a slot past them (a crafter's
+                // result) is the menu's own.
                 let inv_start = c.inv_start();
-                if index >= inv_start {
+                if (inv_start..inv_start + 36).contains(&index) {
                     self.player.inventory.set_slot(index - inv_start + 9, item);
                 }
             }
@@ -938,7 +948,7 @@ impl GameState {
             return;
         };
         let inv_start = c.inv_start();
-        for (i, slot) in c.slots.iter_mut().enumerate().skip(inv_start) {
+        for (i, slot) in c.slots.iter_mut().enumerate().skip(inv_start).take(36) {
             *slot = self.player.inventory.slot(i - inv_start + 9).clone();
         }
     }
@@ -3287,7 +3297,7 @@ pub fn update_game(
     );
     gfx.renderer.set_post_effect(game.drawn_spectator_effect());
     gfx.renderer.update_third_person_distance(
-        game.block_registry.render_view(),
+        game.block_registry.block_state_table(),
         camera_pivot,
         &game.chunk_store,
         game.third_person_distance(),
@@ -3634,6 +3644,41 @@ pub fn update_game(
             gs,
             &|spans, s| r.menu_spans_width(spans, s),
         );
+    }
+
+    if let Some(view) = &mut game.book_view {
+        use crate::ui::book::BookButton;
+        let r = &gfx.renderer;
+        let clicked = core.input.left_just_pressed();
+        let over = crate::ui::book::build(
+            &mut elements,
+            &view.pages,
+            view.page,
+            None,
+            sw,
+            sh,
+            core.input.cursor_pos(),
+            gs,
+            &|spans, width| {
+                r.layout_display_text(spans, width)
+                    .lines
+                    .into_iter()
+                    .map(|(line, _)| line)
+                    .collect()
+            },
+            &|text, size| r.menu_text_width(text, size),
+        );
+        match crate::ui::book::pressed(over, clicked, page_up, page_down) {
+            Some(BookButton::Done) => {
+                core.audio.play_ui_click();
+                game.book_view = None;
+                core.apply_cursor_grab(&gfx.window, Some(game));
+            }
+            Some(button) if view.turn(button) => {
+                core.audio.play_ui_sound("item.book.page_turn", 1.0, 1.0);
+            }
+            _ => {}
+        }
     }
 
     if let Some(edit) = &mut game.sign_edit {
@@ -4070,6 +4115,9 @@ pub fn update_game(
         let recipe_book_visible = recipe_frame.is_some_and(|frame| frame.visible);
         let hide_main_for_book = recipe_frame.is_some_and(|frame| frame.visible && frame.narrow);
         let mut deferred_recipe_cursor = azalea_inventory::ItemStack::Empty;
+        // A lectern's Done button, which closes its menu once the frame's
+        // clicks are sent.
+        let mut lectern_done = false;
         let (clicked_outside, ops, hovered) = if hide_main_for_book {
             // `AbstractRecipeBookScreen`: a narrow screen with the book open
             // shows only the screen's background behind it, and the book
@@ -4185,6 +4233,100 @@ pub fn update_game(
                     &mut game.inv_last_click,
                     gs,
                 ),
+                ContainerScreen::Lectern => {
+                    use crate::ui::book::BookButton;
+                    // `LecternScreen`: the book on it, at the page the
+                    // server keeps; its buttons are the menu's.
+                    let pages = container
+                        .slots
+                        .first()
+                        .and_then(azalea_inventory::ItemStack::as_present)
+                        .and_then(crate::ui::book::pages_of)
+                        .unwrap_or_default();
+                    let r = &gfx.renderer;
+                    let over = crate::ui::book::build(
+                        &mut elements,
+                        &pages,
+                        container.data[0].max(0) as usize,
+                        // `Player.mayBuild`, as far as the game mode says.
+                        Some(!matches!(game.player.game_mode, 2 | 3)),
+                        sw,
+                        sh,
+                        core.input.cursor_pos(),
+                        gs,
+                        &|spans, width| {
+                            r.layout_display_text(spans, width)
+                                .lines
+                                .into_iter()
+                                .map(|(line, _)| line)
+                                .collect()
+                        },
+                        &|text, size| r.menu_text_width(text, size),
+                    );
+                    let button = match crate::ui::book::pressed(
+                        over,
+                        input.left_pressed,
+                        page_up,
+                        page_down,
+                    ) {
+                        Some(BookButton::Done) => {
+                            core.audio.play_ui_click();
+                            lectern_done = true;
+                            None
+                        }
+                        Some(BookButton::Back) => Some(1),
+                        Some(BookButton::Forward) => Some(2),
+                        Some(BookButton::Take) => {
+                            core.audio.play_ui_click();
+                            Some(3)
+                        }
+                        None => None,
+                    };
+                    crate::ui::container::ContainerResult {
+                        clicked_outside: false,
+                        ops: Vec::new(),
+                        button,
+                        hovered: None,
+                    }
+                }
+                ContainerScreen::Crafter => {
+                    let (result, toggled) = crate::ui::crafter::build(
+                        &mut elements,
+                        sw,
+                        sh,
+                        core.input.cursor_pos(),
+                        &input,
+                        &container.slots,
+                        &container.data,
+                        &container.title,
+                        crate::player::is_spectator(game.player.game_mode),
+                        &game.cursor_item,
+                        &mut game.inv_drag,
+                        &mut game.inv_last_click,
+                        gs,
+                        &|t, s| gfx.renderer.menu_text_width(t, s),
+                    );
+                    // `CrafterScreen.updateSlotState`: the server keeps the
+                    // slot's state and says it back.
+                    if let Some((slot_id, new_state)) = toggled {
+                        use azalea_protocol::packets::game::s_container_slot_state_changed::ServerboundContainerSlotStateChanged;
+                        connection.packet_tx.send(
+                            ServerboundGamePacket::ContainerSlotStateChanged(
+                                ServerboundContainerSlotStateChanged {
+                                    slot_id,
+                                    container_id: container.id,
+                                    new_state,
+                                },
+                            ),
+                        );
+                        core.audio.play_ui_sound(
+                            "ui.button.click",
+                            0.4,
+                            if new_state { 1.0 } else { 0.75 },
+                        );
+                    }
+                    result
+                }
                 ContainerScreen::Merchant => {
                     let wheel = core.input.consume_menu_scroll();
                     let (result, picked) = crate::ui::merchant::build(
@@ -4428,6 +4570,10 @@ pub fn update_game(
             }
         }
         send_container_clicks(game, connection, &core.audio, ops);
+        if lectern_done {
+            game.close_menu();
+            core.apply_cursor_grab(&gfx.window, Some(game));
+        }
 
         // Vanilla `extractContents`: after the clicks, leaving a slot that
         // holds a bundle unselects it (`onStopHovering`).

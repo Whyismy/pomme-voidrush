@@ -46,6 +46,10 @@ pub enum ContainerPacket {
         /// `EquipmentSlot` ordinals and their stacks.
         slots: Vec<(u8, Option<ItemStack>)>,
     },
+    /// The server has the client read the book in a hand.
+    OpenBook {
+        off_hand: bool,
+    },
     /// The open merchant menu's trades.
     MerchantOffers {
         container_id: i32,
@@ -139,6 +143,12 @@ pub fn read(name: &str, r: &mut Reader) -> Option<DecodeResult<ContainerPacket>>
                 }
             }
             Ok(ContainerPacket::Equipment { entity, slots })
+        },
+        // ClientboundOpenBookPacket.java:18: the `InteractionHand`.
+        "open_book" => |r| {
+            Ok(ContainerPacket::OpenBook {
+                off_hand: r.varint()? == 1,
+            })
         },
         // ClientboundMerchantOffersPacket.java:22-29
         "merchant_offers" => |r| {

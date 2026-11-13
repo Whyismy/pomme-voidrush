@@ -1382,6 +1382,7 @@ impl AppCore {
             .close(crate::ui::chat::ChatExitReason::Interrupted);
         game.game_mode_switcher = None;
         game.sign_edit = None;
+        game.book_view = None;
         game.server_dialog = None;
 
         if let Some(message) = message {
@@ -2250,6 +2251,22 @@ impl AppCore {
                 NetworkEvent::HeldSlot { slot } => {
                     self.input.set_selected_slot(slot);
                 }
+                NetworkEvent::OpenBook { off_hand } => {
+                    // `handleOpenBook`: the book in that hand, where it is
+                    // one.
+                    let stack = if off_hand {
+                        game.player.inventory.offhand().as_present()
+                    } else {
+                        game.player.inventory.held_stack(self.input.selected_slot())
+                    };
+                    if let Some(pages) = stack.and_then(crate::ui::book::pages_of) {
+                        game.paused = false;
+                        game.close_menu();
+                        game.close_creative_inventory();
+                        game.book_view = Some(crate::ui::book::BookViewState { pages, page: 0 });
+                        self.apply_cursor_grab(window, Some(game));
+                    }
+                }
                 NetworkEvent::OpenSignEditor { pos, front } => {
                     // `handleOpenSignEditor`: only where a sign stands.
                     let state = game.chunk_store.get_block_state(pos.x, pos.y, pos.z);
@@ -2331,6 +2348,8 @@ impl AppCore {
                         MenuKind::BrewingStand => Some(ContainerScreen::BrewingStand),
                         MenuKind::Stonecutter => Some(ContainerScreen::Stonecutter),
                         MenuKind::Merchant => Some(ContainerScreen::Merchant),
+                        MenuKind::Crafter3x3 => Some(ContainerScreen::Crafter),
+                        MenuKind::Lectern => Some(ContainerScreen::Lectern),
                         MenuKind::Anvil => Some(ContainerScreen::Anvil),
                         MenuKind::Enchantment => Some(ContainerScreen::Enchantment),
                         _ => None,

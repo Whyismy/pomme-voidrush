@@ -1,6 +1,10 @@
 # A sign's editing screen: a right click on a sign has the server open it,
 # what is typed shows on the board, and Done sends it to the sign.
 
+# Another scene on this server may have turned the feedback off.
+[[step]]
+chat = "/gamerule send_command_feedback true"
+
 [[step]]
 chat = "/tp @s 3500.5 -60 600.5 0 20"
 

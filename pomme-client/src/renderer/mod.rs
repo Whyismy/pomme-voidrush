@@ -1340,9 +1340,13 @@ impl Renderer {
         self.camera.clear_top_down();
     }
 
+    /// Vanilla `Camera.getMaxZoom`: how far back the third-person camera
+    /// sits, up to `max_distance`. Eight rays, from a tenth of a block to
+    /// each side of the pivot, are cast back against the blocks' visual
+    /// shapes, and the nearest hit is as far as the camera goes.
     pub fn update_third_person_distance(
         &mut self,
-        block_render: BlockRenderView<'_>,
+        block_state_table: crate::world::block::BlockStateTable,
         eye_pos: Position,
         chunks: &crate::world::chunk::ChunkStore,
         max_distance: f32,
@@ -1350,52 +1354,30 @@ impl Renderer {
         if self.camera.mode == camera::CameraMode::FirstPerson || self.camera.top_down().is_some() {
             return;
         }
-        // TODO: vanilla `Camera.getMaxZoom` clips 8 rays offset by 0.1 against
-        // visual shapes with no minimum; this marches 0.2 steps against full
-        // cubes with a 0.4 pad and a 0.5 floor, so a distance of 0 sits 0.5 back.
-        let max = max_distance as f64;
-        let fwd = self.camera.render_look_dir().as_vec().as_dvec3();
+        let fwd = self.camera.render_look_dir().as_vec();
         let dir = if self.camera.mode == camera::CameraMode::ThirdPersonFront {
             fwd
         } else {
             -fwd
         };
-
-        let mut dist = max;
-
-        let m = 0.4;
-        let corners = [
-            dvec3(m, m, m),
-            dvec3(m, m, -m),
-            dvec3(m, -m, m),
-            dvec3(m, -m, -m),
-            dvec3(-m, m, m),
-            dvec3(-m, m, -m),
-            dvec3(-m, -m, m),
-            dvec3(-m, -m, -m),
-        ];
-
-        let step = 0.2;
-        let mut t = step;
-        while t <= max {
-            let p = eye_pos + dir * t;
-            let hit = corners.iter().any(|off| {
-                let check = p + *off;
-                let state = chunks.get_block_state(
-                    check.x.floor() as i32,
-                    check.y.floor() as i32,
-                    check.z.floor() as i32,
-                );
-                block_render.is_opaque_full_cube(state)
-            });
-            if hit {
-                dist = (t - 0.3).max(0.5);
-                break;
+        let pivot = *eye_pos;
+        let mut dist = max_distance;
+        for corner in 0..8 {
+            let side = |bit: i32| f64::from(((corner >> bit & 1) * 2 - 1) as f32 * 0.1);
+            let from = pivot + dvec3(side(0), side(1), side(2));
+            let hit = crate::player::interaction::raycast_shapes(
+                from,
+                dir,
+                dist,
+                chunks,
+                block_state_table,
+                &crate::physics::block_shape::visual_shape,
+            );
+            if let Some(hit) = hit {
+                dist = dist.min(hit.hit_point.distance(pivot) as f32);
             }
-            t += step;
         }
-
-        self.camera.third_person_dist = dist.max(0.5) as f32;
+        self.camera.third_person_dist = dist;
     }
 
     pub fn update_fov_mod(&mut self, modifier: f32) {
