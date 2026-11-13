@@ -43,6 +43,8 @@ pub enum ContainerKind {
     /// Vanilla `CrafterMenu`: its nine slots, and after the inventory a
     /// result that is only shown.
     Crafter,
+    /// Vanilla `BeaconMenu`: the payment.
+    Beacon,
     /// Vanilla `LecternMenu`: the book alone. The inventory's slots are
     /// kept after it only so slot arithmetic holds; none is shown.
     Lectern,
@@ -61,7 +63,7 @@ impl ContainerKind {
             Self::Dispenser => 45,
             Self::Grindstone | Self::Cartography | Self::Merchant => 39,
             Self::Smithing => 40,
-            Self::Lectern => 37,
+            Self::Lectern | Self::Beacon => 37,
             Self::Enchantment | Self::Stonecutter => 38,
         }
     }
@@ -78,7 +80,7 @@ impl ContainerKind {
             Self::Dispenser | Self::Crafter => 9,
             Self::Grindstone | Self::Cartography | Self::Merchant => 3,
             Self::Smithing => 4,
-            Self::Lectern => 1,
+            Self::Lectern | Self::Beacon => 1,
             Self::Enchantment | Self::Stonecutter => 2,
         }
     }
@@ -103,6 +105,7 @@ impl ContainerKind {
             | Self::BrewingStand
             | Self::Crafter
             | Self::Lectern
+            | Self::Beacon
             | Self::Enchantment => None,
         }
     }
@@ -207,6 +210,10 @@ impl ContainerKind {
                 fuel: ItemStack::Empty,
                 player: SlotList::default(),
             },
+            Self::Beacon => Menu::Beacon {
+                payment: ItemStack::Empty,
+                player: SlotList::default(),
+            },
             Self::Lectern => Menu::Lectern {
                 book: ItemStack::Empty,
                 player: SlotList::default(),
@@ -255,6 +262,15 @@ impl ContainerKind {
             (Self::Player | Self::CraftingTable, 0) => false,
             (Self::Furnace | Self::Anvil | Self::Grindstone | Self::Cartography, 2) => false,
             (Self::Smithing, 3) | (Self::Stonecutter, 1) | (Self::Merchant, 2) => false,
+            // `BeaconMenu.PaymentSlot`: what a beacon takes.
+            (Self::Beacon, 0) => matches!(
+                item.kind,
+                ItemKind::IronIngot
+                    | ItemKind::GoldIngot
+                    | ItemKind::Emerald
+                    | ItemKind::Diamond
+                    | ItemKind::NetheriteIngot
+            ),
             (Self::Player, 5..=8) => {
                 let want = crate::player::inventory::ARMOR_EQUIPMENT
                     [s - crate::player::inventory::ARMOR_START];
@@ -727,6 +743,22 @@ fn quick_move(kind: ContainerKind, menu: &mut Menu, s: usize) {
                 } else {
                     let inputs = kind.crafting_result_slot().unwrap_or(split);
                     move_item_stack_to(kind, menu, s, 0..inputs, false);
+                }
+            }
+            // `BeaconMenu.quickMoveStack`: the payment out to the inventory;
+            // a single payment item in, where the slot is empty; else the
+            // inventory and the hotbar trade places.
+            ContainerKind::Beacon => {
+                let single_payment = menu.slot(0).is_some_and(ItemStack::is_empty)
+                    && menu
+                        .slot(s)
+                        .and_then(ItemStack::as_present)
+                        .is_some_and(|stack| stack.count == 1 && kind.may_place(0, stack));
+                match s {
+                    0 => move_item_stack_to(kind, menu, s, 1..37, true),
+                    _ if single_payment => move_item_stack_to(kind, menu, s, 0..1, false),
+                    1..=27 => move_item_stack_to(kind, menu, s, 28..37, false),
+                    _ => move_item_stack_to(kind, menu, s, 1..28, false),
                 }
             }
             // `MerchantMenu.quickMoveStack`: the result and the payments go

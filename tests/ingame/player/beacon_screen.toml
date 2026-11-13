@@ -1,0 +1,91 @@
+# A beacon's screen: with a payment in, a power is picked and set, and the
+# beacon gives it.
+
+[[step]]
+chat = "/tp @s 4300.5 -60 599.5 0 20"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+chat = "/fill 4299 -60 601 4301 -60 603 minecraft:iron_block"
+
+[[step]]
+chat = "/setblock 4300 -59 602 minecraft:beacon"
+
+[[step]]
+chat = "/item replace entity @s hotbar.0 with minecraft:iron_ingot"
+
+# The beacon counts its base every four seconds.
+[[step]]
+wait_ms = 5000
+
+[[step]]
+look_at = [4300.5, -58.5, 602.5]
+
+[[step]]
+wait_ms = 300
+
+[[step]]
+mouse_down = "right"
+
+[[step]]
+wait_ms = 100
+
+[[step]]
+mouse_up = "right"
+
+[[step]]
+wait_ms = 800
+
+# A single payment item goes in by a shift click.
+[[step]]
+click = { slot = 28, op = "quick_move" }
+
+[[step]]
+wait_ms = 500
+
+[[step]]
+expect = { slot = 0, item = "iron_ingot" }
+
+# Speed's button, in GUI units at the harness's scale of three.
+[[step]]
+cursor = [162.3, 43.5]
+
+[[step]]
+mouse_down = "left"
+
+[[step]]
+wait_ms = 100
+
+[[step]]
+mouse_up = "left"
+
+[[step]]
+wait_ms = 400
+
+[[step]]
+screenshot = "picked"
+
+# Done.
+[[step]]
+cursor = [273.3, 128.5]
+
+[[step]]
+mouse_down = "left"
+
+[[step]]
+wait_ms = 100
+
+[[step]]
+mouse_up = "left"
+
+[[step]]
+expect = { player = { effect = "speed" } }
+timeout_ms = 9000
+
+[[step]]
+chat = "/fill 4299 -60 601 4301 -59 603 minecraft:air"
+
+[[step]]
+chat = "/effect clear @s"

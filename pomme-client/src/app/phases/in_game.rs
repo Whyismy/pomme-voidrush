@@ -111,6 +111,7 @@ pub enum ContainerScreen {
     Merchant,
     Crafter,
     Lectern,
+    Beacon,
     Anvil,
     Enchantment,
 }
@@ -133,6 +134,7 @@ impl ContainerScreen {
             Self::Merchant => ContainerKind::Merchant,
             Self::Crafter => ContainerKind::Crafter,
             Self::Lectern => ContainerKind::Lectern,
+            Self::Beacon => ContainerKind::Beacon,
             Self::Anvil => ContainerKind::Anvil,
             Self::Enchantment => ContainerKind::Enchantment,
         }
@@ -259,6 +261,8 @@ pub struct GameState {
     pub menu_list: crate::ui::stonecutter::ListState,
     /// The open merchant menu's trades and which is picked.
     pub merchant: crate::ui::merchant::MerchantState,
+    /// The powers picked on the open beacon's screen.
+    pub beacon: crate::ui::beacon::BeaconState,
     /// The sign being written on, while its editing screen is up.
     pub sign_edit: Option<crate::ui::sign_edit::SignEditState>,
     /// The book being read, while its screen is up.
@@ -710,6 +714,7 @@ impl GameState {
             recipe_book_ui: crate::ui::recipe_book::RecipeBookUiState::new(),
             menu_list: Default::default(),
             merchant: Default::default(),
+            beacon: Default::default(),
             sign_edit: None,
             book_view: None,
             book_edit: None,
@@ -4271,8 +4276,8 @@ pub fn update_game(
         let recipe_book_visible = recipe_frame.is_some_and(|frame| frame.visible);
         let hide_main_for_book = recipe_frame.is_some_and(|frame| frame.visible && frame.narrow);
         let mut deferred_recipe_cursor = azalea_inventory::ItemStack::Empty;
-        // A lectern's Done button, which closes its menu once the frame's
-        // clicks are sent.
+        // A lectern's Done button (or a beacon's Done or Cancel), which
+        // closes its menu once the frame's clicks are sent.
         let mut lectern_done = false;
         let (clicked_outside, ops, hovered) = if hide_main_for_book {
             // `AbstractRecipeBookScreen`: a narrow screen with the book open
@@ -4389,6 +4394,36 @@ pub fn update_game(
                     &mut game.inv_last_click,
                     gs,
                 ),
+                ContainerScreen::Beacon => {
+                    use crate::ui::beacon::BeaconAction;
+                    let (result, action) = crate::ui::beacon::build(
+                        &mut elements,
+                        sw,
+                        sh,
+                        core.input.cursor_pos(),
+                        &input,
+                        &container.slots,
+                        &container.data,
+                        &mut game.beacon,
+                        &game.cursor_item,
+                        &mut game.inv_drag,
+                        &mut game.inv_last_click,
+                        gs,
+                    );
+                    // `BeaconConfirmButton`: the powers go to the server and
+                    // the screen closes, as it does for Cancel.
+                    if let Some(action) = action {
+                        core.audio.play_ui_click();
+                        if let BeaconAction::Confirm { primary, secondary } = action {
+                            use azalea_protocol::packets::game::s_set_beacon::ServerboundSetBeacon;
+                            connection.packet_tx.send(ServerboundGamePacket::SetBeacon(
+                                ServerboundSetBeacon { primary, secondary },
+                            ));
+                        }
+                        lectern_done = !matches!(action, BeaconAction::Picked);
+                    }
+                    result
+                }
                 ContainerScreen::Lectern => {
                     use crate::ui::book::BookButton;
                     // `LecternScreen`: the book on it, at the page the

@@ -2389,6 +2389,7 @@ impl AppCore {
                         MenuKind::Merchant => Some(ContainerScreen::Merchant),
                         MenuKind::Crafter3x3 => Some(ContainerScreen::Crafter),
                         MenuKind::Lectern => Some(ContainerScreen::Lectern),
+                        MenuKind::Beacon => Some(ContainerScreen::Beacon),
                         MenuKind::Anvil => Some(ContainerScreen::Anvil),
                         MenuKind::Enchantment => Some(ContainerScreen::Enchantment),
                         _ => None,
@@ -2406,6 +2407,7 @@ impl AppCore {
                         game.inv_drag = None;
                         game.menu_list = Default::default();
                         game.merchant = Default::default();
+                        game.beacon = Default::default();
                         game.inv_last_click = None;
                         game.open_container = Some(crate::app::phases::in_game::OpenContainer {
                             id: container_id,

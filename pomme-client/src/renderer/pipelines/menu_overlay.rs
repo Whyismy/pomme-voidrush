@@ -2872,6 +2872,13 @@ pub enum SpriteId {
     PageForwardHighlighted,
     PageBackward,
     PageBackwardHighlighted,
+    BeaconBackground,
+    BeaconButton,
+    BeaconButtonDisabled,
+    BeaconButtonSelected,
+    BeaconButtonHighlighted,
+    BeaconConfirm,
+    BeaconCancel,
     CrafterBackground,
     CrafterDisabledSlot,
     CrafterPowered,
@@ -3720,6 +3727,36 @@ fn build_sprite_atlas(
         (
             SpriteId::PageBackwardHighlighted,
             "minecraft/textures/gui/sprites/widget/page_backward_highlighted.png",
+            0.0,
+        ),
+        (
+            SpriteId::BeaconButton,
+            "minecraft/textures/gui/sprites/container/beacon/button.png",
+            0.0,
+        ),
+        (
+            SpriteId::BeaconButtonDisabled,
+            "minecraft/textures/gui/sprites/container/beacon/button_disabled.png",
+            0.0,
+        ),
+        (
+            SpriteId::BeaconButtonSelected,
+            "minecraft/textures/gui/sprites/container/beacon/button_selected.png",
+            0.0,
+        ),
+        (
+            SpriteId::BeaconButtonHighlighted,
+            "minecraft/textures/gui/sprites/container/beacon/button_highlighted.png",
+            0.0,
+        ),
+        (
+            SpriteId::BeaconConfirm,
+            "minecraft/textures/gui/sprites/container/beacon/confirm.png",
+            0.0,
+        ),
+        (
+            SpriteId::BeaconCancel,
+            "minecraft/textures/gui/sprites/container/beacon/cancel.png",
             0.0,
         ),
         (
@@ -4674,6 +4711,13 @@ fn build_sprite_atlas(
             (0, 0),
             INV_TEX_W,
             166,
+        ),
+        (
+            SpriteId::BeaconBackground,
+            "minecraft/textures/gui/container/beacon.png",
+            (0, 0),
+            230,
+            219,
         ),
         (
             SpriteId::BookBackground,
