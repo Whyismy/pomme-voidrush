@@ -170,6 +170,10 @@ fn entity_event(id: i32, event: i8) -> Option<NetworkEvent> {
         11 => NetworkEvent::GolemOfferFlower { id, offering: true },
         17 => NetworkEvent::FireworkExplode { id },
         19 => NetworkEvent::SquidTentacleReset { id },
+        24..=28 => NetworkEvent::PermissionLevel {
+            id,
+            level: (event - 24) as u8,
+        },
         34 => NetworkEvent::GolemOfferFlower {
             id,
             offering: false,

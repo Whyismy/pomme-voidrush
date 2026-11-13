@@ -593,16 +593,34 @@ pub fn build_underwater_overlay(
     });
 }
 
-/// Vanilla `Hud.extractCameraOverlays`: vignette, equippable camera overlay
-/// (pumpkin), and nether-portal overlay, drawn under the rest of the HUD.
-/// TODO: powder snow, spyglass, nausea overlays; the portal/nausea projection
-/// spin warp lives in GameRenderer and is also unimplemented.
+/// Where the spyglass's scope sits on a screen at `scale`
+/// (`Hud.extractSpyglassOverlay`): a square, the screen's shorter side
+/// times the scale, in the middle, as `[x, y, side]`.
+fn scope_rect(screen_w: f32, screen_h: f32, scale: f32) -> [f32; 3] {
+    let side = (screen_w.min(screen_h) * scale).floor();
+    [
+        ((screen_w - side) / 2.0).floor(),
+        ((screen_h - side) / 2.0).floor(),
+        side,
+    ]
+}
+
+/// Vanilla `Hud.extractCameraOverlays`: vignette, then a spyglass's scope
+/// (`spyglass` is its scale while one is looked through) or the equippable
+/// camera overlay (pumpkin), powder snow's frost at `frozen` of its full
+/// strength, and the nether-portal overlay, drawn under the rest of the
+/// HUD.
+// TODO: the nausea overlay, drawn in place of the warp when distortion
+// effects are turned down (pomme has no such option).
+#[allow(clippy::too_many_arguments)]
 pub fn build_camera_overlays(
     elements: &mut Vec<MenuElement>,
     screen_w: f32,
     screen_h: f32,
     vignette_brightness: Option<f32>,
+    spyglass: Option<f32>,
     pumpkin: bool,
+    frozen: f32,
     portal_intensity: f32,
 ) {
     if let Some(brightness) = vignette_brightness {
@@ -614,10 +632,49 @@ pub fn build_camera_overlays(
             brightness,
         });
     }
-    if pumpkin {
+    if let Some(scale) = spyglass {
+        let [x, y, side] = scope_rect(screen_w, screen_h, scale);
+        elements.push(MenuElement::Image {
+            x,
+            y,
+            w: side,
+            h: side,
+            sprite: SpriteId::SpyglassScope,
+            tint: [1.0; 4],
+        });
+        // Black to each side of it: below, above, left and right.
+        let black = [0.0, 0.0, 0.0, 1.0];
+        for [x, y, w, h] in [
+            [0.0, y + side, screen_w, screen_h - (y + side)],
+            [0.0, 0.0, screen_w, y],
+            [0.0, y, x, side],
+            [x + side, y, screen_w - (x + side), side],
+        ] {
+            if w > 0.0 && h > 0.0 {
+                elements.push(MenuElement::Rect {
+                    x,
+                    y,
+                    w,
+                    h,
+                    corner_radius: 0.0,
+                    color: black,
+                });
+            }
+        }
+    } else if pumpkin {
         elements.push(MenuElement::PumpkinOverlay {
             w: screen_w,
             h: screen_h,
+        });
+    }
+    if frozen > 0.0 {
+        elements.push(MenuElement::Image {
+            x: 0.0,
+            y: 0.0,
+            w: screen_w,
+            h: screen_h,
+            sprite: SpriteId::PowderSnowOutline,
+            tint: [1.0, 1.0, 1.0, frozen],
         });
     }
     if portal_intensity > 0.0 {
@@ -2200,5 +2257,57 @@ mod tests {
 
         scoreboard.remove_team("red");
         assert_eq!(scoreboard.member_team_color("Player"), None);
+    }
+}
+
+#[cfg(test)]
+mod camera_overlay_tests {
+    use super::*;
+
+    /// The scope is a square in the middle of the screen, and a looked
+    /// through spyglass takes the pumpkin's place.
+    #[test]
+    fn the_scope_sits_in_the_middle() {
+        assert_eq!(scope_rect(1280.0, 720.0, 1.0), [280.0, 0.0, 720.0]);
+        assert_eq!(scope_rect(1280.0, 720.0, 0.5), [460.0, 180.0, 360.0]);
+        // Past the screen's height at full scale: it runs off top and bottom.
+        assert_eq!(scope_rect(1280.0, 720.0, 1.125), [235.0, -45.0, 810.0]);
+
+        let mut elements = Vec::new();
+        build_camera_overlays(
+            &mut elements,
+            1280.0,
+            720.0,
+            None,
+            Some(0.5),
+            true,
+            0.5,
+            0.0,
+        );
+        let images: Vec<_> = elements
+            .iter()
+            .filter_map(|element| match element {
+                MenuElement::Image { sprite, tint, .. } => Some((*sprite, tint[3])),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            images,
+            [
+                (SpriteId::SpyglassScope, 1.0),
+                (SpriteId::PowderSnowOutline, 0.5)
+            ]
+        );
+        assert!(
+            !elements
+                .iter()
+                .any(|element| matches!(element, MenuElement::PumpkinOverlay { .. }))
+        );
+        // Four black bars about the scope.
+        let bars = elements
+            .iter()
+            .filter(|element| matches!(element, MenuElement::Rect { .. }))
+            .count();
+        assert_eq!(bars, 4);
     }
 }

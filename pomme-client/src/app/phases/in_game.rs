@@ -263,6 +263,9 @@ pub struct GameState {
     pub sign_edit: Option<crate::ui::sign_edit::SignEditState>,
     /// The book being read, while its screen is up.
     pub book_view: Option<crate::ui::book::BookViewState>,
+    /// How far the spyglass's scope has opened (vanilla `Hud.scopeScale`):
+    /// from a half toward nine eighths while one is looked through.
+    pub scope_scale: f32,
     /// The blocks others are breaking, and how far.
     pub block_breaking: crate::world::block_breaking::BlockBreaking,
     /// Totem particles still being thrown from entities.
@@ -705,6 +708,7 @@ impl GameState {
             merchant: Default::default(),
             sign_edit: None,
             book_view: None,
+            scope_scale: 0.5,
             block_breaking: Default::default(),
             tracking_emitters: Vec::new(),
             item_activation: None,
@@ -1233,11 +1237,11 @@ impl GameState {
             _ if bindings.matches(Action::DebugGameModeSwitcher, &input) => {
                 if let Some(switcher) = &mut self.game_mode_switcher {
                     switcher.cycle();
+                } else if self.player.permission_level < 2 {
+                    // `KeyboardHandler.handleDebugKeys`: a game master's
+                    // screen (`debug.gamemodes.error`).
+                    self.debug_feedback("Unable to open game mode switcher; no permission");
                 } else if self.input_live() {
-                    // Sent unconditionally on apply; the server refuses
-                    // without permission.
-                    // TODO: gate on permission level once pomme tracks it
-                    // (vanilla canSwitchGameMode / debug.gamemodes.error).
                     self.game_mode_switcher =
                         Some(crate::ui::game_mode_switcher::GameModeSwitcherState::open(
                             self.player.game_mode,
@@ -1246,8 +1250,14 @@ impl GameState {
                 }
                 true
             }
+            _ if bindings.matches(Action::DebugSpectate, &input)
+                && self.player.permission_level < 2 =>
+            {
+                // `debug.creative_spectator.error`.
+                self.debug_feedback("Unable to switch game mode; no permission");
+                true
+            }
             _ if bindings.matches(Action::DebugSpectate, &input) => {
-                // Sent unconditionally; the server refuses without permission.
                 use azalea_core::game_type::GameMode;
                 let target = if self.player.game_mode != 3 {
                     GameMode::Spectator
@@ -3418,12 +3428,25 @@ pub fn update_game(
             .player
             .prev_portal_effect_intensity
             .lerp(game.player.portal_effect_intensity, partial_tick);
+        // `Hud.extractCameraOverlays`: the scope opens by half of what is
+        // left each tick while a spyglass is looked through in first person.
+        let first_person = gfx.renderer.is_first_person();
+        let scoping = first_person && game.interaction.is_scoping();
+        game.scope_scale = if scoping {
+            let ticks = raw_dt * 20.0;
+            game.scope_scale + (1.125 - game.scope_scale) * (0.5 * ticks).min(1.0)
+        } else {
+            0.5
+        };
         hud::build_camera_overlays(
             &mut elements,
             sw,
             sh,
             core.menu.vignette.then_some(game.vignette_brightness),
-            gfx.renderer.is_first_person() && head_is_carved_pumpkin(&game.player),
+            scoping.then_some(game.scope_scale),
+            first_person && head_is_carved_pumpkin(&game.player),
+            // `Entity.getPercentFrozen`: of the 140 ticks to frozen solid.
+            game.player.ticks_frozen.clamp(0, 140) as f32 / 140.0,
             portal_intensity,
         );
         let is_survival = crate::player::is_survival(game.player.game_mode);

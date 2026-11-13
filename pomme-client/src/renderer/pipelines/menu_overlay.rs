@@ -3047,6 +3047,10 @@ pub enum SpriteId {
     FriendsReject,
     FriendsCancel,
     NetherPortal,
+    /// `misc/spyglass_scope.png`, over the view through a spyglass.
+    SpyglassScope,
+    /// `misc/powder_snow_outline.png`, frost creeping in from the edges.
+    PowderSnowOutline,
     SpectatorClose,
     SpectatorScrollLeft,
     SpectatorScrollRight,
@@ -4713,6 +4717,21 @@ fn build_sprite_atlas(
             (0, 0),
             16,
             16,
+        ),
+        // The whole of each, whatever its size.
+        (
+            SpriteId::SpyglassScope,
+            "minecraft/textures/misc/spyglass_scope.png",
+            (0, 0),
+            512,
+            512,
+        ),
+        (
+            SpriteId::PowderSnowOutline,
+            "minecraft/textures/misc/powder_snow_outline.png",
+            (0, 0),
+            512,
+            512,
         ),
     ] {
         let (path, scale) = resolve_gui_texture(jar_assets_dir, asset_index, packs, path);

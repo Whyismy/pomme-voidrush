@@ -3605,6 +3605,11 @@ impl AppCore {
                 }
                 NetworkEvent::EntityDamaged { id } => hurt_entity(game, id, None),
                 NetworkEvent::HurtAnimation { id, yaw } => hurt_entity(game, id, Some(yaw)),
+                NetworkEvent::PermissionLevel { id, level } => {
+                    if id == game.player.entity_id {
+                        game.player.permission_level = level;
+                    }
+                }
                 NetworkEvent::EntityStatus { id, status } => {
                     super::entity_status::apply(
                         &self.audio,

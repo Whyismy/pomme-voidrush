@@ -195,6 +195,8 @@ struct PlayerFields {
     food: Option<u32>,
     level: Option<i32>,
     game_mode: Option<u8>,
+    /// The permission level the server granted.
+    permission: Option<u8>,
     /// An active effect, by registry path.
     effect: Option<String>,
     /// An effect that must not be active.
@@ -644,6 +646,7 @@ fn check(expect: &Expect, phase: &AppPhase) -> Result<(), String> {
                     && want.food.is_none_or(|f| seen.food == f)
                     && want.level.is_none_or(|l| seen.level == l)
                     && want.game_mode.is_none_or(|m| seen.game_mode == m)
+                    && want.permission.is_none_or(|p| seen.permission == p)
                     && want.effect.as_deref().is_none_or(has)
                     && !want.no_effect.as_deref().is_some_and(has)
                     && want.max_health.is_none_or(|m| seen.max_health == Some(m))

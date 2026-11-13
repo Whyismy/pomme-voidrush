@@ -1,0 +1,5 @@
+# The server tells an operator its permission level, which the game mode
+# switcher and the spectator chord ask for.
+
+[[step]]
+expect = { player = { permission = 4 } }

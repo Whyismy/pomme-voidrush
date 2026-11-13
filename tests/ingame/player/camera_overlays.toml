@@ -1,0 +1,47 @@
+# The view through a spyglass, and frost creeping over it in powder snow.
+
+[[step]]
+chat = "/tp @s 4000.5 -60 600.5 0 0"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+chat = "/item replace entity @s weapon.mainhand with minecraft:spyglass"
+
+[[step]]
+expect = { slot = 36, item = "spyglass" }
+
+[[step]]
+mouse_down = "right"
+
+[[step]]
+wait_ms = 1200
+
+[[step]]
+screenshot = "spyglass"
+
+[[step]]
+mouse_up = "right"
+
+[[step]]
+chat = "/item replace entity @s weapon.mainhand with minecraft:air"
+
+[[step]]
+chat = "/gamemode survival"
+
+[[step]]
+chat = "/fill 4000 -60 600 4000 -59 600 minecraft:powder_snow"
+
+# Frost builds over 140 ticks.
+[[step]]
+wait_ms = 5000
+
+[[step]]
+screenshot = "frost"
+
+[[step]]
+chat = "/fill 4000 -60 600 4000 -59 600 minecraft:air"
+
+[[step]]
+chat = "/gamemode creative"

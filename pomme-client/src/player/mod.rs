@@ -234,6 +234,9 @@ pub struct LocalPlayer {
     pub start_fall_flying: bool,
     /// `LocalPlayer`'s private `crouching` movement flag.
     pub movement_crouching: bool,
+    /// What the server lets this player do, 0 to 4 (vanilla
+    /// `LocalPlayer.permissionLevel`); game masters are 2 and up.
+    pub permission_level: u8,
     // TODO: remaining Abilities fields - invulnerable, instabuild, may_build
     pub flying: bool,
     pub may_fly: bool,
@@ -377,6 +380,7 @@ impl LocalPlayer {
             stuck_speed: glam::DVec3::ZERO,
             start_fall_flying: false,
             movement_crouching: false,
+            permission_level: 0,
             flying: false,
             may_fly: false,
             fly_speed: 0.05,

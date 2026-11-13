@@ -258,6 +258,12 @@ pub enum NetworkEvent {
         id: u16,
         value: u16,
     },
+    /// Entity events 24 to 28 (`LocalPlayer.handleEntityEvent`): the
+    /// permission level the server grants a player, 0 to 4.
+    PermissionLevel {
+        id: i32,
+        level: u8,
+    },
     /// An entity status the client answers with particles or a sound.
     EntityStatus {
         id: i32,

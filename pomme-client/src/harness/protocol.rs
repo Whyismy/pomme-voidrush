@@ -415,6 +415,8 @@ pub struct PlayerInfo {
     pub food: u32,
     pub level: i32,
     pub game_mode: u8,
+    /// The permission level the server granted, 0 to 4.
+    pub permission: u8,
     pub effects: Vec<&'static str>,
     pub max_health: Option<f64>,
     pub raining: bool,
@@ -439,6 +441,7 @@ pub fn player(game: &GameState) -> PlayerInfo {
         food: player.food,
         level: player.experience_level,
         game_mode: player.game_mode,
+        permission: player.permission_level,
         effects: player.effects.names().collect(),
         max_health: player
             .attributes
