@@ -108,6 +108,7 @@ pub enum ContainerScreen {
     Smithing,
     BrewingStand,
     Stonecutter,
+    Merchant,
     Anvil,
     Enchantment,
 }
@@ -127,6 +128,7 @@ impl ContainerScreen {
             Self::Smithing => ContainerKind::Smithing,
             Self::BrewingStand => ContainerKind::BrewingStand,
             Self::Stonecutter => ContainerKind::Stonecutter,
+            Self::Merchant => ContainerKind::Merchant,
             Self::Anvil => ContainerKind::Anvil,
             Self::Enchantment => ContainerKind::Enchantment,
         }
@@ -251,6 +253,8 @@ pub struct GameState {
     pub recipe_book_ui: crate::ui::recipe_book::RecipeBookUiState,
     /// Where the open menu's own list (a stonecutter's recipes) is scrolled.
     pub menu_list: crate::ui::stonecutter::ListState,
+    /// The open merchant menu's trades and which is picked.
+    pub merchant: crate::ui::merchant::MerchantState,
     pub chat: ChatState,
     pub server_dialog: Option<crate::ui::server_dialog::ServerDialogState>,
     pub server_links: Vec<crate::ui::server_dialog::ServerLink>,
@@ -684,6 +688,7 @@ impl GameState {
             recipe_book: crate::recipe::RecipeBookState::default(),
             recipe_book_ui: crate::ui::recipe_book::RecipeBookUiState::new(),
             menu_list: Default::default(),
+            merchant: Default::default(),
             chat: {
                 let mut chat = ChatState::new();
                 chat.set_options(chat_options);
@@ -4134,6 +4139,37 @@ pub fn update_game(
                     &mut game.inv_last_click,
                     gs,
                 ),
+                ContainerScreen::Merchant => {
+                    let wheel = core.input.consume_menu_scroll();
+                    let (result, picked) = crate::ui::merchant::build(
+                        &mut elements,
+                        sw,
+                        sh,
+                        core.input.cursor_pos(),
+                        &input,
+                        &container.slots,
+                        &container.title,
+                        &mut game.merchant,
+                        wheel,
+                        &game.cursor_item,
+                        &mut game.inv_drag,
+                        &mut game.inv_last_click,
+                        gs,
+                        &|t, s| gfx.renderer.menu_text_width(t, s),
+                    );
+                    // `MerchantScreen.postButtonClick`; the server moves the
+                    // payment in and says so.
+                    if let Some(item) = picked {
+                        use azalea_protocol::packets::game::s_select_trade::ServerboundSelectTrade;
+                        core.audio.play_ui_click();
+                        connection
+                            .packet_tx
+                            .send(ServerboundGamePacket::SelectTrade(ServerboundSelectTrade {
+                                item,
+                            }));
+                    }
+                    result
+                }
                 ContainerScreen::Stonecutter => {
                     let options = crate::ui::recipe_book::stonecutter_options(
                         &game.recipe_book,

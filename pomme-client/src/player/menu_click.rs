@@ -38,6 +38,8 @@ pub enum ContainerKind {
     BrewingStand,
     /// Vanilla `StonecutterMenu`: the input and what was picked from it.
     Stonecutter,
+    /// Vanilla `MerchantMenu`: two payments and what they buy.
+    Merchant,
     Anvil,
     Enchantment,
 }
@@ -51,7 +53,7 @@ impl ContainerKind {
             Self::ShulkerBox => 63,
             Self::Hopper | Self::BrewingStand => 41,
             Self::Dispenser => 45,
-            Self::Grindstone | Self::Cartography => 39,
+            Self::Grindstone | Self::Cartography | Self::Merchant => 39,
             Self::Smithing => 40,
             Self::Enchantment | Self::Stonecutter => 38,
         }
@@ -67,7 +69,7 @@ impl ContainerKind {
             Self::ShulkerBox => 27,
             Self::Hopper | Self::BrewingStand => 5,
             Self::Dispenser => 9,
-            Self::Grindstone | Self::Cartography => 3,
+            Self::Grindstone | Self::Cartography | Self::Merchant => 3,
             Self::Smithing => 4,
             Self::Enchantment | Self::Stonecutter => 2,
         }
@@ -82,7 +84,7 @@ impl ContainerKind {
     fn crafting_result_slot(self) -> Option<usize> {
         match self {
             Self::Player | Self::CraftingTable => Some(0),
-            Self::Anvil | Self::Grindstone | Self::Cartography => Some(2),
+            Self::Anvil | Self::Grindstone | Self::Cartography | Self::Merchant => Some(2),
             Self::Smithing => Some(3),
             Self::Stonecutter => Some(1),
             Self::Furnace
@@ -195,6 +197,11 @@ impl ContainerKind {
                 fuel: ItemStack::Empty,
                 player: SlotList::default(),
             },
+            Self::Merchant => Menu::Merchant {
+                payments: SlotList::default(),
+                result: ItemStack::Empty,
+                player: SlotList::default(),
+            },
             Self::Stonecutter => Menu::Stonecutter {
                 input: ItemStack::Empty,
                 result: ItemStack::Empty,
@@ -229,7 +236,7 @@ impl ContainerKind {
         match (self, s) {
             (Self::Player | Self::CraftingTable, 0) => false,
             (Self::Furnace | Self::Anvil | Self::Grindstone | Self::Cartography, 2) => false,
-            (Self::Smithing, 3) | (Self::Stonecutter, 1) => false,
+            (Self::Smithing, 3) | (Self::Stonecutter, 1) | (Self::Merchant, 2) => false,
             (Self::Player, 5..=8) => {
                 let want = crate::player::inventory::ARMOR_EQUIPMENT
                     [s - crate::player::inventory::ARMOR_START];
@@ -702,6 +709,15 @@ fn quick_move(kind: ContainerKind, menu: &mut Menu, s: usize) {
                     move_item_stack_to(kind, menu, s, 0..inputs, false);
                 }
             }
+            // `MerchantMenu.quickMoveStack`: the result and the payments go
+            // to the inventory, which otherwise only shuffles with the
+            // hotbar.
+            ContainerKind::Merchant => match s {
+                2 => move_item_stack_to(kind, menu, s, 3..39, true),
+                0 | 1 => move_item_stack_to(kind, menu, s, 3..39, false),
+                3..=29 => move_item_stack_to(kind, menu, s, 30..39, false),
+                _ => move_item_stack_to(kind, menu, s, 3..30, false),
+            },
             ContainerKind::Anvil => {
                 if s < 3 {
                     move_item_stack_to(kind, menu, s, 3..menu.len(), false);

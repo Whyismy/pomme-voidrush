@@ -2249,6 +2249,24 @@ impl AppCore {
                 NetworkEvent::HeldSlot { slot } => {
                     self.input.set_selected_slot(slot);
                 }
+                NetworkEvent::MerchantOffers {
+                    container_id,
+                    offers,
+                    level,
+                    xp,
+                    show_progress,
+                    can_restock,
+                } => {
+                    // `handleMerchantOffers`: only for the menu that is open.
+                    if game
+                        .open_container
+                        .as_ref()
+                        .is_some_and(|open| open.id == container_id)
+                    {
+                        game.merchant
+                            .set_offers(offers, level, xp, show_progress, can_restock);
+                    }
+                }
                 NetworkEvent::ContainerData {
                     container_id,
                     id,
@@ -2294,6 +2312,7 @@ impl AppCore {
                         MenuKind::Smithing => Some(ContainerScreen::Smithing),
                         MenuKind::BrewingStand => Some(ContainerScreen::BrewingStand),
                         MenuKind::Stonecutter => Some(ContainerScreen::Stonecutter),
+                        MenuKind::Merchant => Some(ContainerScreen::Merchant),
                         MenuKind::Anvil => Some(ContainerScreen::Anvil),
                         MenuKind::Enchantment => Some(ContainerScreen::Enchantment),
                         _ => None,
@@ -2310,6 +2329,7 @@ impl AppCore {
                         game.close_creative_inventory();
                         game.inv_drag = None;
                         game.menu_list = Default::default();
+                        game.merchant = Default::default();
                         game.inv_last_click = None;
                         game.open_container = Some(crate::app::phases::in_game::OpenContainer {
                             id: container_id,

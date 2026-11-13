@@ -89,6 +89,33 @@ fn event(packet: ContainerPacket) -> Option<NetworkEvent> {
             value: value as u16,
         },
         ContainerPacket::Close { .. } => NetworkEvent::ContainerClosed,
+        ContainerPacket::MerchantOffers {
+            container_id,
+            offers,
+            level,
+            xp,
+            show_progress,
+            can_restock,
+        } => NetworkEvent::MerchantOffers {
+            container_id,
+            offers: offers
+                .into_iter()
+                .map(|offer| crate::ui::merchant::Offer {
+                    base_cost_a: stack(Some(offer.base_cost_a)),
+                    result: stack(Some(offer.result)),
+                    cost_b: stack(offer.cost_b),
+                    out_of_stock: offer.out_of_stock,
+                    xp: offer.xp,
+                    special_price_diff: offer.special_price_diff,
+                    price_multiplier: offer.price_multiplier,
+                    demand: offer.demand,
+                })
+                .collect(),
+            level,
+            xp,
+            show_progress,
+            can_restock,
+        },
         ContainerPacket::Cursor { item } => NetworkEvent::CursorItem { item: stack(item) },
         ContainerPacket::PlayerInventory { slot, item } => NetworkEvent::PlayerInventorySlot {
             index: slot,

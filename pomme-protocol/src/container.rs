@@ -3,7 +3,7 @@
 //! native item grammar; `None` is an empty stack.
 
 use crate::codec::{DecodeResult, Reader};
-use crate::item::{ItemCodec, ItemStack};
+use crate::item::{ComponentPatch, ItemCodec, ItemStack};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ContainerPacket {
@@ -46,6 +46,32 @@ pub enum ContainerPacket {
         /// `EquipmentSlot` ordinals and their stacks.
         slots: Vec<(u8, Option<ItemStack>)>,
     },
+    /// The open merchant menu's trades.
+    MerchantOffers {
+        container_id: i32,
+        offers: Vec<MerchantOffer>,
+        level: u32,
+        xp: u32,
+        show_progress: bool,
+        can_restock: bool,
+    },
+}
+
+/// `MerchantOffer.STREAM_CODEC`. A cost is an `ItemCost`: its item, its
+/// count and the components it must have exactly, kept here as a stack
+/// whose patch adds them.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MerchantOffer {
+    pub base_cost_a: ItemStack,
+    pub result: ItemStack,
+    pub cost_b: Option<ItemStack>,
+    pub out_of_stock: bool,
+    pub uses: i32,
+    pub max_uses: i32,
+    pub xp: i32,
+    pub special_price_diff: i32,
+    pub price_multiplier: f32,
+    pub demand: i32,
 }
 
 /// Decodes packet `name`, or `None` if it isn't a container packet.
@@ -114,6 +140,17 @@ pub fn read(name: &str, r: &mut Reader) -> Option<DecodeResult<ContainerPacket>>
             }
             Ok(ContainerPacket::Equipment { entity, slots })
         },
+        // ClientboundMerchantOffersPacket.java:22-29
+        "merchant_offers" => |r| {
+            Ok(ContainerPacket::MerchantOffers {
+                container_id: r.var_i32()?,
+                offers: r.list(usize::MAX, offer)?,
+                level: r.varint()?,
+                xp: r.varint()?,
+                show_progress: r.bool()?,
+                can_restock: r.bool()?,
+            })
+        },
         _ => return None,
     };
     Some(read(r))
@@ -122,6 +159,46 @@ pub fn read(name: &str, r: &mut Reader) -> Option<DecodeResult<ContainerPacket>>
 /// `ItemStack.OPTIONAL_STREAM_CODEC`.
 fn stack(r: &mut Reader) -> DecodeResult<Option<ItemStack>> {
     ItemCodec::native().read_stack(r)
+}
+
+/// `MerchantOffer.createFromStream`.
+fn offer(r: &mut Reader) -> DecodeResult<MerchantOffer> {
+    let base_cost_a = cost(r)?;
+    let Some(result) = stack(r)? else {
+        return Err(r.error("a trade for nothing"));
+    };
+    Ok(MerchantOffer {
+        base_cost_a,
+        result,
+        cost_b: r.optional(cost)?,
+        out_of_stock: r.bool()?,
+        uses: r.i32()?,
+        max_uses: r.i32()?,
+        xp: r.i32()?,
+        special_price_diff: r.i32()?,
+        price_multiplier: r.f32()?,
+        demand: r.i32()?,
+    })
+}
+
+/// `ItemCost.STREAM_CODEC`: the item, the count, then
+/// `DataComponentExactPredicate`'s typed components.
+fn cost(r: &mut Reader) -> DecodeResult<ItemStack> {
+    let codec = ItemCodec::native();
+    let item = r.varint()?;
+    let count = r.var_i32()?;
+    let added = r.list(usize::MAX, |r| {
+        let id = r.varint()?;
+        Ok((id, Box::<[u8]>::from(codec.read_component(r, id)?)))
+    })?;
+    Ok(ItemStack {
+        item,
+        count,
+        patch: ComponentPatch {
+            added,
+            removed: Vec::new(),
+        },
+    })
 }
 
 #[cfg(test)]
@@ -136,6 +213,61 @@ mod tests {
         let packet = read(name, &mut r).expect("a container packet").unwrap();
         r.ensure_eof().unwrap();
         packet
+    }
+
+    /// A merchant's offers: a cost is its item and count before its
+    /// components, a result is a stack, and the second cost is optional.
+    #[test]
+    fn merchant_offers_read_their_costs_and_results() {
+        let emerald = id(ClientRegistry::Item, "emerald");
+        let bread = id(ClientRegistry::Item, "bread");
+        let mut bytes = Vec::new();
+        write_varint(&mut bytes, 7);
+        write_varint(&mut bytes, 1);
+        // The cost: three emeralds, no components.
+        write_varint(&mut bytes, emerald);
+        write_varint(&mut bytes, 3);
+        write_varint(&mut bytes, 0);
+        // The result: six bread, an empty patch.
+        write_varint(&mut bytes, 6);
+        write_varint(&mut bytes, bread);
+        write_varint(&mut bytes, 0);
+        write_varint(&mut bytes, 0);
+        // No second cost; in stock; uses, max uses, xp, special price.
+        bytes.extend([0, 0]);
+        for value in [2i32, 16, 5, -1] {
+            bytes.extend(value.to_be_bytes());
+        }
+        bytes.extend(0.05f32.to_be_bytes());
+        bytes.extend(4i32.to_be_bytes());
+        // Level, xp, the progress bar, restocking.
+        write_varint(&mut bytes, 2);
+        write_varint(&mut bytes, 30);
+        bytes.extend([1, 0]);
+
+        let ContainerPacket::MerchantOffers {
+            container_id,
+            offers,
+            level,
+            xp,
+            show_progress,
+            can_restock,
+        } = decode("merchant_offers", &bytes)
+        else {
+            panic!("not the offers");
+        };
+        assert_eq!((container_id, level, xp), (7, 2, 30));
+        assert!(show_progress && !can_restock);
+        let offer = &offers[0];
+        assert_eq!(
+            (offer.base_cost_a.item, offer.base_cost_a.count),
+            (emerald, 3)
+        );
+        assert_eq!((offer.result.item, offer.result.count), (bread, 6));
+        assert_eq!(offer.cost_b, None);
+        assert_eq!((offer.uses, offer.max_uses, offer.xp), (2, 16, 5));
+        assert_eq!((offer.special_price_diff, offer.demand), (-1, 4));
+        assert_eq!(offer.price_multiplier, 0.05);
     }
 
     /// `count` of `item` with an empty patch.

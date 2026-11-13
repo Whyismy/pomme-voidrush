@@ -167,8 +167,9 @@ mod tests {
         assert_eq!(brew_arrow(400), 0.0);
         assert_eq!(brew_arrow(200), 14.0);
         assert_eq!(brew_arrow(1), 27.0);
-        assert_eq!(brew_bubbles(400), 24.0);
-        assert_eq!(brew_bubbles(398), 20.0);
+        assert_eq!(brew_bubbles(400), 11.0);
+        assert_eq!(brew_bubbles(398), 16.0);
+        assert_eq!(brew_bubbles(14), 29.0);
         assert_eq!(brew_bubbles(12), 0.0);
         assert_eq!(fuel_bar(0), 0.0);
         assert_eq!(fuel_bar(1), 1.0);

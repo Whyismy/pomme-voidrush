@@ -1,0 +1,72 @@
+# A villager's trades: its screen lists them, picking one has the server
+# move the payment in, and the result is there to take.
+
+[[step]]
+chat = "/tp @s 3400.5 -60 600.5 0 0"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+chat = "/summon minecraft:villager 3400.5 -60 602.5 {NoAI:1b,Silent:1b,PersistenceRequired:1b,Rotation:[180f,0f],VillagerData:{profession:\"minecraft:farmer\",level:2,type:\"minecraft:plains\"},Xp:40,Offers:{Recipes:[{buy:{id:\"minecraft:emerald\",count:1},sell:{id:\"minecraft:bread\",count:6},maxUses:16,xp:5},{buy:{id:\"minecraft:wheat\",count:20},sell:{id:\"minecraft:emerald\",count:1},maxUses:16,specialPrice:-4},{buy:{id:\"minecraft:emerald\",count:3},buyB:{id:\"minecraft:book\",count:1},sell:{id:\"minecraft:enchanted_book\",count:1},maxUses:0}]}}"
+
+[[step]]
+chat = "/item replace entity @s hotbar.4 with minecraft:emerald 5"
+
+[[step]]
+expect = { entity = "villager" }
+
+[[step]]
+look_at = [3400.5, -58.6, 602.5]
+
+[[step]]
+wait_ms = 300
+
+[[step]]
+mouse_down = "right"
+
+[[step]]
+wait_ms = 100
+
+[[step]]
+mouse_up = "right"
+
+[[step]]
+wait_ms = 800
+
+[[step]]
+screenshot = "trades"
+
+# The first trade's button, in GUI units at the harness's scale of three.
+[[step]]
+cursor = [124.0, 65.0]
+
+[[step]]
+mouse_down = "left"
+
+[[step]]
+wait_ms = 100
+
+[[step]]
+mouse_up = "left"
+
+[[step]]
+expect = { slot = 2, item = "bread" }
+
+[[step]]
+wait_ms = 300
+
+[[step]]
+screenshot = "picked"
+
+[[step]]
+click = { slot = 2, op = "quick_move" }
+
+[[step]]
+expect = { slot = 38, item = "bread" }
+
+[[step]]
+close_menu = true
+
+[[step]]
+chat = "/kill @e[type=minecraft:villager,distance=..10]"

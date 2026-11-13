@@ -245,6 +245,15 @@ pub enum NetworkEvent {
         id: u16,
         value: u16,
     },
+    /// The open merchant menu's trades (`ClientboundMerchantOffersPacket`).
+    MerchantOffers {
+        container_id: i32,
+        offers: Vec<crate::ui::merchant::Offer>,
+        level: u32,
+        xp: u32,
+        show_progress: bool,
+        can_restock: bool,
+    },
     OpenScreen {
         container_id: i32,
         menu_type: azalea_registry::builtin::MenuKind,

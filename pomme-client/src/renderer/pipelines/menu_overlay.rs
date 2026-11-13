@@ -2834,6 +2834,16 @@ pub enum SpriteId {
     BrewingBubbles,
     GrindstoneError,
     SmithingError,
+    MerchantBackground,
+    MerchantOutOfStock,
+    MerchantXpBackground,
+    MerchantXpCurrent,
+    MerchantXpResult,
+    MerchantScroller,
+    MerchantScrollerDisabled,
+    MerchantArrow,
+    MerchantArrowOutOfStock,
+    MerchantDiscount,
     StonecutterBackground,
     StonecutterScroller,
     StonecutterScrollerDisabled,
@@ -3603,6 +3613,51 @@ fn build_sprite_atlas(
         (
             SpriteId::SmithingError,
             "minecraft/textures/gui/sprites/container/smithing/error.png",
+            0.0,
+        ),
+        (
+            SpriteId::MerchantOutOfStock,
+            "minecraft/textures/gui/sprites/container/villager/out_of_stock.png",
+            0.0,
+        ),
+        (
+            SpriteId::MerchantXpBackground,
+            "minecraft/textures/gui/sprites/container/villager/experience_bar_background.png",
+            0.0,
+        ),
+        (
+            SpriteId::MerchantXpCurrent,
+            "minecraft/textures/gui/sprites/container/villager/experience_bar_current.png",
+            0.0,
+        ),
+        (
+            SpriteId::MerchantXpResult,
+            "minecraft/textures/gui/sprites/container/villager/experience_bar_result.png",
+            0.0,
+        ),
+        (
+            SpriteId::MerchantScroller,
+            "minecraft/textures/gui/sprites/container/villager/scroller.png",
+            0.0,
+        ),
+        (
+            SpriteId::MerchantScrollerDisabled,
+            "minecraft/textures/gui/sprites/container/villager/scroller_disabled.png",
+            0.0,
+        ),
+        (
+            SpriteId::MerchantArrow,
+            "minecraft/textures/gui/sprites/container/villager/trade_arrow.png",
+            0.0,
+        ),
+        (
+            SpriteId::MerchantArrowOutOfStock,
+            "minecraft/textures/gui/sprites/container/villager/trade_arrow_out_of_stock.png",
+            0.0,
+        ),
+        (
+            SpriteId::MerchantDiscount,
+            "minecraft/textures/gui/sprites/container/villager/discount_strikethrough.png",
             0.0,
         ),
         (
@@ -4534,6 +4589,14 @@ fn build_sprite_atlas(
             "minecraft/textures/gui/container/stonecutter.png",
             (0, 0),
             INV_TEX_W,
+            166,
+        ),
+        // 276 by 166 of a 512 by 256 sheet.
+        (
+            SpriteId::MerchantBackground,
+            "minecraft/textures/gui/container/villager.png",
+            (0, 0),
+            276,
             166,
         ),
         (
