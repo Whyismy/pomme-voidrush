@@ -180,6 +180,8 @@ pub enum NetworkEvent {
         x_rot: f32,
         relative_x: bool,
     },
+    /// `ClientboundSelectAdvancementsTabPacket`.
+    SelectAdvancementsTab(Option<String>),
     /// `ClientboundTickingStatePacket`.
     TickingState {
         tick_rate: f32,

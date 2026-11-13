@@ -240,6 +240,14 @@ actions! {
         listed: true,
         defaults: [Keyboard(KeyCode::Tab), Controller(Button::Select)],
     },
+    Advancements => {
+        id: "key.advancements",
+        translation_id: Some(StringId::new("key.advancements")),
+        fallback: "Advancements",
+        category: Miscellaneous,
+        listed: true,
+        defaults: [Keyboard(KeyCode::KeyL)],
+    },
     Screenshot => {
         id: "key.screenshot",
         translation_id: Some(StringId::new("key.screenshot")),

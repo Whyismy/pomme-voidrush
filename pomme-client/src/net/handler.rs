@@ -72,9 +72,13 @@ pub fn handle_game_packet(
                     (
                         holder.id.to_string(),
                         toast::AdvancementData {
+                            parent: holder.value.parent_id.as_ref().map(ToString::to_string),
                             display: holder.value.display.as_deref().map(|d| {
                                 toast::AdvancementDisplay {
                                     title: format_text_spans(&d.title, [1.0; 4]),
+                                    description: format_text_spans(&d.description, [1.0; 4]),
+                                    background: d.background.as_ref().map(ToString::to_string),
+                                    position: (d.x, d.y),
                                     frame: match d.frame {
                                         FrameType::Task => toast::AdvancementFrame::Task,
                                         FrameType::Challenge => toast::AdvancementFrame::Challenge,

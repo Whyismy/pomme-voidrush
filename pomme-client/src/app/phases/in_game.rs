@@ -292,6 +292,8 @@ pub struct GameState {
     pub book_view: Option<crate::ui::book::BookViewState>,
     /// The book and quill being written in, while its screen is up.
     pub book_edit: Option<crate::ui::book::BookEditState>,
+    /// The advancements screen, while it is up.
+    pub advancements_ui: Option<crate::ui::advancements::AdvancementsUi>,
     /// How far the spyglass's scope has opened (vanilla `Hud.scopeScale`):
     /// from a half toward nine eighths while one is looked through.
     pub scope_scale: f32,
@@ -746,6 +748,7 @@ impl GameState {
             sign_edit: None,
             book_view: None,
             book_edit: None,
+            advancements_ui: None,
             scope_scale: 0.5,
             tick_rate: Default::default(),
             world_border: Default::default(),
@@ -970,6 +973,7 @@ impl GameState {
             || self.sign_edit.is_some()
             || self.book_view.is_some()
             || self.book_edit.is_some()
+            || self.advancements_ui.is_some()
     }
 
     /// The container menu the player currently has open (0 = survival
@@ -3804,6 +3808,66 @@ pub fn update_game(
         }
     }
 
+    // Where the Hud ends and the screens begin: the closed chat and the
+    // titles are part of the Hud, and are moved here once built.
+    let hud_end = elements.len();
+    if let Some(ui) = &mut game.advancements_ui {
+        let r = &gfx.renderer;
+        let done = crate::ui::advancements::build(
+            &mut elements,
+            ui,
+            game.toasts.advancements(),
+            sw,
+            sh,
+            core.input.cursor_pos(),
+            (core.input.left_just_pressed(), core.input.left_held()),
+            gs,
+            &|text, size| r.menu_text_width(text, size),
+            &|spans, width| {
+                r.layout_display_text(spans, width)
+                    .lines
+                    .into_iter()
+                    .map(|(line, _)| line)
+                    .collect()
+            },
+        );
+        if done {
+            core.audio.play_ui_click();
+            ui.close();
+        }
+        // `ClientAdvancements.setSelectedTab`: the server hears which tab
+        // is looked at.
+        if let Some(tab) = ui.take_opened() {
+            use azalea_protocol::packets::game::s_seen_advancements::{
+                Action as SeenAction, ServerboundSeenAdvancements,
+            };
+            connection
+                .packet_tx
+                .send(ServerboundGamePacket::SeenAdvancements(
+                    ServerboundSeenAdvancements {
+                        action: SeenAction::OpenedTab,
+                        tab: Some(tab.as_str().into()),
+                    },
+                ));
+        }
+    }
+    // `AdvancementsScreen.removed`: and that the screen was closed.
+    if game.advancements_ui.as_ref().is_some_and(|ui| ui.closing()) {
+        use azalea_protocol::packets::game::s_seen_advancements::{
+            Action as SeenAction, ServerboundSeenAdvancements,
+        };
+        game.advancements_ui = None;
+        connection
+            .packet_tx
+            .send(ServerboundGamePacket::SeenAdvancements(
+                ServerboundSeenAdvancements {
+                    action: SeenAction::ClosedScreen,
+                    tab: None,
+                },
+            ));
+        core.apply_cursor_grab(&gfx.window, Some(game));
+    }
+
     // `LocalPlayer.openItemGui`: a book and quill just used opens for
     // writing, from what the hand holds.
     if let Some(hand) = game.interaction.open_book_edit.take() {
@@ -5007,14 +5071,16 @@ pub fn update_game(
     }
 
     // Before chat so chat draws over it (vanilla extract order).
+    let screens_end = elements.len();
     if !benchmark_running && !game.hide_gui {
         game.title.build(&mut elements, sw, sh, gs, partial_tick);
     }
+    let chat_is_hud = !game.chat.is_focused();
 
     // F1 hides the closed-chat overlay; an open chat is a screen and renders
     // regardless (vanilla Hud.extractChat vs ChatScreen).
-    // TODO: the closed chat (and titles) build after screens, so they draw
-    // sharp over the menu blur; vanilla's HUD extracts them before the screen.
+    // TODO: the closed chat and the titles are not blurred with the rest of
+    // the Hud under a screen, only drawn beneath it.
     if !game.hide_gui || game.chat.is_focused() {
         let command_tree = game.command_tree.clone();
         // Vanilla `ChatScreen.mouseClicked` offers the click to the chat's own
@@ -5041,6 +5107,12 @@ pub fn update_game(
         );
         if let Some(action) = chat_action {
             handle_chat_ui_action(action, core, connection, game);
+        }
+        // `Hud.extractChat` comes before the screen: a closed chat and the
+        // titles go under whatever screens were built.
+        if chat_is_hud && screens_end > hud_end {
+            let hud: Vec<_> = elements.drain(screens_end..).collect();
+            elements.splice(hud_end..hud_end, hud);
         }
         if game.chat.is_in_bed() && !dialog_open && !game.chat.has_pending_modal_prompt() {
             let hovered = common::push_button(
@@ -6660,6 +6732,11 @@ pub fn update_game(
     match pause_action {
         PauseAction::Resume => {
             game.paused = false;
+            core.apply_cursor_grab(&gfx.window, Some(game));
+        }
+        PauseAction::Advancements => {
+            game.paused = false;
+            game.advancements_ui = Some(Default::default());
             core.apply_cursor_grab(&gfx.window, Some(game));
         }
         PauseAction::Options => {

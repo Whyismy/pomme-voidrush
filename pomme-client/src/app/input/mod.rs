@@ -281,6 +281,7 @@ impl InputState {
                         && game.sign_edit.is_none()
                         && game.book_view.is_none()
                         && game.book_edit.is_none()
+                        && game.advancements_ui.is_none()
                     {
                         // On a mount with an inventory of its own, the
                         // server opens that one (`LocalPlayer.sendOpenInventory`).
@@ -308,12 +309,31 @@ impl InputState {
 
                     self.recent_actions.remove(&Action::ToggleInventory);
                 }
+                // `Minecraft.handleKeybinds`: the advancements key opens their
+                // screen, and on it closes it again.
+                if self.action_just_pressed(Action::Advancements) && !game.dialog_open() {
+                    if let Some(ui) = &mut game.advancements_ui {
+                        ui.close();
+                    } else if !game.paused
+                        && !game.dead
+                        && !game.death_screen_open
+                        && !game.chat.is_open()
+                        && !game.gui_open()
+                    {
+                        game.advancements_ui = Some(Default::default());
+                        should_apply_cursor_grab = true;
+                    }
+                    self.recent_actions.remove(&Action::Advancements);
+                }
                 if self.action_just_pressed(Action::OpenMenu) && !game.dialog_open() {
                     if game.chat.is_open() {
                         // ChatScreen consumes Escape before the game-level
                         // pause action: link confirmation, then suggestions,
                         // then the chat screen itself.
                         should_apply_cursor_grab = game.escape_chat();
+                    } else if let Some(ui) = &mut game.advancements_ui {
+                        ui.close();
+                        should_apply_cursor_grab = true;
                     } else if game.book_view.is_some() || game.book_edit.is_some() {
                         // Esc leaves a book; one being written is left as
                         // it was.
@@ -840,7 +860,7 @@ impl InputState {
                 let gameplay = !self.text_capture && !self.menu_capture;
                 for action in actions {
                     match action {
-                        Action::ToggleInventory if !self.text_capture => {
+                        Action::ToggleInventory | Action::Advancements if !self.text_capture => {
                             self.recent_actions.insert(action, true);
                         }
                         Action::DropItem

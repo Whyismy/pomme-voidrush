@@ -2812,6 +2812,22 @@ pub enum SpriteId {
     BossBarNotchedBackground(u8),
     BossBarNotchedProgress(u8),
     ChatModified,
+    AdvancementsWindow,
+    AdvancementTaskObtained,
+    AdvancementTaskUnobtained,
+    AdvancementChallengeObtained,
+    AdvancementChallengeUnobtained,
+    AdvancementGoalObtained,
+    AdvancementGoalUnobtained,
+    AdvancementTabLeft,
+    AdvancementTabLeftSelected,
+    AdvancementTabMiddle,
+    AdvancementTabMiddleSelected,
+    AdvancementTabRight,
+    AdvancementTabRightSelected,
+    /// A tab's tiled background, by its place in
+    /// [`ADVANCEMENT_BACKGROUNDS`].
+    AdvancementBackground(u8),
     ToastAdvancement,
     ToastRecipe,
     ToastTutorial,
@@ -3160,6 +3176,10 @@ struct SpriteAtlas {
 }
 
 const INV_TEX_W: u32 = 176;
+
+/// The backgrounds the game's advancement tabs tile, as their textures are
+/// named; the first stands in for one that is not among them.
+pub const ADVANCEMENT_BACKGROUNDS: [&str; 5] = ["stone", "adventure", "end", "husbandry", "nether"];
 
 /// The banner patterns the game ships, as their textures are named; a
 /// loom's buttons and its preview draw from them.
@@ -4486,6 +4506,66 @@ fn build_sprite_atlas(
             0.0,
         ),
         (
+            SpriteId::AdvancementTaskObtained,
+            "minecraft/textures/gui/sprites/advancements/task_frame_obtained.png",
+            0.0,
+        ),
+        (
+            SpriteId::AdvancementTaskUnobtained,
+            "minecraft/textures/gui/sprites/advancements/task_frame_unobtained.png",
+            0.0,
+        ),
+        (
+            SpriteId::AdvancementChallengeObtained,
+            "minecraft/textures/gui/sprites/advancements/challenge_frame_obtained.png",
+            0.0,
+        ),
+        (
+            SpriteId::AdvancementChallengeUnobtained,
+            "minecraft/textures/gui/sprites/advancements/challenge_frame_unobtained.png",
+            0.0,
+        ),
+        (
+            SpriteId::AdvancementGoalObtained,
+            "minecraft/textures/gui/sprites/advancements/goal_frame_obtained.png",
+            0.0,
+        ),
+        (
+            SpriteId::AdvancementGoalUnobtained,
+            "minecraft/textures/gui/sprites/advancements/goal_frame_unobtained.png",
+            0.0,
+        ),
+        (
+            SpriteId::AdvancementTabLeft,
+            "minecraft/textures/gui/sprites/advancements/tab_above_left.png",
+            0.0,
+        ),
+        (
+            SpriteId::AdvancementTabLeftSelected,
+            "minecraft/textures/gui/sprites/advancements/tab_above_left_selected.png",
+            0.0,
+        ),
+        (
+            SpriteId::AdvancementTabMiddle,
+            "minecraft/textures/gui/sprites/advancements/tab_above_middle.png",
+            0.0,
+        ),
+        (
+            SpriteId::AdvancementTabMiddleSelected,
+            "minecraft/textures/gui/sprites/advancements/tab_above_middle_selected.png",
+            0.0,
+        ),
+        (
+            SpriteId::AdvancementTabRight,
+            "minecraft/textures/gui/sprites/advancements/tab_above_right.png",
+            0.0,
+        ),
+        (
+            SpriteId::AdvancementTabRightSelected,
+            "minecraft/textures/gui/sprites/advancements/tab_above_right_selected.png",
+            0.0,
+        ),
+        (
             SpriteId::ToastRecipe,
             "minecraft/textures/gui/sprites/toast/recipe.png",
             0.0,
@@ -4880,6 +4960,13 @@ fn build_sprite_atlas(
             166,
         ),
         (
+            SpriteId::AdvancementsWindow,
+            "minecraft/textures/gui/advancements/window.png",
+            (0, 0),
+            252,
+            140,
+        ),
+        (
             SpriteId::HorseBackground,
             "minecraft/textures/gui/container/horse.png",
             (0, 0),
@@ -4992,6 +5079,25 @@ fn build_sprite_atlas(
             }
             Err(e) => {
                 tracing::warn!("Failed to load sprite {id:?}: {e}");
+                images.push((id, vec![255, 0, 255, 255], 1, 1, 0.0));
+            }
+        }
+    }
+
+    // The advancement tabs' backgrounds, each a tile.
+    for (index, name) in ADVANCEMENT_BACKGROUNDS.iter().enumerate() {
+        let id = SpriteId::AdvancementBackground(index as u8);
+        let key = format!("minecraft/textures/gui/advancements/backgrounds/{name}.png");
+        let (path, scale) = resolve_gui_texture(jar_assets_dir, asset_index, packs, &key);
+        match crate::assets::load_image(&path) {
+            Ok(img) => {
+                let rgba = img.to_rgba8();
+                let (w, h) = (rgba.width(), rgba.height());
+                scales.insert(id, scale);
+                images.push((id, rgba.into_raw(), w, h, 0.0));
+            }
+            Err(e) => {
+                tracing::warn!("Failed to load advancement background {key}: {e}");
                 images.push((id, vec![255, 0, 255, 255], 1, 1, 0.0));
             }
         }

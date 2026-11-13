@@ -28,6 +28,11 @@ pub enum LifecyclePacket {
         x_rot: f32,
         relative_x: bool,
     },
+    /// `ClientboundSelectAdvancementsTabPacket`: the advancements tab the
+    /// server has selected, by its root's id.
+    SelectAdvancementsTab {
+        tab: Option<String>,
+    },
     /// `ClientboundTickingStatePacket`: the ticks a second the server runs
     /// at, and whether it is frozen.
     TickingState {
@@ -151,6 +156,12 @@ pub fn read(name: &str, r: &mut Reader) -> Option<DecodeResult<LifecyclePacket>>
                 id: r.varint()?,
                 change: position_move_rotation(r)?,
                 relative: Relative::from_bits(r.i32()?),
+            })
+        },
+        // ClientboundSelectAdvancementsTabPacket.java:25
+        "select_advancements_tab" => |r| {
+            Ok(LifecyclePacket::SelectAdvancementsTab {
+                tab: r.optional(|r| Ok(r.utf(crate::codec::MAX_STRING_LENGTH)?.to_owned()))?,
             })
         },
         // ClientboundTickingStatePacket.java:16

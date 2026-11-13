@@ -1,0 +1,22 @@
+# The advancements screen: the key opens it on the first tab's tree.
+
+[[step]]
+chat = "/advancement grant @s only minecraft:story/root"
+
+[[step]]
+chat = "/advancement grant @s only minecraft:story/mine_stone"
+
+[[step]]
+chat = "/advancement grant @s only minecraft:adventure/root"
+
+[[step]]
+wait_ms = 1500
+
+[[step]]
+press = { action = "key.advancements" }
+
+[[step]]
+wait_ms = 800
+
+[[step]]
+screenshot = "story"

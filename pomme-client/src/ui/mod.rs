@@ -1,3 +1,4 @@
+pub mod advancements;
 pub mod anvil;
 pub mod beacon;
 pub mod book;

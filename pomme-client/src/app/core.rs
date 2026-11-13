@@ -1384,6 +1384,7 @@ impl AppCore {
         game.sign_edit = None;
         game.book_view = None;
         game.book_edit = None;
+        game.advancements_ui = None;
         game.tracking_emitters.clear();
         game.item_activation = None;
         game.server_dialog = None;
@@ -2621,6 +2622,9 @@ impl AppCore {
                 }
                 NetworkEvent::AdvancementsUpdate(update) => {
                     game.toasts.apply_advancements(*update);
+                }
+                NetworkEvent::SelectAdvancementsTab(tab) => {
+                    game.toasts.select_advancements_tab(tab);
                 }
                 NetworkEvent::RecipeBookAdd { entries, replace } => {
                     game.recipe_book.apply_add(entries, replace);

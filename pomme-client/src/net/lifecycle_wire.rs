@@ -166,6 +166,9 @@ fn handle(
                 relative,
             },
         ),
+        LifecyclePacket::SelectAdvancementsTab { tab } => {
+            send_ordered(event_tx, NetworkEvent::SelectAdvancementsTab(tab))
+        }
         LifecyclePacket::TickingState { tick_rate, frozen } => {
             send_ordered(event_tx, NetworkEvent::TickingState { tick_rate, frozen })
         }

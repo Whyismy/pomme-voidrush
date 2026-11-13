@@ -56,9 +56,7 @@ pub(super) fn read_update(payload: &[u8]) -> DecodeResult<AdvancementsUpdate> {
 /// `Advancement.read` (`Advancement.java:85-86`): parent, display,
 /// requirements, then the telemetry flag.
 fn read_advancement(r: &mut Reader) -> DecodeResult<AdvancementData> {
-    if r.bool()? {
-        string(r)?;
-    }
+    let parent = if r.bool()? { Some(string(r)?) } else { None };
     let display = if r.bool()? {
         Some(read_display(r)?)
     } else {
@@ -68,6 +66,7 @@ fn read_advancement(r: &mut Reader) -> DecodeResult<AdvancementData> {
     let requirements = r.list(usize::MAX, |r| r.list(usize::MAX, string))?;
     r.bool()?;
     Ok(AdvancementData {
+        parent,
         display,
         requirements,
     })
@@ -76,7 +75,7 @@ fn read_advancement(r: &mut Reader) -> DecodeResult<AdvancementData> {
 /// `DisplayInfo.fromNetwork` (`DisplayInfo.java:116-131`).
 fn read_display(r: &mut Reader) -> DecodeResult<AdvancementDisplay> {
     let title = read_text(r)?;
-    read_text(r)?;
+    let description = read_text(r)?;
     let icon = ItemCodec::native().read_template(r)?;
     let frame = match r.varint()? {
         0 => AdvancementFrame::Task,
@@ -85,20 +84,24 @@ fn read_display(r: &mut Reader) -> DecodeResult<AdvancementDisplay> {
         _ => return Err(r.error("unknown advancement type")),
     };
     let flags = r.i32()?;
-    if flags & HAS_BACKGROUND != 0 {
-        string(r)?;
-    }
-    r.f32()?;
-    r.f32()?;
+    let background = if flags & HAS_BACKGROUND != 0 {
+        Some(string(r)?)
+    } else {
+        None
+    };
+    let position = (r.f32()?, r.f32()?);
     let icon_item = ItemCodec::native()
         .registries()
         .name_of(ClientRegistry::Item, icon.item)
         .map(str::to_owned);
     Ok(AdvancementDisplay {
         title: format_component_spans(&title, [1.0; 4]),
+        description: format_component_spans(&description, [1.0; 4]),
         frame,
         show_toast: flags & SHOW_TOAST != 0,
         icon_item,
+        background,
+        position,
     })
 }
 

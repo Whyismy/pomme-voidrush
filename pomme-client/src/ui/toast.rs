@@ -51,13 +51,21 @@ impl AdvancementFrame {
 
 pub struct AdvancementDisplay {
     pub title: Vec<TextSpan>,
+    /// What it asks for, shown under its title on the advancements screen.
+    pub description: Vec<TextSpan>,
     pub frame: AdvancementFrame,
     pub show_toast: bool,
     /// Bare item resource name for the icon; `None` for an empty icon stack.
     pub icon_item: Option<String>,
+    /// A root's background, by its texture's id.
+    pub background: Option<String>,
+    /// Where it sits in its tree, in widgets across and down.
+    pub position: (f32, f32),
 }
 
 pub struct AdvancementData {
+    /// The advancement it follows; a root has none.
+    pub parent: Option<String>,
     pub display: Option<AdvancementDisplay>,
     pub requirements: Vec<Vec<String>>,
 }
@@ -79,23 +87,62 @@ pub struct RecipeToastEntry {
     pub unlocked_item: Option<String>,
 }
 
-/// The advancement definitions received so far (vanilla `ClientAdvancements`,
-/// toast-relevant parts only). Progress is not stored: each packet carries the
-/// complete progress map per advancement, so done-ness is evaluated per packet
-/// exactly like vanilla's toast condition.
+/// The advancements received so far and how far each has come (vanilla
+/// `ClientAdvancements`). Each packet carries an advancement's complete
+/// progress, which is kept for the advancements screen; a toast's done-ness
+/// is judged from the packet's own, as vanilla judges it.
 #[derive(Default)]
-struct AdvancementStore {
+pub struct AdvancementStore {
     by_id: HashMap<String, AdvancementData>,
+    /// Each advancement's criteria and whether each is met, as last told.
+    progress: HashMap<String, HashMap<String, bool>>,
+    /// The tab the server last named as selected.
+    selected_tab: Option<String>,
 }
 
 impl AdvancementStore {
+    pub fn get(&self, id: &str) -> Option<&AdvancementData> {
+        self.by_id.get(id)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &AdvancementData)> {
+        self.by_id.iter()
+    }
+
+    /// `AdvancementProgress.isDone`: each of its requirement groups has a
+    /// criterion met.
+    pub fn is_done(&self, id: &str) -> bool {
+        let (Some(advancement), Some(criteria)) = (self.by_id.get(id), self.progress.get(id))
+        else {
+            return false;
+        };
+        !advancement.requirements.is_empty()
+            && advancement.requirements.iter().all(|group| {
+                group
+                    .iter()
+                    .any(|criterion| criteria.get(criterion).copied().unwrap_or(false))
+            })
+    }
+
+    /// The tab the server last had selected, where it still exists.
+    pub fn selected_tab(&self) -> Option<&str> {
+        self.selected_tab
+            .as_deref()
+            .filter(|tab| self.by_id.contains_key(*tab))
+    }
+
     /// Vanilla `ClientAdvancements.update`, returning the toasts it would add.
     fn apply(&mut self, update: AdvancementsUpdate) -> Vec<ToastKind> {
         if update.reset {
             self.by_id.clear();
+            self.progress.clear();
         }
         for id in &update.removed {
             self.by_id.remove(id);
+            self.progress.remove(id);
+        }
+        for (id, criteria) in &update.progress {
+            self.progress.insert(id.clone(), criteria.clone());
         }
         for (id, data) in update.added {
             self.by_id.insert(id, data);
@@ -385,6 +432,16 @@ impl ToastState {
     #[cfg(feature = "test-harness")]
     pub fn advancement_ids(&self) -> impl Iterator<Item = &str> {
         self.advancements.by_id.keys().map(String::as_str)
+    }
+
+    /// The advancements, for their screen.
+    pub fn advancements(&self) -> &AdvancementStore {
+        &self.advancements
+    }
+
+    /// `ClientAdvancements.setSelectedTab` from the server's word.
+    pub fn select_advancements_tab(&mut self, tab: Option<String>) {
+        self.advancements.selected_tab = tab;
     }
 
     pub fn apply_advancements(&mut self, update: AdvancementsUpdate) {

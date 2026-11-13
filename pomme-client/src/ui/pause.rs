@@ -23,6 +23,8 @@ pub enum PauseScreen {
 pub enum PauseAction {
     None,
     Resume,
+    /// To the advancements screen.
+    Advancements,
     Disconnect,
     Options,
     ReportBugs,
@@ -156,7 +158,7 @@ fn build_main(
         action = PauseAction::Resume;
     }
 
-    common::push_button(
+    if common::push_button(
         elements,
         cursor,
         col1_x,
@@ -166,8 +168,11 @@ fn build_main(
         gs,
         fs,
         "Advancements",
-        false,
-    );
+        true,
+    ) && clicked
+    {
+        action = PauseAction::Advancements;
+    }
     common::push_button(
         elements,
         cursor,
