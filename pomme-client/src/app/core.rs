@@ -3934,6 +3934,12 @@ impl AppCore {
                         self.begin_live_resource_reload(renderer);
                     }
                 }
+                NetworkEvent::SessionRenewed { access_token } => {
+                    // What this connection joined with is what the next
+                    // joins with, and what the menu's own requests use.
+                    self.menu.renew_access_token(access_token.clone());
+                    self.user.access_token = Some(access_token);
+                }
                 NetworkEvent::Transfer { host, port } => {
                     tracing::info!("Transferred to {host}:{port}");
                     self.pending_transfer = Some((host, port));

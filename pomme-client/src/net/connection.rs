@@ -89,6 +89,41 @@ pub struct ConnectArgs {
     /// Another server handed the client on to this one: the handshake says
     /// so, and the cookies that server gave are kept for this one to ask for.
     pub transferred: bool,
+    /// Where the account's sign-in is kept, for renewing it when its token
+    /// has run out; `None` for an account that was not signed in from it.
+    pub account_store: Option<std::sync::Arc<dyn pomme_auth::SecretStore>>,
+}
+
+/// Who the connection logs in as, and how its sign-in is renewed.
+struct Session<'a> {
+    uuid: uuid::Uuid,
+    access_token: Option<String>,
+    store: Option<std::sync::Arc<dyn pomme_auth::SecretStore>>,
+    event_tx: &'a Sender<NetworkEvent>,
+    /// The sign-in has been renewed for this connection already.
+    renewed: bool,
+}
+
+impl Session<'_> {
+    /// Signs in again from the stored refresh token and tells the game
+    /// thread of the new token; `None` where that can't be done, or has
+    /// been done for this connection once.
+    async fn renew(&mut self) -> Option<String> {
+        if std::mem::replace(&mut self.renewed, true) {
+            return None;
+        }
+        let store = self.store.as_ref()?;
+        let account = crate::account::renew(&**store, &self.uuid).await?;
+        tracing::info!("Sign-in renewed for {}", account.username);
+        self.access_token = Some(account.access_token.clone());
+        send_ordered(
+            self.event_tx,
+            NetworkEvent::SessionRenewed {
+                access_token: account.access_token.clone(),
+            },
+        );
+        Some(account.access_token)
+    }
 }
 
 pub struct ConnectionHandle {
@@ -145,7 +180,28 @@ pub async fn connect_to_server(
         chat_options,
         skin_options,
         transferred,
+        account_store,
     } = args;
+    let mut session = Session {
+        uuid,
+        access_token,
+        store: account_store,
+        event_tx: &event_tx,
+        renewed: false,
+    };
+    // A Minecraft token lasts a day. A client left open longer signs in
+    // again here, before the server is reached, where it used to be refused
+    // and have to be restarted.
+    if session.access_token.is_some()
+        && matches!(transport, Transport::Remote { .. })
+        && session
+            .store
+            .as_ref()
+            .is_some_and(|store| crate::account::token_spent(&**store, &uuid))
+    {
+        tracing::info!("The sign-in has run out; renewing it");
+        session.renew().await;
+    }
     // Vanilla `TransferState`: only a transfer brings cookies with it.
     if !transferred {
         super::cookies::clear();
@@ -194,7 +250,7 @@ pub async fn connect_to_server(
     conn.writer.write(&frame).await?;
 
     tracing::info!("Sent login hello as {username} ({uuid})");
-    if access_token.is_none() {
+    if session.access_token.is_none() {
         tracing::warn!(
             "Connecting offline (no access token). The server keys op/permissions to the \
              authenticated account, so op-only commands like /time may return \"Unknown command\" \
@@ -202,7 +258,8 @@ pub async fn connect_to_server(
         );
     }
 
-    let profile_id = login_sequence(&mut conn, &uuid, access_token.as_deref()).await?;
+    let profile_id = login_sequence(&mut conn, &mut session).await?;
+    let access_token = session.access_token.take();
 
     // 1.20.1 and older have no configuration phase: the server enters play as
     // soon as it has sent the profile, and the registries ride in the game
@@ -448,8 +505,7 @@ fn resolve_wire(probed: Option<i32>, selected: i32) -> Result<i32, i32> {
 /// Returns the game profile id the server logged us in as.
 async fn login_sequence(
     conn: &mut Conn,
-    uuid: &uuid::Uuid,
-    access_token: Option<&str>,
+    session: &mut Session<'_>,
 ) -> Result<uuid::Uuid, ConnectionError> {
     loop {
         // Read the raw frame ourselves so older-version layouts can be
@@ -465,7 +521,7 @@ async fn login_sequence(
         tracing::info!("Login packet: {:?}", std::mem::discriminant(&packet));
         match packet {
             ClientboundLoginPacket::Hello(p) => {
-                handle_encryption(conn, &p, uuid, access_token).await?;
+                handle_encryption(conn, &p, session).await?;
             }
             ClientboundLoginPacket::LoginCompression(p) => {
                 conn.set_compression_threshold(p.compression_threshold);
@@ -504,24 +560,33 @@ async fn login_sequence(
 async fn handle_encryption(
     conn: &mut Conn,
     hello: &ClientboundHello,
-    uuid: &uuid::Uuid,
-    access_token: Option<&str>,
+    session: &mut Session<'_>,
 ) -> Result<(), ConnectionError> {
     let e = azalea_crypto::encrypt(&hello.public_key, &hello.challenge)
         .map_err(ConnectionError::Encryption)?;
 
     if hello.should_authenticate {
-        let access_token = access_token.ok_or_else(|| {
+        let access_token = session.access_token.clone().ok_or_else(|| {
             ConnectionError::Auth(
                 "server requires authentication but no access token provided".into(),
             )
         })?;
 
+        let uuid = session.uuid;
         tracing::info!("Authenticating with session server (uuid: {uuid})");
         let hash = super::session::server_hash(&hello.server_id, &e.secret_key, &hello.public_key);
-        super::session::join(access_token, uuid, &hash)
-            .await
-            .map_err(ConnectionError::Auth)?;
+        // A token the session server will not take (one replaced, or run
+        // out sooner than its day) is renewed and the join made again.
+        super::session::join_renewing(
+            access_token,
+            |token| {
+                let hash = &hash;
+                async move { super::session::join(&token, &uuid, hash).await }
+            },
+            || async move { session.renew().await },
+        )
+        .await
+        .map_err(ConnectionError::Auth)?;
         tracing::info!("Session server authentication successful");
     } else {
         tracing::info!("Server does not require authentication");
@@ -1483,6 +1548,7 @@ mod tests {
                 chat_options: crate::ui::chat::ChatOptions::default(),
                 skin_options: crate::ui::menu::SkinOptions::default(),
                 transferred: false,
+                account_store: None,
             },
             event_tx,
             packet_tx,
@@ -1544,6 +1610,7 @@ mod tests {
                 chat_options: crate::ui::chat::ChatOptions::default(),
                 skin_options: crate::ui::menu::SkinOptions::default(),
                 transferred: false,
+                account_store: None,
             },
             event_tx,
             packet_tx.clone(),

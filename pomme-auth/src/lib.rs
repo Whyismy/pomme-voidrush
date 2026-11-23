@@ -117,13 +117,25 @@ pub fn try_restore(store: &dyn SecretStore, uuid: &str) -> Option<AuthAccount> {
         .find(|a| a.uuid == uuid && a.expires_at > unix_now())
 }
 
+/// A new sign-in from `uuid`'s stored refresh token, stored in the old
+/// one's place; `Err` says why there is none.
+pub async fn refresh(
+    http: &reqwest::Client,
+    store: &dyn SecretStore,
+    uuid: &str,
+) -> Result<AuthAccount, String> {
+    let refresh_token = refresh_tokens(store)
+        .remove(uuid)
+        .ok_or("no refresh token is stored for this account")?;
+    refresh_msa_token(http, store, &refresh_token).await
+}
+
 pub async fn try_refresh(
     http: &reqwest::Client,
     store: &dyn SecretStore,
     uuid: &str,
 ) -> Option<AuthAccount> {
-    let refresh_token = refresh_tokens(store).remove(uuid)?;
-    refresh_msa_token(http, store, &refresh_token).await.ok()
+    refresh(http, store, uuid).await.ok()
 }
 
 pub async fn try_restore_or_refresh(

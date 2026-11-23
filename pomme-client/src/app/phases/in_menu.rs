@@ -77,6 +77,12 @@ pub fn connect_args(core: &AppCore, transport: Transport, username: String) -> C
         chat_options: core.menu.chat_options,
         skin_options: core.menu.skin_options(),
         transferred: false,
+        // A signed-in account's token is renewed from where it is kept.
+        account_store: core
+            .user
+            .access_token
+            .is_some()
+            .then(|| core.menu.account_store()),
     }
 }
 

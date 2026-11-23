@@ -33,8 +33,79 @@ pub fn server_hash(server_id: &str, shared_secret: &[u8], public_key: &[u8]) -> 
     }
 }
 
-/// POSTs the join to the session server; `Err` holds a readable reason.
-pub async fn join(access_token: &str, uuid: &uuid::Uuid, server_hash: &str) -> Result<(), String> {
+/// Why the session server would not take a join.
+#[derive(Debug, PartialEq)]
+pub enum JoinError {
+    /// It refused the access token itself, which has run out or been
+    /// replaced: a new sign-in may be taken.
+    Session(String),
+    /// Anything a new sign-in would not change.
+    Other(String),
+}
+
+impl JoinError {
+    pub fn into_reason(self) -> String {
+        match self {
+            Self::Session(reason) | Self::Other(reason) => reason,
+        }
+    }
+
+    /// What a 403's `error` means. A token that has run out comes back as
+    /// `ForbiddenOperationException`, so whatever is not about the account
+    /// itself is taken to be about the token.
+    fn forbidden(error: &str) -> Self {
+        match error {
+            "InsufficientPrivilegesException" => {
+                Self::Other("multiplayer is disabled for this account".into())
+            }
+            "UserBannedException" => Self::Other("this account is banned from multiplayer".into()),
+            "InvalidCredentialsException" => {
+                Self::Session("the session is invalid; sign in again".into())
+            }
+            _ => Self::Session(format!("session server refused the join: {error}")),
+        }
+    }
+}
+
+/// Tells the session server of the join with `token`. Where it refuses the
+/// token itself, `renew` signs in again and the join is made once more
+/// with the token that gives; the token the server took.
+pub async fn join_renewing<J, JoinFuture, N, RenewFuture>(
+    token: String,
+    join: J,
+    renew: N,
+) -> Result<String, String>
+where
+    J: Fn(String) -> JoinFuture,
+    JoinFuture: Future<Output = Result<(), JoinError>>,
+    N: FnOnce() -> RenewFuture,
+    RenewFuture: Future<Output = Option<String>>,
+{
+    match join(token.clone()).await {
+        Ok(()) => Ok(token),
+        Err(JoinError::Other(reason)) => Err(reason),
+        Err(JoinError::Session(reason)) => {
+            tracing::warn!("The session server refused the sign-in ({reason}); signing in again");
+            let Some(renewed) = renew().await else {
+                return Err(format!(
+                    "{reason}. The sign-in could not be renewed: sign in again from the title \
+                     screen"
+                ));
+            };
+            join(renewed.clone())
+                .await
+                .map(|()| renewed)
+                .map_err(JoinError::into_reason)
+        }
+    }
+}
+
+/// POSTs the join to the session server.
+pub async fn join(
+    access_token: &str,
+    uuid: &uuid::Uuid,
+    server_hash: &str,
+) -> Result<(), JoinError> {
     let response = super::http::client()
         .post("https://sessionserver.mojang.com/session/minecraft/join")
         .json(&serde_json::json!({
@@ -44,7 +115,7 @@ pub async fn join(access_token: &str, uuid: &uuid::Uuid, server_hash: &str) -> R
         }))
         .send()
         .await
-        .map_err(|e| format!("session server unreachable: {e}"))?;
+        .map_err(|e| JoinError::Other(format!("session server unreachable: {e}")))?;
     match response.status() {
         reqwest::StatusCode::NO_CONTENT | reqwest::StatusCode::OK => Ok(()),
         reqwest::StatusCode::FORBIDDEN => {
@@ -57,24 +128,81 @@ pub async fn join(access_token: &str, uuid: &uuid::Uuid, server_hash: &str) -> R
                 .await
                 .map(|f| f.error)
                 .unwrap_or_default();
-            Err(match error.as_str() {
-                "InsufficientPrivilegesException" => "multiplayer is disabled for this account",
-                "UserBannedException" => "this account is banned from multiplayer",
-                "InvalidCredentialsException" => "the session is invalid; sign in again",
-                _ => return Err(format!("session server refused the join: {error}")),
-            }
-            .to_owned())
+            Err(JoinError::forbidden(&error))
         }
-        reqwest::StatusCode::TOO_MANY_REQUESTS => {
-            Err("session server rate limit; try again".into())
-        }
-        status => Err(format!("session server answered {status}")),
+        reqwest::StatusCode::UNAUTHORIZED => Err(JoinError::Session(
+            "the session is invalid; sign in again".into(),
+        )),
+        reqwest::StatusCode::TOO_MANY_REQUESTS => Err(JoinError::Other(
+            "session server rate limit; try again".into(),
+        )),
+        status => Err(JoinError::Other(format!(
+            "session server answered {status}"
+        ))),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::server_hash;
+    use std::cell::RefCell;
+
+    use super::{JoinError, join_renewing, server_hash};
+
+    /// A token that has run out is the session's fault; a ban or a parent's
+    /// switch is not, and a new sign-in would not help.
+    #[test]
+    fn a_refusal_is_the_token_s_or_the_account_s() {
+        let session = |error| matches!(JoinError::forbidden(error), JoinError::Session(_));
+        assert!(session("ForbiddenOperationException"));
+        assert!(session("InvalidCredentialsException"));
+        assert!(session(""));
+        assert!(!session("UserBannedException"));
+        assert!(!session("InsufficientPrivilegesException"));
+    }
+
+    /// A refused token is renewed once and the join made again with the new
+    /// one; a refusal a new sign-in would not change is not renewed for.
+    #[tokio::test]
+    async fn a_refused_token_is_renewed_once() {
+        let tried = RefCell::new(Vec::new());
+        let join = |token: String| {
+            tried.borrow_mut().push(token.clone());
+            async move {
+                match token.as_str() {
+                    "new" => Ok(()),
+                    "banned" => Err(JoinError::Other("banned".into())),
+                    _ => Err(JoinError::Session("spent".into())),
+                }
+            }
+        };
+        let renew_to = |token: Option<&'static str>| move || async move { token.map(String::from) };
+
+        assert_eq!(
+            join_renewing("new".into(), join, renew_to(None)).await,
+            Ok("new".into())
+        );
+        assert_eq!(
+            join_renewing("old".into(), join, renew_to(Some("new"))).await,
+            Ok("new".into())
+        );
+        assert_eq!(*tried.borrow(), ["new", "old", "new"]);
+        // The new token refused too: that is the answer, with no third try.
+        tried.borrow_mut().clear();
+        assert_eq!(
+            join_renewing("old".into(), join, renew_to(Some("older"))).await,
+            Err("spent".into())
+        );
+        assert_eq!(*tried.borrow(), ["old", "older"]);
+        // Nothing to renew with: the player is told to sign in.
+        let failed = join_renewing("old".into(), join, renew_to(None)).await;
+        assert!(failed.unwrap_err().contains("sign in again"));
+        // And a ban is a ban.
+        let renew_never = || async { panic!("a ban is not renewed for") };
+        assert_eq!(
+            join_renewing("banned".into(), join, renew_never).await,
+            Err("banned".into())
+        );
+    }
 
     /// The examples from the protocol documentation, hashing only the name
     /// (the other inputs empty).

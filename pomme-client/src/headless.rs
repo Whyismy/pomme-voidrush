@@ -83,6 +83,7 @@ pub fn run(
             chat_options,
             skin_options,
             transferred: false,
+            account_store: None,
         },
     );
     let mut game = GameState::new(

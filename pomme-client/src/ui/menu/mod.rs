@@ -1092,6 +1092,16 @@ impl MainMenu {
         }
     }
 
+    /// Where the accounts' sign-ins are kept.
+    pub(crate) fn account_store(&self) -> Arc<dyn pomme_auth::SecretStore> {
+        Arc::clone(&self.account_store)
+    }
+
+    /// The signed-in account's token, renewed while connecting.
+    pub(crate) fn renew_access_token(&mut self, access_token: String) {
+        self.access_token = Some(access_token);
+    }
+
     /// Sign-in is required and nobody is signed in yet.
     pub(crate) fn account_gated(&self) -> bool {
         self.account_required && self.access_token.is_none()

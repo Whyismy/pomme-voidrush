@@ -824,6 +824,11 @@ pub enum NetworkEvent {
     },
     /// `ClientboundLowDiskSpaceWarningPacket`.
     LowDiskSpaceWarning,
+    /// The sign-in was renewed while connecting (its day-long token had run
+    /// out): what the client joins with from now on.
+    SessionRenewed {
+        access_token: String,
+    },
     /// `ClientboundTransferPacket`: the server hands the client on to
     /// another, which it connects to in this one's place.
     Transfer {
